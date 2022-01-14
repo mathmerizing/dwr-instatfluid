@@ -7,6 +7,18 @@
 node_modules/
 dist/
 
+# CMake output
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+Makefile 
+dwr-instatfluid
+
+# Eclipse project files
+.cproject
+.project
+language.settings.xml
+
 # Compiled Java class files
 *.class
 

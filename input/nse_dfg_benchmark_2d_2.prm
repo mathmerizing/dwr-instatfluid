@@ -1,0 +1,113 @@
+# Problem: time-dependent Fluid solver for the Navier-Fluid 2D-2 DFG benchmark problem WITHOUT CONVECTION
+# link with description: http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark2_re100.html
+# TIME-DEPENDENT
+
+# Overall space dimension:
+set dim = 2
+
+subsection Fluid Problem Specification
+    # Finite Elements in space-time
+    
+    # Use symmetric stress tensor?
+    set symmetric stress = false
+    
+    # primal problem: convection-pressure : [b; p]^T
+    # convection
+    set primal convection space type = cG
+    set primal convection p = 2
+    set primal convection space type support points = Gauss-Lobatto
+    
+    set primal convection time type = dG
+    set primal convection r = 1
+    set primal convection time type support points = Gauss
+
+    # pressure
+    set primal pressure space type = cG
+    set primal pressure p = 1
+    set primal pressure space type support points = Gauss-Lobatto
+    
+    set primal pressure time type = dG
+    set primal pressure r = 1
+    set primal pressure time type support points = Gauss
+    
+    # dual problem
+end
+
+subsection Mesh Specification
+    # triangulation description
+    set TriaGenerator = channel_without_cylinder_2D
+    set TriaGenerator Options = ""
+end
+
+subsection Fluid Mesh Specification    
+    # boundary description
+    set Grid Class = Schaefer_Turek_2D
+    set Grid Class Options = ""
+    
+    ############################################################################
+    # Global refinement of the initial mesh
+    set global refinement = 2
+end
+
+subsection Fluid Time Integration
+    set initial time   = 0.00 #0.50
+    set final time     = 6.00 #1.50
+    set time step size = 0.05 #1.00
+    set global refinement = 0
+end
+
+subsection DWR
+    set solver control in use = true
+    set solver control reduction mode = true
+    set solver control max iterations = 1
+end
+
+subsection Parameter Specification
+    ############################################################################
+    # viscosity function nu/mu/eta
+    set viscosity function = ConstantFunction
+    set viscosity options  = "0.001"
+    
+    # Force f
+    set fluid force function = ZeroTensorFunction
+    set fluid force options  = ""
+    set fluid force assembler quadrature auto mode = false
+    set fluid force assembler quadrature points = 0
+    
+    ############################################################################
+    # Initial value function
+    set convection initial value function = ZeroTensorFunction
+    set convection initial value options  = ""
+    
+    set pressure initial value function = ZeroTensorFunction
+    set pressure initial value options  = ""
+    
+    ############################################################################
+    # Boundary value function
+    set convection dirichlet boundary function = Convection_Parabolic_Inflow_3
+    #                                             max velocity
+    set convection dirichlet boundary options  = "1.5"
+    
+    # TODO: change something here for the do-nothing condition ?!
+    set convection neumann boundary function = ZeroTensorFunction
+    set convection neumann boundary options  = ""
+    set convection neumann assembler quadrature auto mode = false
+    set convection neumann assembler quadrature points = 0
+end
+
+subsection Output Quantities
+    ############################################################################
+    # primal solution output control
+    set primal data output dwr loop = all         # use none, all, last or number
+    
+    set primal data output trigger type = I_n   # I_n mode: one output per I_n
+#    set primal data output trigger type = fixed # fixed mode: fixed output trigger time
+    set primal data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
+    
+    set primal data output patches auto mode = true # use < primal p > data output patches (auto mode)
+    set primal data output patches           = 1    # use this (no auto mode)
+    
+    ############################################################################
+    # dual solution output control
+end
+
