@@ -108,7 +108,18 @@ protected:
 	} function;
 	
 	virtual void init_functions();
+
+	struct{
+		unsigned int max_steps;
+		double 		 lower_bound;
+		double       rebuild;
+		unsigned int line_search_steps;
+		double       line_search_damping;
+	} newton;
+
 	
+	virtual void init_newton_parameters();
+
 	////////////////////////////////////////////////////////////////////////////
 	// primal problem:
 	//
@@ -122,14 +133,17 @@ protected:
 		} storage;
 		
 		/// temporary storage for primal solution u at \f$ t_m \f$
-		std::shared_ptr< dealii::BlockVector<double> > um;
+		std::shared_ptr< dealii::Vector<double> > um;
 
 		/// temporary storage for primal solution u at \f$ t_n \f$
-		std::shared_ptr< dealii::BlockVector<double> > un;
+		std::shared_ptr< dealii::Vector<double> > un;
 
 		/// temporary storage for primal right hand side assembly
 		std::shared_ptr< dealii::Vector<double> > Mum;
 		
+		/// temporary storage for newton vectors
+		std::shared_ptr< dealii::Vector<double> > du;
+		std::shared_ptr< dealii::Vector<double> > Fu;
 		// Matrix L, rhs vectors b and f
 		std::shared_ptr< dealii::SparseMatrix<double> > L;
 		std::shared_ptr< dealii::Vector<double> > b;
@@ -150,10 +164,33 @@ protected:
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 	
- 	virtual void primal_assemble_rhs(
+ 	virtual void primal_assemble_const_rhs(
  		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
  	);
-	
+
+ 	virtual void primal_assemble_and_construct_Newton_rhs(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::map<dealii::types::global_dof_index, double> &boundary_values,
+		std::shared_ptr< dealii::Vector<double > > u
+	);
+
+ 	virtual void primal_calculate_boundary_values(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::map<dealii::types::global_dof_index, double> &boundary_values,
+		bool zero = false
+ 	);
+	virtual void primal_apply_bc(
+		std::map<dealii::types::global_dof_index, double> &boundary_values,
+		std::shared_ptr< dealii::Vector<double> > x
+	);
+
+	virtual void primal_apply_bc(
+		std::map<dealii::types::global_dof_index, double> &boundary_values,
+		std::shared_ptr< dealii::SparseMatrix<double> > A,
+		std::shared_ptr< dealii::Vector<double> > x,
+		std::shared_ptr< dealii::Vector<double> > b
+	);
+
 	virtual void primal_solve_slab_problem(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const typename DTM::types::storage_data_vectors<1>::iterator &x
@@ -258,18 +295,18 @@ protected:
 	//
 
 	virtual void compute_functional_values(
-			std::shared_ptr< dealii::BlockVector<double> > un,
+			std::shared_ptr< dealii::Vector<double> > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 
 	virtual double compute_pressure(
 			dealii::Point<dim> x,
-			std::shared_ptr< dealii::BlockVector<double> > un,
+			std::shared_ptr< dealii::Vector<double> > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 
 	virtual void compute_drag_lift_tensor(
-			std::shared_ptr< dealii::BlockVector<double> > un,
+			std::shared_ptr< dealii::Vector<double> > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 

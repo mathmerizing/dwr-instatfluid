@@ -3,6 +3,7 @@
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-01-17, Added Newton parameters, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-06, stokes, UK
  * @date 2018-09-14, unified to other DTM programs, UK
@@ -185,6 +186,15 @@ struct ParameterSet {
 		} dual;
 	} data_output;
 	
+	//Newton
+	struct {
+		unsigned int max_steps;
+		double       lower_bound;
+		double       rebuild;
+		unsigned int line_search_steps;
+		double       line_search_damping;
+	} newton;
+
 	// dwr
 	struct {
 		struct {

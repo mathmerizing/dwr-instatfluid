@@ -135,7 +135,7 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::BlockVector<double> > _um,  // input
+	std::shared_ptr< dealii::Vector<double> > _um,  // input
 	std::shared_ptr< dealii::Vector<double> > _Mum, // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
@@ -176,9 +176,15 @@ assemble(
 	
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
-	
-	const dealii::QGauss<dim> quad_space(
-		space.fe->tensor_degree()+1
+
+	const dealii::QGaussLobatto<dim> quad_space(
+		std::max(
+			std::max(
+				space.fe->base_element(0).base_element(0).tensor_degree(),
+				space.fe->base_element(0).base_element(1).tensor_degree()
+			),
+			static_cast<unsigned int> (1)
+		) + 1
 	);
 	
 	const dealii::QGaussLobatto<1> face_nodes(2);
@@ -251,6 +257,7 @@ void Assembler<dim>::local_assemble_cell(
 			] =
 				scratch.space_local_dof_indices[i]
 				+ scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
+
 		}
 		
 		// assemble: face (w^+ * u^-) only on the first time cell of Q_n

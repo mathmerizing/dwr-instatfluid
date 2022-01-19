@@ -1,14 +1,10 @@
 /**
- * @file   ParameterHandler.hh
+ * @file ST_FluidRHSAssembly.inst.in
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
  * 
- * @Date 2022-01-17, Added Newton parameters, JPT
- * @Date 2022-01-14, Fluid, JPT
- * @date 2019-11-07, stokes, UK
- * @date 2018-07-25, new parameters dwr, UK
- * @date 2018-03-06, included from ewave, UK
- * @date 2017-02-06, UK
+ * @date 2022-01-15, changed to Newton RHS for Fluid ,JPT 
+ * @date 2019-09-18, UK
  */
 
 /*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
@@ -28,25 +24,27 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#ifndef __ParameterHandler_hh
-#define __ParameterHandler_hh
+#ifndef __ST_FluidRHSAssembly_inst_in
+#define __ST_FluidRHSAssembly_inst_in
 
-// PROJECT includes
+namespace fluidrhs {
+namespace spacetime {
+namespace Operator {
 
-// DEAL.II includes
-#include <deal.II/base/parameter_handler.h>
+namespace Assembly {
+	
+namespace Scratch {
+	template struct FluidRHSAssembly<2>;
+	template struct FluidRHSAssembly<3>;
+}
+namespace CopyData {
+	template struct FluidRHSAssembly<2>;
+	template struct FluidRHSAssembly<3>;
+}}
 
-// C++ includes
+	template class Assembler<2>;
+	template class Assembler<3>;
 
-namespace fluid {
-
-class ParameterHandler : public dealii::ParameterHandler {
-public:
-	ParameterHandler();
-	virtual ~ParameterHandler() = default;
-};
-
-
-} // namespace
+}}} // namespaces
 
 #endif

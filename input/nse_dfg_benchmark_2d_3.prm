@@ -18,7 +18,7 @@ subsection Fluid Problem Specification
     set primal convection space type support points = Gauss-Lobatto
     
     set primal convection time type = dG
-    set primal convection r = 0
+    set primal convection r = 1
     set primal convection time type support points = Gauss
 
     # pressure
@@ -27,7 +27,7 @@ subsection Fluid Problem Specification
     set primal pressure space type support points = Gauss-Lobatto
     
     set primal pressure time type = dG
-    set primal pressure r = 0
+    set primal pressure r = 1
     set primal pressure time type support points = Gauss
     
     # dual problem: convection-pressure : [z_b; z_p]^T
@@ -68,9 +68,17 @@ end
 
 subsection Fluid Time Integration
     set initial time   = 0.00 #0.50
-    set final time     = 8.00 #1.50
-    set time step size = 8.00 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
-    set global refinement = 0
+    set final time     = 0.2 #1.50
+    set time step size = 0.1 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
+    set global refinement = 1
+end
+
+subsection Newton
+    set max steps = 60
+    set lower bound = 1.0e-9
+    set rebuild parameter = 0.1
+    set line search steps = 10
+    set line search damping = 0.6
 end
 
 subsection DWR

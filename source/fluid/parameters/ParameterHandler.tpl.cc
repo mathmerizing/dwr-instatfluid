@@ -3,6 +3,7 @@
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-01-17, Added Newton parameters, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-06, stokes, UK
  * @date 2018-09-14, unified to other DTM programs, UK
@@ -287,6 +288,39 @@ ParameterHandler() {
 		);
 	}
 	leave_subsection();
+	enter_subsection("Newton");{
+		declare_entry(
+			"max steps",
+			"60",
+			dealii::Patterns::Integer()
+		);
+
+        declare_entry(
+                "lower bound",
+                "1e-7",
+                dealii::Patterns::Double()
+        );
+
+        declare_entry(
+                "rebuild parameter",
+                "0.1",
+                dealii::Patterns::Double()
+        );
+
+        declare_entry(
+                "line search steps",
+                "10",
+                dealii::Patterns::Integer()
+        );
+
+        declare_entry(
+                "line search damping",
+                "0.6",
+                dealii::Patterns::Double()
+        );
+	}
+	leave_subsection();
+
 	
 	enter_subsection("DWR"); {
 		declare_entry(

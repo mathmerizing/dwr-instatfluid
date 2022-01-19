@@ -6,6 +6,7 @@
  * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-01-19, Newtonsolver working for Stokes, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-11-22, ST hanging nodes, UK
  * @date 2021-11-09, dG(r) and multiple time dofs, UK
@@ -52,6 +53,10 @@
 #include <fluid/assembler/ST_InitialValueAssembly.tpl.hh>
 template <int dim>
 using IVAssembler = initialvalue::spacetime::Operator::Assembler<dim>;
+
+#include <fluid/assembler/ST_FluidRHSAssembly.tpl.hh>
+template <int dim>
+using NewtonRHSAssembler = fluidrhs::spacetime::Operator::Assembler<dim>;
 
 // dual
 #include <fluid/assembler/ST_Dual_FluidAssembly.tpl.hh>
@@ -169,6 +174,7 @@ run() {
 	);
 	
 	init_functions();
+	init_newton_parameters();
 	init_grid();
 	
 	////////////////////////////////////////////////////////////////////////////
@@ -325,6 +331,27 @@ init_functions() {
 }
 
 
+template<int dim>
+void
+Fluid<dim>::
+init_newton_parameters() {
+	Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
+	newton.max_steps = parameter_set->newton.max_steps;
+	newton.lower_bound = parameter_set->newton.lower_bound;
+	newton.rebuild = parameter_set->newton.rebuild;
+	newton.line_search_steps = parameter_set->newton.line_search_steps;
+	newton.line_search_damping = parameter_set->newton.line_search_damping;
+
+
+	DTM::pout << "\n* Newton parameters found:"
+			  << "\n\tmaximum # of steps = " << newton.max_steps
+			  << "\n\twanted tolerance = " << newton.lower_bound
+			  << "\n\trebuild matrix if residual quotient > " << newton.rebuild
+			  << "\n\tLine Search parameters:"
+			  << "\n\t\tmaximum # of steps = " << newton.line_search_steps
+			  << "\n\t\tdamping factor = " << newton.line_search_damping
+			  << std::endl << std::endl;
+}
 ////////////////////////////////////////////////////////////////////////////////
 // primal problem
 //
@@ -403,26 +430,12 @@ primal_assemble_system(
 			function.viscosity
 		);
 		
-		DTM::pout << "dynamic fluid: assemble space-time slab operator matrix...";
 		Assert(primal.L.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
 			primal.L,
 			slab
 		);
 		
-#ifdef DEBUG
-		{
-			std::ostringstream filename;
-			filename << "L_primal"
-			<< ".gpl";
-			std::ofstream out(filename.str().c_str(), std::ios_base::out);
-
-			primal.L->print(out);
-			out.close();
-		}
-#endif
-
-		DTM::pout << " (done)" << std::endl;
 	}
 }
 
@@ -430,7 +443,7 @@ primal_assemble_system(
 template<int dim>
 void
 Fluid<dim>::
-primal_assemble_rhs(
+primal_assemble_const_rhs(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	// ASSEMBLY SPACE-TIME OPERATOR: InitialValue VECTOR ///////////////////////
@@ -452,7 +465,7 @@ primal_assemble_rhs(
 	
 	{
 		IVAssembler<dim> assembler;
-		
+
 		DTM::pout << "dwr-instatfluid: assemble space-time slab initial value vector...";
 		Assert(primal.um.use_count(), dealii::ExcNotInitialized());
 		Assert(primal.Mum.use_count(), dealii::ExcNotInitialized());
@@ -461,7 +474,7 @@ primal_assemble_rhs(
 			primal.Mum,
 			slab
 		);
-		
+
 		DTM::pout << " (done)" << std::endl;
 	}
 	
@@ -505,14 +518,509 @@ primal_assemble_rhs(
 template<int dim>
 void
 Fluid<dim>::
+primal_assemble_and_construct_Newton_rhs(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::map<dealii::types::global_dof_index, double> &boundary_values,
+	std::shared_ptr<dealii::Vector<double> > u
+
+) {
+	// ASSEMBLY SPACE-TIME OPERATOR: Rhs Bilinearform VECTOR ///////////////////////
+	primal.Fu = std::make_shared< dealii::Vector<double> > ();
+
+	Assert(
+		slab->space.primal.dof.use_count(),
+		dealii::ExcNotInitialized()
+	);
+	Assert(
+		slab->time.primal.dof.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	primal.Fu->reinit(
+		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
+	);
+	*primal.b = 0.;
+	*primal.Fu = 0.;
+	{
+		NewtonRHSAssembler<dim> assembler;
+
+		assembler.set_symmetric_stress(parameter_set->fe.symmetric_stress);
+
+		Assert(function.viscosity.use_count(), dealii::ExcNotInitialized());
+		assembler.set_functions(
+			function.viscosity
+		);
+
+		Assert(primal.Fu.use_count(), dealii::ExcNotInitialized());
+		assembler.assemble(
+			primal.Fu,
+			slab,
+			u
+		);
+	}
+
+	*primal.b = *primal.Mum;
+	primal.b->add(-1., *primal.Fu);
+	primal_apply_bc(boundary_values,primal.b);
+}
+
+template<int dim>
+void
+Fluid<dim>::
+primal_calculate_boundary_values(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::map<dealii::types::global_dof_index, double> &boundary_values,
+	bool zero
+) {
+	std::shared_ptr< dealii::VectorFunctionFromTensorFunction<dim> > dirichlet_function
+		=std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
+			*function.convection.dirichlet,
+			0, (dim+1)
+		);
+
+	// get all boundary colours on the current triangulation
+	std::unordered_set< dealii::types::boundary_id > boundary_colours;
+	{
+		auto cell = slab->space.tria->begin_active();
+		auto endc = slab->space.tria->end();
+		for ( ; cell != endc; ++cell) {
+		if (cell->at_boundary()) {
+			// loop over all faces
+			for (unsigned int face_no{0};
+				face_no < dealii::GeometryInfo<dim>::faces_per_cell;
+				++face_no) {
+			if (cell->face(face_no)->at_boundary()) {
+				auto face = cell->face(face_no);
+				boundary_colours.insert(
+					static_cast< unsigned int > (face->boundary_id())
+				);
+			}}
+		}}
+	}
+
+	// process all found boundary colours
+	for (auto colour : boundary_colours) {
+		//////////////////////////////////////
+		// component wise convection dirichlet
+		//
+
+		auto component_mask_convection =
+		std::make_shared< dealii::ComponentMask > (
+			(dim+1), false
+		);
+
+		switch (dim) {
+		case 3:
+			if (colour & static_cast< dealii::types::boundary_id > (
+				fluid::types::space::boundary_id::prescribed_convection_c3)) {
+				component_mask_convection->set(2, true);
+			}
+
+			// NOTE: not to break switch here is indended
+			[[fallthrough]];
+
+		case 2:
+			if (colour & static_cast< dealii::types::boundary_id > (
+				fluid::types::space::boundary_id::prescribed_convection_c2)) {
+				component_mask_convection->set(1, true);
+			}
+
+			// NOTE: not to break switch here is indended
+			[[fallthrough]];
+
+		case 1:
+			if (colour & static_cast< dealii::types::boundary_id > (
+				fluid::types::space::boundary_id::prescribed_convection_c1)) {
+				component_mask_convection->set(0, true);
+			}
+
+			break;
+
+		default:
+			AssertThrow(false, dealii::ExcNotImplemented());
+		}
+
+		// create boundary_values as
+		// std::map<dealii::types::global_dof_index, double>
+		{
+			const dealii::QGauss<1> support_points(
+				slab->time.primal.fe->tensor_degree()+1
+			);
+
+			auto cell_time = slab->time.primal.dof->begin_active();
+			auto endc_time = slab->time.primal.dof->end();
+
+			dealii::FEValues<1> time_fe_values(
+				*slab->time.primal.mapping,
+				*slab->time.primal.fe,
+				support_points,
+				dealii::update_quadrature_points
+			);
+
+			for ( ; cell_time != endc_time; ++cell_time) {
+				time_fe_values.reinit(cell_time);
+
+				for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
+					dirichlet_function->set_time(
+						time_fe_values.quadrature_point(qt)[0]
+					);
+
+					// pass through time to the actual function since it
+					// doesn't work through the wrapper from a tensor function
+					function.convection.dirichlet->set_time(
+						time_fe_values.quadrature_point(qt)[0]
+					);
+
+					std::map<dealii::types::global_dof_index,double>
+						boundary_values_qt;
+
+					if ( zero )
+					{
+						dealii::VectorTools::interpolate_boundary_values (
+							*slab->space.primal.dof,
+							static_cast< dealii::types::boundary_id > (
+								colour
+							),
+							dealii::ZeroFunction<dim>(dim+1),
+							boundary_values_qt,
+							*component_mask_convection
+						);
+					}
+					else{
+						dealii::VectorTools::interpolate_boundary_values (
+							*slab->space.primal.dof,
+							static_cast< dealii::types::boundary_id > (
+								colour
+							),
+							*dirichlet_function,
+							boundary_values_qt,
+							*component_mask_convection
+						);
+					}
+					// boundary_values_qt -> boundary_values
+					for (auto &el : boundary_values_qt) {
+						dealii::types::global_dof_index idx =
+							el.first
+							// time offset
+							+ slab->space.primal.dof->n_dofs() *
+								(cell_time->index()
+								* slab->time.primal.fe->dofs_per_cell)
+							// local in time dof
+							+ slab->space.primal.dof->n_dofs() * qt
+						;
+
+						boundary_values[idx] = el.second;
+					}
+				}
+			}
+		}
+
+		///////////////////////////////////////////////////////////
+		// prescribed_no_slip: all convection components are homog.
+		//
+
+		for (unsigned int component{0}; component < (dim+1); ++component) {
+			component_mask_convection->set(component, false);
+		}
+
+		switch (dim) {
+		case 3:
+			if (colour & static_cast< dealii::types::boundary_id > (
+				fluid::types::space::boundary_id::prescribed_no_slip)) {
+				component_mask_convection->set(2, true);
+			}
+
+			// NOTE: not to break switch here is indended
+			[[fallthrough]];
+
+		case 2:
+			if (colour & static_cast< dealii::types::boundary_id > (
+				fluid::types::space::boundary_id::prescribed_no_slip)) {
+				component_mask_convection->set(1, true);
+			}
+
+			// NOTE: not to break switch here is indended
+			[[fallthrough]];
+
+		case 1:
+			if (colour & static_cast< dealii::types::boundary_id > (
+				fluid::types::space::boundary_id::prescribed_no_slip)) {
+				component_mask_convection->set(0, true);
+			}
+
+			break;
+
+		default:
+			AssertThrow(false, dealii::ExcNotImplemented());
+		}
+
+		// create boundary_values as
+		// std::map<dealii::types::global_dof_index, double>
+		{
+			const dealii::QGauss<1> support_points(
+				slab->time.primal.fe->tensor_degree()+1
+			);
+
+			auto cell_time = slab->time.primal.dof->begin_active();
+			auto endc_time = slab->time.primal.dof->end();
+
+			dealii::FEValues<1> time_fe_values(
+				*slab->time.primal.mapping,
+				*slab->time.primal.fe,
+				support_points,
+				dealii::update_quadrature_points
+			);
+
+			for ( ; cell_time != endc_time; ++cell_time) {
+				time_fe_values.reinit(cell_time);
+
+				for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
+					std::map<dealii::types::global_dof_index,double>
+						boundary_values_qt;
+
+					dealii::VectorTools::interpolate_boundary_values (
+						*slab->space.primal.dof,
+						static_cast< dealii::types::boundary_id > (
+							colour
+						),
+						dealii::ZeroFunction<dim>(dim+1),
+						boundary_values_qt,
+						*component_mask_convection
+					);
+
+					// boundary_values_qt -> boundary_values
+					for (auto &el : boundary_values_qt) {
+						dealii::types::global_dof_index idx =
+							el.first
+							// time offset
+							+ slab->space.primal.dof->n_dofs() *
+								(cell_time->index()
+								* slab->time.primal.fe->dofs_per_cell)
+							// local in time dof
+							+ slab->space.primal.dof->n_dofs() * qt
+						;
+
+						boundary_values[idx] = el.second;
+					}
+				}
+			} // no slip
+		}
+	} // for each (boundary) colour
+}
+
+template<int dim>
+void
+Fluid<dim>::
+primal_apply_bc(
+	std::map<dealii::types::global_dof_index, double> &boundary_values,
+	std::shared_ptr< dealii::Vector<double> > x
+) {
+	////////////////////////////////////////////////////////////////////////
+	// MatrixTools::apply_boundary_values (number = double for A,x,b)
+	// input: x vector: IR^n
+	//
+	//        boundary_values: map< dof, double >
+	//
+	//
+	// NOTE: a spurious, but nicely scaled, singular value is introduced
+	//       in the operator matrix for each boundary value constraint
+	//
+	if ( boundary_values.size()) {
+		////////////////////////////////////////////////////////////////////
+		// apply boundary values to vector x
+		for (auto &boundary_value : boundary_values) {
+			// set constrained solution vector component (for iterative lss)
+			(*x)[boundary_value.first] = boundary_value.second;
+		}
+	}
+
+
+}
+
+template<int dim>
+void
+Fluid<dim>::
+primal_apply_bc(
+	std::map<dealii::types::global_dof_index, double> &boundary_values,
+	std::shared_ptr< dealii::SparseMatrix<double> > A,
+	std::shared_ptr< dealii::Vector<double> > x,
+	std::shared_ptr< dealii::Vector<double> > b
+) {
+	////////////////////////////////////////////////////////////////////////
+	// MatrixTools::apply_boundary_values (number = double for A,x,b)
+	// input: A sparse matrix: IR^(m,n)
+	//        x vector: IR^n
+	//        b vector: IR^m
+	//
+	//        boundary_values: map< dof, double >
+	//
+	// NOTE: constrained rows (and columns) are not removed
+	//       (not condensed) from the sparsity pattern due to
+	//       memory efficiency reasons (this avoids the expensive
+	//       reallocation and copying of the operator and vectors)
+	//
+	// NOTE: a spurious, but nicely scaled, singular value is introduced
+	//       in the operator matrix for each boundary value constraint
+	//
+	if ( boundary_values.size()) {
+		////////////////////////////////////////////////////////////////////
+		// internal checks
+		Assert(
+			A->m(),
+			dealii::ExcMessage(
+				"empty operator matrix A (rows: A.m() == 0)"
+			)
+		);
+
+		Assert(
+			A->n(),
+			dealii::ExcMessage(
+				"empty operator matrix A (cols: A.n() == 0)"
+			)
+		);
+
+		Assert(
+			(A->n() == x->size()),
+			dealii::ExcMessage(
+				"Internal dimensions error: "
+				"A->n() =/= x->size() of linear system A x = b"
+			)
+		);
+
+		Assert(
+			(A->m() == b->size()),
+			dealii::ExcMessage(
+				"Internal dimensions error: "
+				"A->m() =/= b->size() of linear system A x = b"
+			)
+		);
+
+		////////////////////////////////////////////////////////////////////
+		// apply boundary values to operator matrix A, vectors x and b
+
+		// preparation: eliminate constrained rows of operator A completely
+		for (auto &boundary_value : boundary_values) {
+			// on-the-fly check:
+			// validity of the given boundary value constraints
+			Assert(
+				(boundary_value.first < A->m()),
+				dealii::ExcMessage(
+					"constraining of dof index (as boundary value) "
+					"larger than (A.m()-1) is not valid"
+				)
+			);
+
+			// eliminate constrained row of operator matrix completely
+			auto el_in_row_i{A->begin(boundary_value.first)};
+			auto end_el_in_row_i{A->end(boundary_value.first)};
+
+			for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
+				el_in_row_i->value() = double(0.);
+			}
+		}
+
+		////////////////////////////////////////////////////////////////////
+		// find (absolute) maximum of all remaining diagonal elements
+		// as scaling parameter for the boundary values identity operator
+		//
+		// NOTE: this is (a bit) more expensive then simply using the
+		//       first non-zero diagonal element (for the case that in
+		//       a constrained row the diagonal element is zero).
+		//       The advantage is, that the spurious singular values of
+		//       all boundary value constraints are identical, i.e.
+		//       a fixed and nicely scaled value.
+		//
+		double diagonal_scaling_value{0.};
+
+		for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+			if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
+				diagonal_scaling_value = A->el(i,i);
+			}
+		}
+
+		if (diagonal_scaling_value == double(0.)) {
+			diagonal_scaling_value = double(1.);
+		}
+
+		Assert(
+			(diagonal_scaling_value != double(0.)),
+			dealii::ExcInternalError()
+		);
+
+		////////////////////////////////////////////////////////////////////
+		// apply boundary values:
+		// to the linear system (A x = b)
+		// without eliminating the corresponding column entries from
+		// the operator matrix A
+		//
+		for (auto &boundary_value : boundary_values) {
+			// set scaled identity operator
+			A->set(
+				boundary_value.first,  // i
+				boundary_value.first,  // i
+				diagonal_scaling_value // scaling factor or 1
+			);
+
+			// set constrained solution vector component (for iterative lss)
+			(*x)[boundary_value.first] = boundary_value.second;
+
+			// set constrained right hand side vector component
+			(*b)[boundary_value.first] =
+				diagonal_scaling_value * boundary_value.second;
+		}
+
+
+		// 			////////////////////////////////////////////////////////////////////
+		// 			// eliminate constrained column entries
+		// 			//
+		// 			// NOTE: this is quite expensive, but helps iterative lss
+		// 			//       since the boundary value entries are shifted to the
+		// 			//       right hand side.
+		// 			//
+		// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
+		// 			//       which is necessary for space-time operators
+		// 			//
+		// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+		// 				// if the row i of the operator A is not constrained,
+		// 				// check if constrained columns need to be eliminated
+		// 				if (boundary_values.find(i) == boundary_values.end()) {
+		// 					// row i of A is not constrained
+		// 					auto el_in_row_i{A->begin(i)};
+		// 					auto end_el_in_row_i{A->end(i)};
+		//
+		// 					// check if a_ij needs to be eliminated
+		// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
+		// 						// get iterator of a_ij
+		// 						auto boundary_value =
+		// 							boundary_values.find(el_in_row_i->column());
+		//
+		// 						// if a_ij is constrained
+		// 						if (boundary_value != boundary_values.end()) {
+		// 							// shift constraint to rhs
+		// 							(*b)[i] -=
+		// 								el_in_row_i->value()*boundary_value->second;
+		//
+		// 							// eliminate a_ij
+		// 							el_in_row_i->value() = 0.;
+		// 						}
+		// 					}
+		// 				}
+		// 			}
+	}
+
+
+}
+
+template<int dim>
+void
+Fluid<dim>::
 primal_solve_slab_problem(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_vectors<1>::iterator &u
 ) {
-	Assert(primal.L.use_count(), dealii::ExcNotInitialized());
 	
 	primal.b = std::make_shared< dealii::Vector<double> > ();
-	
+	primal.du = std::make_shared< dealii::Vector<double> >();
 	Assert(
 		slab->space.primal.dof.use_count(),
 		dealii::ExcNotInitialized()
@@ -525,487 +1033,125 @@ primal_solve_slab_problem(
 	primal.b->reinit(
 		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
 	);
-	*primal.b = 0.;
-	
-//	Assert(
-//		primal.f.use_count(),
-//		dealii::ExcNotInitialized()
-//	);
-//	primal.b->add(1., *primal.f);
-	
-	Assert(
-		primal.Mum.use_count(),
-		dealii::ExcNotInitialized()
+
+	primal.du->reinit(
+		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
 	);
-	primal.b->add(1., *primal.Mum);
+
+
 	
 	////////////////////////////////////////////////////////////////////////////
 	// apply inhomogeneous Dirichlet boundary values
 	//
+	//TODO: copy previous solution as initial solution
 	
-	DTM::pout << "dwr-instatfluid: dealii::MatrixTools::apply_boundary_values...";
-	{
-		std::map<dealii::types::global_dof_index, double> boundary_values;
-		
-		auto dirichlet_function =
-		std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
-			*function.convection.dirichlet,
-			0, (dim+1)
-		);
-		
-		// get all boundary colours on the current triangulation
-		std::unordered_set< dealii::types::boundary_id > boundary_colours;
-		{
-			auto cell = slab->space.tria->begin_active();
-			auto endc = slab->space.tria->end();
-			for ( ; cell != endc; ++cell) {
-			if (cell->at_boundary()) {
-				// loop over all faces
-				for (unsigned int face_no{0};
-					face_no < dealii::GeometryInfo<dim>::faces_per_cell;
-					++face_no) {
-				if (cell->face(face_no)->at_boundary()) {
-					auto face = cell->face(face_no);
-					boundary_colours.insert(
-						static_cast< unsigned int > (face->boundary_id())
-					);
-				}}
-			}}
-		}
-		
-		// process all found boundary colours
-		for (auto colour : boundary_colours) {
-			//////////////////////////////////////
-			// component wise convection dirichlet
-			//
-			
-			auto component_mask_convection =
-			std::make_shared< dealii::ComponentMask > (
-				(dim+1), false
-			);
-			
-			switch (dim) {
-			case 3:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_convection_c3)) {
-					component_mask_convection->set(2, true);
-				}
-				
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-			
-			case 2:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_convection_c2)) {
-					component_mask_convection->set(1, true);
-				}
-				
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-			
-			case 1:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_convection_c1)) {
-					component_mask_convection->set(0, true);
-				}
-				
-				break;
-			
-			default:
-				AssertThrow(false, dealii::ExcNotImplemented());
-			}
-			
-			// create boundary_values as
-			// std::map<dealii::types::global_dof_index, double>
-			{
-				const dealii::QGauss<1> support_points(
-					slab->time.primal.fe->tensor_degree()+1
-				);
-				
-				auto cell_time = slab->time.primal.dof->begin_active();
-				auto endc_time = slab->time.primal.dof->end();
-				
-				dealii::FEValues<1> time_fe_values(
-					*slab->time.primal.mapping,
-					*slab->time.primal.fe,
-					support_points,
-					dealii::update_quadrature_points
-				);
-				
-				for ( ; cell_time != endc_time; ++cell_time) {
-					time_fe_values.reinit(cell_time);
-					
-					for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
-						dirichlet_function->set_time(
-							time_fe_values.quadrature_point(qt)[0]
-						);
-						
-						// pass through time to the actual function since it
-						// doesn't work through the wrapper from a tensor function
-						function.convection.dirichlet->set_time(
-							time_fe_values.quadrature_point(qt)[0]
-						);
-						
-						std::map<dealii::types::global_dof_index,double>
-							boundary_values_qt;
-						
-						dealii::VectorTools::interpolate_boundary_values (
-							*slab->space.primal.dof,
-							static_cast< dealii::types::boundary_id > (
-								colour
-							),
-							*dirichlet_function,
-							boundary_values_qt,
-							*component_mask_convection
-						);
-						
-						// boundary_values_qt -> boundary_values
-						for (auto &el : boundary_values_qt) {
-							dealii::types::global_dof_index idx =
-								el.first
-								// time offset
-								+ slab->space.primal.dof->n_dofs() *
-									(cell_time->index()
-									* slab->time.primal.fe->dofs_per_cell)
-								// local in time dof
-								+ slab->space.primal.dof->n_dofs() * qt
-							;
-							
-							boundary_values[idx] = el.second;
-						}
-					}
-				}
-			}
-			
-			///////////////////////////////////////////////////////////
-			// prescribed_no_slip: all convection components are homog.
-			//
-			
-			for (unsigned int component{0}; component < (dim+1); ++component) {
-				component_mask_convection->set(component, false);
-			}
-			
-			switch (dim) {
-			case 3:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_no_slip)) {
-					component_mask_convection->set(2, true);
-				}
-				
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-			
-			case 2:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_no_slip)) {
-					component_mask_convection->set(1, true);
-				}
-				
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-			
-			case 1:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_no_slip)) {
-					component_mask_convection->set(0, true);
-				}
-				
-				break;
-			
-			default:
-				AssertThrow(false, dealii::ExcNotImplemented());
-			}
-			
-			// create boundary_values as
-			// std::map<dealii::types::global_dof_index, double>
-			{
-				const dealii::QGauss<1> support_points(
-					slab->time.primal.fe->tensor_degree()+1
-				);
-				
-				auto cell_time = slab->time.primal.dof->begin_active();
-				auto endc_time = slab->time.primal.dof->end();
-				
-				dealii::FEValues<1> time_fe_values(
-					*slab->time.primal.mapping,
-					*slab->time.primal.fe,
-					support_points,
-					dealii::update_quadrature_points
-				);
-				
-				for ( ; cell_time != endc_time; ++cell_time) {
-					time_fe_values.reinit(cell_time);
-					
-					for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
-						std::map<dealii::types::global_dof_index,double>
-							boundary_values_qt;
-						
-						dealii::VectorTools::interpolate_boundary_values (
-							*slab->space.primal.dof,
-							static_cast< dealii::types::boundary_id > (
-								colour
-							),
-							dealii::ZeroFunction<dim>(dim+1),
-							boundary_values_qt,
-							*component_mask_convection
-						);
-						
-						// boundary_values_qt -> boundary_values
-						for (auto &el : boundary_values_qt) {
-							dealii::types::global_dof_index idx =
-								el.first
-								// time offset
-								+ slab->space.primal.dof->n_dofs() *
-									(cell_time->index()
-									* slab->time.primal.fe->dofs_per_cell)
-								// local in time dof
-								+ slab->space.primal.dof->n_dofs() * qt
-							;
-							
-							boundary_values[idx] = el.second;
-						}
-					}
-				} // no slip
-			}
-		} // for each (boundary) colour
-		
-//#ifdef DEBUG
-//		{
-//
-//			std::ostringstream filename;
-//			filename << "L"
-//			<< ".gpl";
-//			std::ofstream out(filename.str().c_str(), std::ios_base::out);
-//
-//			primal.L->print(out);
-//			out.close();
-//		}
-//#endif
-		
-// 		dealii::MatrixTools::apply_boundary_values(
-// 			boundary_values,
-// 			*primal.L,
-// 			*u->x[0],
-// 			*primal.b
-// 		);
-		
-		////////////////////////////////////////////////////////////////////////
-		// MatrixTools::apply_boundary_values (number = double for A,x,b)
-		// input: A sparse matrix: IR^(m,n)
-		//        x vector: IR^n
-		//        b vector: IR^m
-		//
-		//        boundary_values: map< dof, double >
-		//
-		// NOTE: constrained rows (and columns) are not removed
-		//       (not condensed) from the sparsity pattern due to
-		//       memory efficiency reasons (this avoids the expensive
-		//       reallocation and copying of the operator and vectors)
-		//
-		// NOTE: a spurious, but nicely scaled, singular value is introduced
-		//       in the operator matrix for each boundary value constraint
-		//
-		if (boundary_values.size()) {
-			////////////////////////////////////////////////////////////////////
-			// prepare function header
-			std::shared_ptr< dealii::SparseMatrix<double> > A = primal.L;
-			std::shared_ptr< dealii::Vector<double> > x = u->x[0];
-			std::shared_ptr< dealii::Vector<double> > b = primal.b;
-			
-			////////////////////////////////////////////////////////////////////
-			// internal checks
-			Assert(
-				A->m(),
-				dealii::ExcMessage(
-					"empty operator matrix A (rows: A.m() == 0)"
-				)
-			);
-			
-			Assert(
-				A->n(),
-				dealii::ExcMessage(
-					"empty operator matrix A (cols: A.n() == 0)"
-				)
-			);
-			
-			Assert(
-				(A->n() == x->size()),
-				dealii::ExcMessage(
-					"Internal dimensions error: "
-					"A->n() =/= x->size() of linear system A x = b"
-				)
-			);
-			
-			Assert(
-				(A->m() == b->size()),
-				dealii::ExcMessage(
-					"Internal dimensions error: "
-					"A->m() =/= b->size() of linear system A x = b"
-				)
-			);
-			
-			////////////////////////////////////////////////////////////////////
-			// apply boundary values to operator matrix A, vectors x and b
-			
-			// preparation: eliminate constrained rows of operator A completely
-			for (auto &boundary_value : boundary_values) {
-				// on-the-fly check:
-				// validity of the given boundary value constraints
-				Assert(
-					(boundary_value.first < A->m()),
-					dealii::ExcMessage(
-						"constraining of dof index (as boundary value) "
-						"larger than (A.m()-1) is not valid"
-					)
-				);
-				
-				// eliminate constrained row of operator matrix completely
-				auto el_in_row_i{A->begin(boundary_value.first)};
-				auto end_el_in_row_i{A->end(boundary_value.first)};
-				
-				for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-					el_in_row_i->value() = double(0.);
-				}
-			}
-			
-			// find (absolute) maximum of all remaining diagonal elements
-			// as scaling parameter for the boundary values identity operator
-			//
-			// NOTE: this is (a bit) more expensive then simply using the
-			//       first non-zero diagonal element (for the case that in
-			//       a constrained row the diagonal element is zero).
-			//       The advantage is, that the spurious singular values of
-			//       all boundary value constraints are identical, i.e.
-			//       a fixed and nicely scaled value.
-			//
-			double diagonal_scaling_value{0.};
-			
-			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-				if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
-					diagonal_scaling_value = A->el(i,i);
-				}
-			}
-			
-			if (diagonal_scaling_value == double(0.)) {
-				diagonal_scaling_value = double(1.);
-			}
-			
-			Assert(
-				(diagonal_scaling_value != double(0.)),
-				dealii::ExcInternalError()
-			);
-			
-			////////////////////////////////////////////////////////////////////
-			// apply boundary values:
-			// to the linear system (A x = b)
-			// without eliminating the corresponding column entries from
-			// the operator matrix A
-			//
-			for (auto &boundary_value : boundary_values) {
-				// set scaled identity operator
-				A->set(
-					boundary_value.first,  // i
-					boundary_value.first,  // i
-					diagonal_scaling_value // scaling factor or 1
-				);
-				
-				// set constrained solution vector component (for iterative lss)
-				(*x)[boundary_value.first] = boundary_value.second;
-				
-				// set constrained right hand side vector component
-				(*b)[boundary_value.first] =
-					diagonal_scaling_value * boundary_value.second;
-			}
-			
-// 			////////////////////////////////////////////////////////////////////
-// 			// eliminate constrained column entries
-// 			//
-// 			// NOTE: this is quite expensive, but helps iterative lss
-// 			//       since the boundary value entries are shifted to the
-// 			//       right hand side.
-// 			//
-// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
-// 			//       which is necessary for space-time operators
-// 			//
-// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-// 				// if the row i of the operator A is not constrained,
-// 				// check if constrained columns need to be eliminated
-// 				if (boundary_values.find(i) == boundary_values.end()) {
-// 					// row i of A is not constrained
-// 					auto el_in_row_i{A->begin(i)};
-// 					auto end_el_in_row_i{A->end(i)};
-// 					
-// 					// check if a_ij needs to be eliminated
-// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-// 						// get iterator of a_ij
-// 						auto boundary_value =
-// 							boundary_values.find(el_in_row_i->column());
-// 						
-// 						// if a_ij is constrained
-// 						if (boundary_value != boundary_values.end()) {
-// 							// shift constraint to rhs
-// 							(*b)[i] -=
-// 								el_in_row_i->value()*boundary_value->second;
-// 							
-// 							// eliminate a_ij
-// 							el_in_row_i->value() = 0.;
-// 						}
-// 					}
-// 				}
-// 			}
-			
-// #ifdef DEBUG
-// 			{
-// 				std::ostringstream filename;
-// 				filename << "L"
-// 				<< ".gpl";
-// 				std::ofstream out(filename.str().c_str(), std::ios_base::out);
-// 				
-// 				primal.L->print(out);
-// 				out.close();
-// 			}
-// #endif
-		}
-	}
-	DTM::pout << " (done)" << std::endl;
-	
-	////////////////////////////////////////////////////////////////////////////
-	// condense hanging nodes in system matrix, if any
-	//
-	
-	slab->spacetime.primal.constraints->condense(*primal.L);
-	
-#ifdef DEBUG
-		{
-			std::ostringstream filename;
-			filename << "L_primal2"
-			<< ".gpl";
-			std::ofstream out(filename.str().c_str(), std::ios_base::out);
+	DTM::pout << "dwr-instatfluid: compute boundary values..." ;
 
-			primal.L->print(out);
-			out.close();
-		}
-#endif
-	
-	////////////////////////////////////////////////////////////////////////////
-	// solve linear system with direct solver
-	//
-	
-	DTM::pout << "dwr-instatfluid: setup direct lss and solve...";
-	
-	dealii::SparseDirectUMFPACK iA;
-	iA.initialize(*primal.L);
-	iA.vmult(*u->x[0], *primal.b);
-	
-	DTM::pout << " (done)" << std::endl;
-	
-	////////////////////////////////////////////////////////////////////////////
-	// distribute hanging nodes constraints on solution
-	//
-	
+
+	std::map<dealii::types::global_dof_index, double> initial_bc;
+	primal_calculate_boundary_values(slab,initial_bc);
+    std::map<dealii::types::global_dof_index, double> zero_bc;
+    primal_calculate_boundary_values(slab,zero_bc,true);
+
+    DTM::pout << " (done)" << std::endl;
+
+    DTM::pout << "dwr-instatfluid: apply previous solution as initial Newton guess..." ;
+
+    for ( unsigned int i{0} ; i < slab->space.primal.dof->n_dofs() ; i++) {
+    	for ( unsigned int ii{0} ; ii < slab->time.primal.dof->n_dofs() ; ii++) {
+    		(*u->x[0])[i+
+					   slab->space.primal.dof->n_dofs()*ii
+					   ] = (*primal.um)[i];
+    	}
+    }
+
+    DTM::pout << " (done)" << std::endl;
+
+    primal_apply_bc(initial_bc,u->x[0]);
 	slab->spacetime.primal.constraints->distribute(
 		*u->x[0]
 	);
+
+	// assemble slab problem const rhs
+	primal_assemble_const_rhs(slab);
+
+
+	Assert(
+		primal.Mum.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+    primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+
+    DTM::pout << "dwr-instatfluid: starting Newton loop\n"
+    		  << "It.\tResidual\tReduction\tRebuild\tLSrch"<< std::endl;
+
+    double newton_residual = primal.b->linfty_norm();
+    double old_newton_residual = newton_residual;
+    double new_newton_residual;
+
+    unsigned int newton_step = 1;
+    unsigned int line_search_step;
+
+    DTM::pout << std::setprecision(5) << "0\t" << newton_residual << std::endl;
+
+    while ( newton_residual > newton.lower_bound && newton_step < newton.max_steps)
+    {
+    	old_newton_residual = newton_residual;
+    	primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+
+    	newton_residual = primal.b->linfty_norm();
+		if (newton_residual < newton.lower_bound)
+		{
+			DTM::pout << "res\t" << newton_residual << std::endl;
+			break;
+		}
+
+		if (newton_residual/old_newton_residual > newton.rebuild){
+			primal_assemble_system(slab);
+			primal_apply_bc(zero_bc,primal.L,primal.du,primal.b);
+			////////////////////////////////////////////////////////////////////////////
+			// condense hanging nodes in system matrix, if any
+			//
+			slab->spacetime.primal.constraints->condense(*primal.L);
+		}
+
+		////////////////////////////////////////////////////////////////////////////
+		// solve linear system with direct solver
+		//
+
+		dealii::SparseDirectUMFPACK iA;
+		iA.initialize(*primal.L);
+		iA.vmult(*primal.du, *primal.b);
+
+		slab->spacetime.primal.constraints->distribute(
+			*primal.du
+		);
+
+		for ( line_search_step = 0 ; line_search_step < newton.line_search_steps ; line_search_step++) {
+			u->x[0]->add(1.0,*primal.du);
+
+			primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+			new_newton_residual = primal.b->linfty_norm();
+			if ( new_newton_residual < newton_residual)
+				break;
+			else
+				u->x[0]->add(-1.0,*primal.du);
+			*primal.du*= newton.line_search_damping;
+		}
+		DTM::pout << std::setprecision(5) << newton_step << "\t"
+				  << std::scientific << newton_residual << "\t"
+				  << std::scientific << newton_residual/old_newton_residual << "\t";
+
+		if ( newton_residual/old_newton_residual > newton.rebuild)
+			DTM::pout << "r\t";
+		else
+			DTM::pout << " \t";
+
+		DTM::pout << line_search_step << "\t" << std::scientific << std::endl;
+		newton_step++;
+    }
+
 }
 
 
@@ -1061,13 +1207,17 @@ primal_do_forward_TMS() {
 			////////////////////////////////////////////////////////////////////////////
 			// interpolate (or project) initial value(s)
 			//
-			
-			primal.um = std::make_shared< dealii::BlockVector<double> > ();
-			Assert(
-				slab->space.primal.block_sizes.use_count(),
-				dealii::ExcNotInitialized()
-			);
-			primal.um->reinit(*slab->space.primal.block_sizes);
+			std::shared_ptr< dealii::VectorFunctionFromTensorFunction<dim> > dirichlet_function
+					=std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
+						*function.convection.dirichlet,
+						0, (dim+1)
+					);
+
+			dirichlet_function->set_time(0);
+			function.convection.dirichlet->set_time(0);
+
+			primal.um = std::make_shared< dealii::Vector<double> > ();
+			primal.um->reinit(slab->space.primal.dof->n_dofs());
 			*primal.um = 0.;
 
 //			Assert(function.u_0.use_count(), dealii::ExcNotInitialized());
@@ -1081,10 +1231,10 @@ primal_do_forward_TMS() {
 			dealii::VectorTools::interpolate(
 				*slab->space.primal.mapping,
 				*slab->space.primal.dof,
-				dealii::ZeroFunction<dim>(dim+1), //*function.u_0,
+				*dirichlet_function, //*function.u_0,
 				*primal.um
 			);
-			
+
 			// NOTE: after the first dwr-loop the initial triangulation could have
 			//       hanging nodes. Therefore,
 			// distribute hanging node constraints to make the result continuous again:
@@ -1095,15 +1245,15 @@ primal_do_forward_TMS() {
 		else {
 			// not the first slab: transfer un solution to um solution
 			Assert(primal.un.use_count(), dealii::ExcNotInitialized());
-			
-			primal.um = std::make_shared< dealii::BlockVector<double> > ();
+
+			primal.um = std::make_shared< dealii::Vector<double> > ();
 			Assert(
 				slab->space.primal.block_sizes.use_count(),
 				dealii::ExcNotInitialized()
 			);
-			primal.um->reinit(*slab->space.primal.block_sizes);
+			primal.um->reinit(slab->space.primal.dof->n_dofs());
 			*primal.um = 0.;
-			
+
 			// for n > 1 interpolate between two (different) spatial meshes
 			// the solution u(t_n)|_{I_{n-1}}  to  u(t_m)|_{I_n}
 			dealii::VectorTools::interpolate_to_different_mesh(
@@ -1115,15 +1265,11 @@ primal_do_forward_TMS() {
 				*slab->space.primal.constraints,
 				*primal.um
 			);
-			
+
 			slab->space.primal.constraints->distribute(
 				*primal.um
 			);
 		}
-		
-		// assemble slab problem
-		primal_assemble_system(slab);
-		primal_assemble_rhs(slab);
 		
 		// solve slab problem (i.e. apply boundary values and solve for u0)
 		primal_solve_slab_problem(slab,u);
@@ -1133,14 +1279,14 @@ primal_do_forward_TMS() {
 		//
 		
 		// evaluate solution u(t_n)
-		primal.un = std::make_shared< dealii::BlockVector<double> > ();
+		primal.un = std::make_shared< dealii::Vector<double> > ();
 		Assert(
 			slab->space.primal.block_sizes.use_count(),
 			dealii::ExcNotInitialized()
 		);
-		primal.un->reinit(*slab->space.primal.block_sizes);
+			primal.un->reinit(slab->space.primal.dof->n_dofs());
 		*primal.un = 0.;
-		
+
 		{
 			dealii::FEValues<1> fe_face_values_time(
 				*slab->time.primal.mapping,
@@ -1148,20 +1294,20 @@ primal_do_forward_TMS() {
 				dealii::QGaussLobatto<1>(2),
 				dealii::update_values
 			);
-			
+
 			auto cell_time = slab->time.primal.dof->begin_active();
 			auto last_cell_time = cell_time;
 			auto endc_time = slab->time.primal.dof->end();
-			
+
 			for ( ; cell_time != endc_time; ++cell_time) {
 				last_cell_time=cell_time;
 			}
-			
+
 			cell_time=last_cell_time;
 			{
 				Assert((cell_time!=endc_time), dealii::ExcInternalError());
 				fe_face_values_time.reinit(cell_time);
-				
+
 				// evaluate solution for t_n of Q_n
 				for (unsigned int jj{0};
 					jj < slab->time.primal.fe->dofs_per_cell; ++jj)
@@ -2959,7 +3105,7 @@ template<int dim>
 void
 Fluid<dim>::
 compute_functional_values(
-		std::shared_ptr< dealii::BlockVector<double> > un,
+		std::shared_ptr< dealii::Vector<double> > un,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	Assert(dim==2, dealii::ExcNotImplemented());
@@ -3033,7 +3179,7 @@ double
 Fluid<dim>::
 compute_pressure(
 	dealii::Point<dim> x,
-	std::shared_ptr< dealii::BlockVector<double> > un,
+	std::shared_ptr< dealii::Vector<double> > un,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	// evaluate the fe system solution as x_h for a given point x
@@ -3054,7 +3200,7 @@ template<int dim>
 void
 Fluid<dim>::
 compute_drag_lift_tensor(
-		std::shared_ptr< dealii::BlockVector<double> > un,
+		std::shared_ptr< dealii::Vector<double> > un,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	const dealii::QGauss<dim - 1> face_quadrature_formula(3);

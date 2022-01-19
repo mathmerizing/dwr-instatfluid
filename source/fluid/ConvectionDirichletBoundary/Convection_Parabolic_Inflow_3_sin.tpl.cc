@@ -54,9 +54,11 @@ value(
 	// --> NSE 2D-2: 1.5 m/s
 	// --> NSE 2D-3: 1.5 m/s
 	if (dim==2) {
-		y[0] = -1. * max_velocity * (4.0 / 0.1681) *
-                (std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
-		y[1] = 0.;
+		if ( x[0] < 1.0e-14){
+			y[0] = -1. * max_velocity * (4.0 / 0.1681) *
+					(std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
+			y[1] = 0.;
+		}
 	}
 	else {
 		// TODO
