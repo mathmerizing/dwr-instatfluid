@@ -101,6 +101,7 @@ struct FluidRHSAssembly {
 	
 	// test functions
 	// convection
+	std::vector< dealii::Tensor<1,dim> >          space_phi;
 	std::vector< dealii::SymmetricTensor<2,dim> > space_symgrad_phi;
 	std::vector< dealii::Tensor<2,dim> >          space_grad_phi;
 	std::vector< double >  		    			  space_div_phi;
@@ -119,6 +120,7 @@ struct FluidRHSAssembly {
 
 	// other
 	// solution evals
+    dealii::Tensor<1,dim> v;
 	dealii::SymmetricTensor<2,dim> symgrad_v;
 	dealii::Tensor<2,dim> grad_v;
     double                div_v;
@@ -168,7 +170,8 @@ public:
 	void assemble(
 		std::shared_ptr< dealii::Vector<double> > Fu,  // output
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	    std::shared_ptr< dealii::Vector<double> > _u
+	    std::shared_ptr< dealii::Vector<double> > _u,
+		bool _nonlin = false
 	);
 	
 protected:
@@ -185,7 +188,9 @@ protected:
 private:
 	////////////////////////////////////////////////////////////////////////////
 	std::shared_ptr< dealii::Vector<double> > Fu;
-	
+
+	bool nonlin;
+
 	bool symmetric_stress;
 
 	struct {

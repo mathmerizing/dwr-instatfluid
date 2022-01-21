@@ -86,6 +86,7 @@ struct FluidAssembly {
 	dealii::FEValues<dim> space_fe_values;
 	
 	// convection
+	std::vector< dealii::Tensor<1,dim> >          space_phi;
 	std::vector< dealii::SymmetricTensor<2,dim> > space_symgrad_phi;
 	std::vector< dealii::Tensor<2,dim> >          space_grad_phi;
 	std::vector<double>                           space_div_phi;
@@ -111,6 +112,10 @@ struct FluidAssembly {
 	std::vector< dealii::types::global_dof_index > time_local_dof_indices_neighbor;
 	
 	// other
+	// solution evals
+    dealii::Tensor<1,dim> v;
+	dealii::Tensor<2,dim> grad_v;
+
 	double viscosity;
 };
 
@@ -153,7 +158,9 @@ public:
 
 	void assemble(
 		std::shared_ptr< dealii::SparseMatrix<double> > L,
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	    std::shared_ptr< dealii::Vector<double> > _u,
+		bool _nonlin = false
 	);
 	
 protected:
@@ -170,6 +177,8 @@ protected:
 private:
 	std::shared_ptr< dealii::SparseMatrix<double> > L;
 	
+	bool nonlin;
+
 	bool symmetric_stress;
 
 	struct {
@@ -197,6 +206,7 @@ private:
 	
 	dealii::FEValuesExtractors::Vector convection;
 	dealii::FEValuesExtractors::Scalar pressure;
+    std::shared_ptr< dealii::Vector<double> > u;
 };
 
 }}} // namespaces

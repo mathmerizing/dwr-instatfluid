@@ -84,6 +84,7 @@ FluidRHSAssembly<dim>::FluidRHSAssembly(
 		dealii::update_quadrature_points
 	),
 	space_local_dof_indices(fe_space.dofs_per_cell),
+	space_phi(fe_space.dofs_per_cell),
 	space_symgrad_phi(fe_space.dofs_per_cell),
 	space_grad_phi(fe_space.dofs_per_cell),
 	space_div_phi(fe_space.dofs_per_cell),
@@ -118,6 +119,7 @@ FluidRHSAssembly<dim>::FluidRHSAssembly(
 	) ,
 	time_local_dof_indices(fe_time.dofs_per_cell),
 	spacetime_JxW(0),
+	v(),
 	symgrad_v(),
 	grad_v(),
 	div_v(0),
@@ -138,6 +140,7 @@ FluidRHSAssembly<dim>::FluidRHSAssembly(const FluidRHSAssembly &scratch) :
 	),
 	space_local_dof_indices(scratch.space_local_dof_indices),
 	//
+	space_phi(scratch.space_phi),
 	space_symgrad_phi(scratch.space_symgrad_phi),
 	space_grad_phi(scratch.space_grad_phi),
 	space_div_phi(scratch.space_div_phi),
@@ -168,6 +171,7 @@ FluidRHSAssembly<dim>::FluidRHSAssembly(const FluidRHSAssembly &scratch) :
 	time_local_dof_indices(scratch.time_local_dof_indices),
 	//
 	spacetime_JxW(scratch.spacetime_JxW),
+	v(scratch.v),
 	symgrad_v(scratch.symgrad_v),
 	grad_v(scratch.grad_v),
 	div_v(scratch.div_v),
@@ -231,7 +235,8 @@ Assembler<dim>::
 assemble(
 	std::shared_ptr< dealii::Vector<double> > _Fu,  // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-    std::shared_ptr< dealii::Vector<double> > _u
+    std::shared_ptr< dealii::Vector<double> > _u,
+	bool _nonlin
 ) {
 	////////////////////////////////////////////////////////////////////////////
 	// check
@@ -251,12 +256,9 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// init
 	
-	// FEValuesExtractors
-	convection = 0;
-//	pressure = dim;
-	
 	Fu = _Fu;
 	u = _u;
+	nonlin = _nonlin;
 	
 	space.dof = slab->space.primal.dof;
 	space.fe = slab->space.primal.fe;
@@ -376,6 +378,8 @@ void Assembler<dim>::local_assemble_cell(
 				);
 
 				for ( unsigned int k{0} ; k < space.fe->dofs_per_cell ; ++k) {
+					scratch.space_phi[k] =
+							scratch.space_fe_values[convection].value(k,q);
 					scratch.space_symgrad_phi[k] =
 							scratch.space_fe_values[convection].symmetric_gradient(k,q);
 					scratch.space_grad_phi[k] =
@@ -387,12 +391,12 @@ void Assembler<dim>::local_assemble_cell(
  				}
 
 				scratch.partial_t_v = 0;
+				scratch.v 		    = 0;
 				scratch.symgrad_v   = 0;
 				scratch.grad_v      = 0;
 				scratch.div_v       = 0;
 				scratch.p           = 0;
-//				std::cout << "at ( " << q << " , " << qt  << " )" << std::endl;
-//				std::cout << "dofx\tdoft\tindex" << std::endl;
+
 				for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
 				for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 					//correct ST solution vector entry
@@ -412,6 +416,9 @@ void Assembler<dim>::local_assemble_cell(
 					//all other evals use shape values in time, so multiply only once
 					u_i_ii *= scratch.time_fe_values.shape_value(ii,qt);
 
+					//v
+					scratch.v += u_i_ii * scratch.space_phi[i];
+
 					//symgrad v
 					scratch.symgrad_v += u_i_ii * scratch.space_symgrad_phi[i];
 
@@ -426,13 +433,29 @@ void Assembler<dim>::local_assemble_cell(
 
 				}
 				scratch.spacetime_JxW = scratch.space_fe_values.JxW(q) * scratch.time_fe_values.JxW(qt);
+				// for Navier-Stokes assemble Convection term
+				if ( nonlin ){
+					for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
+					for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+						copydata.vi_rhs_vector[n](
+								i + ii*space.fe->dofs_per_cell
+						) +=
+							// convection convection term
+							( scratch.space_phi[i]*
+									scratch.time_fe_values.shape_value(ii,qt)*
+									scratch.grad_v*scratch.v*
+									scratch.spacetime_JxW
+							);
+					}
+				}
+
 				for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
 				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 					copydata.vi_rhs_vector[n](
 							i + ii*space.fe->dofs_per_cell
 					) +=
 							// convection time derivative
-							(	scratch.space_fe_values[convection].value(i,q) *
+							(	scratch.space_phi[i] *
 									scratch.time_fe_values.shape_value(ii,qt) *
 									scratch.partial_t_v * scratch.spacetime_JxW
 							)
@@ -442,6 +465,8 @@ void Assembler<dim>::local_assemble_cell(
 									(
 										scratch.space_symgrad_phi[i]
 											  *scratch.time_fe_values.shape_value(ii,qt)*
+
+											scratch.viscosity * 2. *
 											  scratch.symgrad_v
 									):
 									(

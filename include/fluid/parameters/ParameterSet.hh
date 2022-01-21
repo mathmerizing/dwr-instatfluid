@@ -50,6 +50,7 @@ struct ParameterSet {
 	ParameterSet(std::shared_ptr< dealii::ParameterHandler > handler);
 	
 	unsigned int dim;
+	std::string problem;
 	
 	// problem specification
 	// fe

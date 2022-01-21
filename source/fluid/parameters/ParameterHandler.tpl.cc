@@ -48,7 +48,13 @@ ParameterHandler() {
 		dealii::Patterns::Integer(),
 		"dim"
 	);
-	
+
+    declare_entry(
+            "problem",
+            "Stokes",
+            dealii::Patterns::Anything()
+    );
+
 	enter_subsection("Fluid Problem Specification"); {
 		declare_entry(
 			"symmetric stress",

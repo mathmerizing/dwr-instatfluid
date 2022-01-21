@@ -82,6 +82,7 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 		dealii::update_JxW_values |
 		dealii::update_quadrature_points
 	),
+	space_phi(fe_space.dofs_per_cell),
 	space_symgrad_phi(fe_space.dofs_per_cell),
 	space_grad_phi(fe_space.dofs_per_cell),
 	space_div_phi(fe_space.dofs_per_cell),
@@ -113,7 +114,9 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 	time_zeta(fe_time.dofs_per_cell),
 	time_grad_zeta(fe_time.dofs_per_cell),
 	time_local_dof_indices(fe_time.dofs_per_cell),
-	time_local_dof_indices_neighbor(fe_time.dofs_per_cell) {
+	time_local_dof_indices_neighbor(fe_time.dofs_per_cell),
+	v(),
+	grad_v(){
 }
 
 template<int dim>
@@ -124,6 +127,7 @@ FluidAssembly<dim>::FluidAssembly(const FluidAssembly &scratch) :
 		scratch.space_fe_values.get_quadrature(),
 		scratch.space_fe_values.get_update_flags()
 	),
+	space_phi(scratch.space_phi),
 	space_symgrad_phi(scratch.space_symgrad_phi),
 	space_grad_phi(scratch.space_grad_phi),
 	space_div_phi(scratch.space_div_phi),
@@ -157,6 +161,8 @@ FluidAssembly<dim>::FluidAssembly(const FluidAssembly &scratch) :
 	time_local_dof_indices(scratch.time_local_dof_indices),
 	time_local_dof_indices_neighbor(scratch.time_local_dof_indices_neighbor),
 	//
+	v(scratch.v),
+	grad_v(scratch.grad_v),
 	viscosity(scratch.viscosity) {
 }
 
@@ -229,7 +235,10 @@ void
 Assembler<dim>::
 assemble(
 	std::shared_ptr< dealii::SparseMatrix<double> > _L,
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+    std::shared_ptr< dealii::Vector<double> > _u,
+	bool _nonlin
+) {
 	
 	////////////////////////////////////////////////////////////////////////////
 	// check
@@ -254,6 +263,8 @@ assemble(
 	// init
 	
 	L = _L;
+	u = _u;
+	nonlin = _nonlin;
 	
 	space.dof = slab->space.primal.dof;
 	space.fe = slab->space.primal.fe;
@@ -393,6 +404,8 @@ void Assembler<dim>::local_assemble_cell(
 				);
 				
 				for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
+					scratch.space_phi[k] =
+							scratch.space_fe_values[convection].value(k,q);
 					scratch.space_symgrad_phi[k] =
 						scratch.space_fe_values[convection].symmetric_gradient(k,q);
 					scratch.space_grad_phi[k] =
@@ -403,6 +416,57 @@ void Assembler<dim>::local_assemble_cell(
 						scratch.space_fe_values[pressure].value(k,q);
 				}
 				
+				if(nonlin){
+					scratch.v 		    = 0;
+					scratch.grad_v      = 0;
+
+					for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
+					for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+						//correct ST solution vector entry
+						double u_i_ii = (*u)[
+							scratch.space_local_dof_indices[i]
+								// time offset
+								+ space.dof->n_dofs() *
+								   (n * time.fe->dofs_per_cell)
+								// local in time dof
+								+ space.dof->n_dofs() * ii
+								];
+
+						//all other evals use shape values in time, so multiply only once
+						u_i_ii *= scratch.time_fe_values.shape_value(ii,qt);
+
+						//v
+						scratch.v += u_i_ii * scratch.space_phi[i];
+
+						//grad v
+						scratch.grad_v += u_i_ii * scratch.space_grad_phi[i];
+					}
+
+					// for Navier-Stokes assemble convection term derivatives
+					for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
+					for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
+					for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
+					for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
+						copydata.vi_ui_matrix[n](
+							i + ii*space.fe->dofs_per_cell,
+							j + jj*space.fe->dofs_per_cell
+						) +=
+							// convection C(u)_bb
+							(
+								scratch.space_phi[i]*
+									scratch.time_fe_values.shape_value(ii,qt)*
+
+								(
+									scratch.space_grad_phi[j]*scratch.v
+									+scratch.grad_v*scratch.space_phi[j]
+								)
+									* scratch.time_fe_values.shape_value(jj,qt) *
+
+								scratch.space_fe_values.JxW(q)
+									* scratch.time_fe_values.JxW(qt)
+							);
+					}
+				}
 				for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
 				for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
 				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)

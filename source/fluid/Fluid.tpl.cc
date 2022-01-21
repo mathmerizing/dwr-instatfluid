@@ -105,6 +105,27 @@ run() {
 	// check
 	Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
 	
+	// check problem we want to solve
+	if ( parameter_set->problem.compare("Stokes") == 0)
+	{
+			DTM::pout
+					<< "solving the linear Stokes equations"
+					<< std::endl;
+	}
+	else if ( parameter_set->problem.compare("Navier-Stokes") == 0 )
+	{
+			DTM::pout
+					<< "solving the quasilinear Navier-Stokes equations\n"
+					<< std::endl;
+	}
+	else{
+			AssertThrow(
+					false,
+					dealii::ExcMessage(
+							"unknown problem please choose Stokes or Navier-Stokes"
+					)
+			);
+	}
 	// check whether we are using the symmetric stress tensor
 	DTM::pout << "symmetric stress: " << (parameter_set->fe.symmetric_stress ? "true" : "false") << std::endl;
 
@@ -407,7 +428,8 @@ template<int dim>
 void
 Fluid<dim>::
 primal_assemble_system(
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double > > u
 ) {
 	// ASSEMBLY SPACE-TIME OPERATOR MATRIX /////////////////////////////////////
 	Assert(
@@ -433,7 +455,9 @@ primal_assemble_system(
 		Assert(primal.L.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
 			primal.L,
-			slab
+			slab,
+			u,
+			( parameter_set->problem.compare("Navier-Stokes")==0 )
 		);
 		
 	}
@@ -555,7 +579,8 @@ primal_assemble_and_construct_Newton_rhs(
 		assembler.assemble(
 			primal.Fu,
 			slab,
-			u
+			u,
+			( parameter_set->problem.compare("Navier-Stokes")==0 )
 		);
 	}
 
@@ -1108,7 +1133,7 @@ primal_solve_slab_problem(
 		}
 
 		if (newton_residual/old_newton_residual > newton.rebuild){
-			primal_assemble_system(slab);
+			primal_assemble_system(slab, u->x[0]);
 			primal_apply_bc(zero_bc,primal.L,primal.du,primal.b);
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any

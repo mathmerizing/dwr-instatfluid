@@ -3,13 +3,14 @@
 # TIME-DEPENDENT
 
 # Overall space dimension:
-set dim = 2
+set dim = 2 
+set problem = Navier-Stokes
 
 subsection Fluid Problem Specification
     # Finite Elements in space-time
     
     # Use symmetric stress tensor?
-    set symmetric stress = false
+    set symmetric stress = true
     
     # primal problem: convection-pressure : [b; p]^T
     # convection
@@ -18,7 +19,7 @@ subsection Fluid Problem Specification
     set primal convection space type support points = Gauss-Lobatto
     
     set primal convection time type = dG
-    set primal convection r = 1
+    set primal convection r = 2
     set primal convection time type support points = Gauss
 
     # pressure
@@ -27,7 +28,7 @@ subsection Fluid Problem Specification
     set primal pressure space type support points = Gauss-Lobatto
     
     set primal pressure time type = dG
-    set primal pressure r = 1
+    set primal pressure r = 2
     set primal pressure time type support points = Gauss
     
     # dual problem: convection-pressure : [z_b; z_p]^T
@@ -68,9 +69,9 @@ end
 
 subsection Fluid Time Integration
     set initial time   = 0.00 #0.50
-    set final time     = 0.2 #1.50
-    set time step size = 0.1 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
-    set global refinement = 1
+    set final time     = 8 #1.50
+    set time step size = 0.025 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
+    set global refinement = 0
 end
 
 subsection Newton

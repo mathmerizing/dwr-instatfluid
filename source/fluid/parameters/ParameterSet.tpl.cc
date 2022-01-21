@@ -49,6 +49,7 @@ ParameterSet(
 	Assert(handler.use_count(), dealii::ExcNotInitialized());
 	
 	dim = static_cast<unsigned int> (handler->get_integer("dim"));
+    problem = handler->get("problem");
 	
 	handler->enter_subsection("Fluid Problem Specification"); {
 		fe.symmetric_stress = handler->get_bool(
