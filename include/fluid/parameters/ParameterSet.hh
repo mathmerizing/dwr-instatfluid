@@ -1,8 +1,10 @@
 /**
  * @file   ParameterSet.hh
  * @author Uwe Koecher (UK)
+ * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-04-25, merge error estimator, JR
  * @Date 2022-01-17, Added Newton parameters, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-06, stokes, UK
@@ -15,7 +17,7 @@
  * @brief Keeps all parsed input parameters in a struct.
  */
 
-/*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -57,7 +59,7 @@ struct ParameterSet {
 	struct {
 		bool symmetric_stress;
 
-		struct {
+		struct FEDescription {
 			struct {
 				std::string space_type;
 				std::string space_type_support_points;
@@ -77,29 +79,16 @@ struct ParameterSet {
 				std::string time_type_support_points;
 				unsigned int r;
 			} pressure;
-		} primal;
+		};
+
+		std::string primal_order; // low or high
+		std::string dual_order;   // low or high
+
+		struct FEDescription primal;
+		struct FEDescription dual;
 		
-		struct {
-			struct {
-				std::string space_type;
-				std::string space_type_support_points;
-				unsigned int p;
-				
-				std::string time_type;
-				std::string time_type_support_points;
-				unsigned int r;
-			} convection;
-			
-			struct {
-				std::string space_type;
-				std::string space_type_support_points;
-				unsigned int p;
-				
-				std::string time_type;
-				std::string time_type_support_points;
-				unsigned int r;
-			} pressure;
-		} dual;
+		struct FEDescription low;
+		struct FEDescription high;
 	} fe;
 	
 	// mesh specification
@@ -218,23 +207,32 @@ struct ParameterSet {
 		
 		struct {
 			struct {
-				std::string strategy; // global, fixed-fraction, Schwegler
+				std::string strategy; // global, global_time, global_space, adaptive
+			} spacetime;
+
+			struct {
+				std::string strategy; // global, fixed-number, fixed-fraction, RichterWick
 				
 				double top_fraction1;
 				double top_fraction2;
 				double bottom_fraction;
 				unsigned int max_growth_factor_n_active_cells;
 				
+				double riwi_alpha;
+
 				double theta1; // Schwegler
 				double theta2; // Schwegler
 			} space;
 			
 			struct {
-				std::string strategy; // global, fixed-fraction
+				std::string strategy; // global, fixed-number, fixed-fraction
 				
 				double top_fraction;
 			} time;
 		} refine_and_coarsen;
+
+		bool replace_linearization_points;
+		bool replace_weights;
 	} dwr;
 };
 

@@ -1,15 +1,17 @@
 /**
  * @file slabs.tpl.hh
  * @author Uwe Koecher (UK)
+ * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-04-25, merge FEInfo and PU/high/low, JR
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-07, stokes, UK
  * @date 2019-08-27, merge Q_n into DWR slabs, UK
  * @date 2018-03-06, UK
  */
 
-/*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -49,59 +51,100 @@ namespace dwr {
 /// slab: collects data structures and functions of a space-time slab for dwr
 template <int dim>
 struct s_slab {
+	//////////////////////////////////////////////////////////////////
+	// SPACE
+	//
+	struct FESpaceInfo {
+		   std::shared_ptr< dealii::DoFHandler<dim> > dof;
+		   std::shared_ptr< dealii::FESystem<dim> > fe;
+		   std::shared_ptr< dealii::Mapping<dim> >  mapping;
+
+		   std::shared_ptr< dealii::IndexSet >
+				   locally_owned_dofs;
+		   std::shared_ptr< std::vector< dealii::IndexSet > >
+				   partitioning_locally_owned_dofs;
+
+		   std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+	};
+
+	struct ScalarFESpaceInfo {
+		   std::shared_ptr< dealii::DoFHandler<dim> > dof;
+		   std::shared_ptr< dealii::FiniteElement<dim> > fe;
+		   std::shared_ptr< dealii::Mapping<dim> >  mapping;
+
+		   std::shared_ptr< dealii::IndexSet >
+				   locally_owned_dofs;
+		   std::shared_ptr< std::vector< dealii::IndexSet > >
+				   partitioning_locally_owned_dofs;
+		   std::shared_ptr< std::vector< dealii::types::global_dof_index > >
+				   block_sizes;
+
+		   std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+	};
+
 	struct {
 		/// deal.II Triangulation<dim> for \f$ \Omega_h \f$ on \f$ I_n \f$.
 		std::shared_ptr< dealii::Triangulation<dim> > tria;
 		
 		// additional data for slab
 		struct {
-			std::shared_ptr< dealii::DoFHandler<dim> > dof;
-			std::shared_ptr< dealii::FESystem<dim> > fe;
-			std::shared_ptr< dealii::Mapping<dim> >  mapping;
+			std::shared_ptr< struct FESpaceInfo > fe_info;
 			
-			std::shared_ptr< dealii::IndexSet >
-				locally_owned_dofs;
-			std::shared_ptr< std::vector< dealii::IndexSet > >
-				partitioning_locally_owned_dofs;
-			std::shared_ptr< std::vector< dealii::types::global_dof_index > >
-				block_sizes;
-			
-			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
 			std::shared_ptr< dealii::BlockSparsityPattern > sp_block_L;
 			std::shared_ptr< dealii::SparsityPattern > sp_L;
 		} primal;
 		
  		struct {
- 			std::shared_ptr< dealii::DoFHandler<dim> > dof;
- 			std::shared_ptr< dealii::FESystem<dim> > fe;
- 			std::shared_ptr< dealii::Mapping<dim> >  mapping;
+			std::shared_ptr< struct FESpaceInfo > fe_info;
 
- 			std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
- 			std::shared_ptr< std::vector< dealii::IndexSet > >
- 				partitioning_locally_owned_dofs;
- 			std::shared_ptr< std::vector< dealii::types::global_dof_index > >
- 				block_sizes;
-
- 			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
  			std::shared_ptr< dealii::BlockSparsityPattern > sp_block_L;
  			std::shared_ptr< dealii::SparsityPattern > sp_L;
  		} dual;
 	} space;
+
+	struct {
+		std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
+	} high;
+
+	struct {
+		std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
+	} low;
 	
+	struct {
+		std::shared_ptr< struct ScalarFESpaceInfo > fe_info = std::make_shared< struct ScalarFESpaceInfo >();
+	} pu;
+
+	//////////////////////////////////////////////////////////////////
+	// TIME
+	//
+	struct FETimeInfo {
+		   std::shared_ptr< dealii::DoFHandler<1> > dof;
+		   std::shared_ptr< dealii::FiniteElement<1> > fe;
+		   std::shared_ptr< dealii::Mapping<1> > mapping;
+	};
+
 	struct {
 		std::shared_ptr< dealii::Triangulation<1> > tria;
 		
 		struct {
-			std::shared_ptr< dealii::DoFHandler<1> > dof;
-			std::shared_ptr< dealii::FiniteElement<1> > fe;
-			std::shared_ptr< dealii::Mapping<1> > mapping;
+			std::shared_ptr<struct FETimeInfo > fe_info;
 		} primal;
 		
- 		struct {
- 			std::shared_ptr< dealii::DoFHandler<1> > dof;
- 			std::shared_ptr< dealii::FiniteElement<1> > fe;
- 			std::shared_ptr< dealii::Mapping<1> > mapping;
- 		} dual;
+		struct {
+			std::shared_ptr<struct FETimeInfo > fe_info;
+		} dual;
+
+		struct {
+			std::shared_ptr<struct FETimeInfo > fe_info = std::make_shared< struct FETimeInfo >();
+		} high;
+
+		struct {
+			std::shared_ptr<struct FETimeInfo > fe_info = std::make_shared< struct FETimeInfo >();
+		} low;
+
+		struct {
+			std::shared_ptr<struct FETimeInfo > fe_info = std::make_shared< struct FETimeInfo >();
+		} pu;
 	} time;
 	
 	struct {

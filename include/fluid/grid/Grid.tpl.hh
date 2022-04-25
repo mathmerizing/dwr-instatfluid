@@ -2,8 +2,10 @@
  * @file Grid.tpl.hh
  * 
  * @author Uwe Koecher (UK)
+ * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-04-25, merge PU/high/low, JR
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-11-23, dyn. Stokes, UK
  * @date 2019-11-11, merge Biot-Allard/DWR/new ST, UK
@@ -23,7 +25,7 @@
  * @date (2012-07-26), 2013-08-15, ElasticWave, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -66,6 +68,9 @@ public:
 	virtual ~Grid();
 	
 	virtual void initialize_slabs();
+	virtual void initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void initialize_pu_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	
 	virtual void refine_slab_in_time(
 		typename fluid::types::spacetime::dwr::slabs<dim>::iterator slab
@@ -82,7 +87,16 @@ public:
 	virtual void set_boundary_indicators();
 	
 	virtual void distribute();
+	virtual void distribute_low_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void distribute_high_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void distribute_pu_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	
+	virtual void create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+
+	virtual void clear_primal_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void clear_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+
 	fluid::types::spacetime::dwr::slabs<dim> slabs;
 	
 	std::shared_ptr< dealii::ComponentMask > component_mask_convection;

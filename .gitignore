@@ -60,3 +60,6 @@ Thumbs.db
 *.mov
 *.wmv
 
+# Snapshots of FEM solution
+*.h5
+*.xdmf

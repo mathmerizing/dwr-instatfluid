@@ -35,6 +35,7 @@
 // PROJECT includes
 #include <fluid/parameters/ParameterSet.hh>
 #include <fluid/grid/Grid.tpl.hh>
+//#include <fluid/ErrorEstimator/ErrorEstimator.tpl.hh>
 
 #include <fluid/FluidDataPostprocessor.tpl.hh>
 
@@ -159,6 +160,10 @@ protected:
 	} primal;
 	
 	virtual void primal_reinit_storage();
+	virtual void primal_reinit_storage_on_slab(
+			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+			const typename DTM::types::storage_data_vectors<1>::iterator &x
+	);
 	
 	virtual void primal_assemble_system(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
@@ -197,7 +202,10 @@ protected:
 		const typename DTM::types::storage_data_vectors<1>::iterator &x
 	);
 	
-	virtual void primal_do_forward_TMS();
+	virtual void primal_do_forward_TMS(
+			const unsigned int dwr_loop,
+			bool last
+	);
 	
 	// post-processing functions for data output
 	virtual void primal_init_data_output();
@@ -215,6 +223,8 @@ protected:
 	);
 	
 	virtual void primal_do_data_output(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &x,
 		const unsigned int dwr_loop,
 		bool last
 	);
@@ -255,6 +265,10 @@ protected:
 	} dual;
 
 	virtual void dual_reinit_storage();
+	virtual void dual_reinit_storage_on_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &z
+	);
 
 	virtual void dual_assemble_system(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
@@ -309,6 +323,110 @@ protected:
 	virtual void compute_drag_lift_tensor(
 			std::shared_ptr< dealii::Vector<double> > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+	);
+
+	////////////////////////////////////////////////////////////////////////////
+	// error estimation and space-time grid adaption
+	//
+	struct {
+		struct {
+			/// error indicator \f$ \eta_{I_n} \f$  list
+			std::shared_ptr< DTM::types::storage_data_vectors<1> > eta_space;
+			std::shared_ptr< DTM::types::storage_data_vectors<1> > eta_time;
+//			std::shared_ptr< DTM::types::storage_data_vectors<1> > eta;
+		} storage;
+
+		// Data Output
+		// std::shared_ptr< DTM::ErrorIndicatorDataPostprocessor<dim> > data_postprocessor;
+		std::shared_ptr< DTM::DataOutput<dim> > data_output_space;
+		std::shared_ptr< DTM::DataOutput<dim> > data_output_time;
+		int    data_output_dwr_loop;
+		double data_output_time_value;
+		double data_output_trigger;
+		bool   data_output_trigger_type_fixed;
+
+		/// error estimator
+		// std::shared_ptr< fluid::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > pu_dwr; // TODO: comment this in
+
+		struct {
+			// J(u) = ...
+			// reference computations
+			struct {
+				struct {
+					double mean_drag = 0.4027165386203608; // mean drag from 0s to 8s for Stokes 2D-3
+					double mean_lift = 0.002576246687436928; // mean lift from 0s to 8s for Stokes 2D-3
+				} Stokes;
+
+				// TODO: compute reference values for Navier-Stokes from featflow results online
+				struct {
+					double mean_drag = 0.; // mean drag from 0s to 8s for Navier-Stokes 2D-3
+					double mean_lift = 0.; // mean lift from 0s to 8s for Navier-Stokes 2D-3
+				} NSE;
+			} reference;
+
+			// J(u_{kh}) = ...
+			struct {
+				double mean_drag; // mean drag from 0s to 8s for (Navier-)Stokes 2D-3
+				double mean_lift; // mean lift from 0s to 8s for (Navier-)Stokes 2D-3
+			} fem;
+
+			// for debugging: J(u_{kh}) = ...
+			struct {
+				double J;
+			} debug;
+		} goal_functional;
+
+	} error_estimator;
+
+	virtual void eta_reinit_storage();
+	virtual void eta_reinit_storage_on_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t
+	);
+
+	virtual void compute_effectivity_index();
+
+	virtual void refine_and_coarsen_space_time_grid(const unsigned int dwr_loop);
+
+	// post-processing functions for data output
+	virtual void eta_init_data_output();
+
+	virtual void eta_space_do_data_output_on_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
+		const unsigned int dwr_loop
+	);
+
+	virtual void eta_time_do_data_output_on_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t,
+		const unsigned int dwr_loop
+	);
+
+
+	virtual void eta_space_do_data_output_on_slab_Qn_mode(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
+		const unsigned int dwr_loop
+	);
+
+	virtual void eta_time_do_data_output_on_slab_Qn_mode(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t,
+		const unsigned int dwr_loop
+	);
+
+	virtual void eta_do_data_output(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t,
+		const unsigned int dwr_loop,
+		bool last
+	);
+
+	virtual void eta_sort_xdmf_by_time(
+		const unsigned int dwr_loop
 	);
 
 	////////////////////////////////////////////////////////////////////////////

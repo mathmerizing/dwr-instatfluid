@@ -105,7 +105,7 @@ public:
 	
 	virtual void write_data(
 		const std::string &solution_file_name,
-		std::shared_ptr< VectorType > solution_vector,
+		std::shared_ptr< dealii::Vector<double> > solution_vector,
 		const double &time
 	);
 	

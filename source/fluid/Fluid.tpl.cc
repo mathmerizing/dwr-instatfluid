@@ -6,6 +6,7 @@
  * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-04-25, high/low order, JR
  * @Date 2022-01-19, Newtonsolver working for Stokes, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-11-22, ST hanging nodes, UK
@@ -198,6 +199,46 @@ run() {
 	init_newton_parameters();
 	init_grid();
 	
+	////////////////////////////////////////////
+	// set primal and dual to low or high
+	//
+	auto slab(grid->slabs.begin());
+	auto ends(grid->slabs.end());
+
+	for (; slab != ends; ++slab) {
+		// primal = low / high
+		if ( !parameter_set->fe.primal_order.compare("low") )
+		{
+			slab->space.primal.fe_info = slab->space.low.fe_info;
+			slab->time.primal.fe_info = slab->time.low.fe_info;
+		}
+		else if ( !parameter_set->fe.primal_order.compare("high") )
+		{
+			slab->space.primal.fe_info = slab->space.high.fe_info;
+			slab->time.primal.fe_info = slab->time.high.fe_info;
+		}
+		else
+		{
+			AssertThrow(false, dealii::ExcMessage("primal_order needs to be 'low' or 'high'."));
+		}
+
+		// dual = low / high
+		if ( !parameter_set->fe.dual_order.compare("low") )
+		{
+			slab->space.dual.fe_info = slab->space.low.fe_info;
+			slab->time.dual.fe_info = slab->time.low.fe_info;
+		}
+		else if ( !parameter_set->fe.dual_order.compare("high") )
+		{
+			slab->space.dual.fe_info = slab->space.high.fe_info;
+			slab->time.dual.fe_info = slab->time.high.fe_info;
+		}
+		else
+		{
+			AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high'."));
+		}
+	} // end for-loop slab
+
 	////////////////////////////////////////////////////////////////////////////
 	// adaptivity loop
 	//
@@ -208,18 +249,38 @@ run() {
 		<< "*************" << std::endl;
 	
 	unsigned int dwr_loop{1};
-	unsigned int max_dwr_loop{1};
+	unsigned int max_dwr_loop{parameter_set->dwr.solver_control.max_iterations};
 	do {
-//		if (dwr_loop > 1) {
-//			// error estimation
-//			eta_reinit_storage();
-//			compute_error_indicators();
-//			
-//			// do space-time mesh refinements and coarsenings
-//			refine_and_coarsen_space_time_grid();
-//			
-//			grid->set_manifolds();
-//		}
+		if (dwr_loop > 1) {
+			if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global_space"))
+				grid->refine_global(1, 0); // refine grid in space
+			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global_time"))
+			{
+				// splitting each slab into two slabs
+				auto slab{grid->slabs.begin()};
+				auto ends{grid->slabs.end()};
+				for (; slab != ends; ++slab)
+					grid->refine_slab_in_time(slab);
+			}
+			else if	(!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global"))
+			{
+				// refine grid in space
+				grid->refine_global(1, 0);
+
+				// splitting each slab into two slabs
+				auto slab{grid->slabs.begin()};
+				auto ends{grid->slabs.end()};
+				for (; slab != ends; ++slab)
+					grid->refine_slab_in_time(slab);
+			}
+			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
+				refine_and_coarsen_space_time_grid(dwr_loop-1); // do adaptive space-time mesh refinements and coarsenings
+			else
+				// invalid refinement strategy
+				AssertThrow(false, dealii::ExcNotImplemented());
+
+			grid->set_manifolds();
+		}
 		
 		DTM::pout
 			<< "***************************************************************"
@@ -227,26 +288,49 @@ run() {
 			<< "adaptivity loop = " << dwr_loop << std::endl;
 		
 		grid->set_boundary_indicators();
-		grid->distribute();
 		
 		// primal problem:
 		primal_reinit_storage();
 		primal_init_data_output();
-		primal_do_forward_TMS();
-		primal_do_data_output(dwr_loop,false);
-		
-		// check if dwr has converged
-		// TODO: converge criterion
+		primal_do_forward_TMS(dwr_loop, false);
 
 		// dual problem
 		dual_reinit_storage();
 		dual_init_data_output();
-		dual_do_backward_TMS();
-		dual_do_data_output(dwr_loop,false);
+		{
+			// TODO: comment in
+//			// error indicators
+//			eta_reinit_storage();
+//			eta_init_data_output();
+		}
+		dual_do_backward_TMS(dwr_loop, false);
+		//dual_do_data_output(dwr_loop,false); // TODO: comment in
+		{
+			dual_sort_xdmf_by_time(dwr_loop);
+//			eta_sort_xdmf_by_time(dwr_loop); // // TODO: comment in
+		}
 
 		// error estimation
-		// TODO: compute error indicators
-		// TODO: compute effectivity indices
+//		compute_effectivity_index(); // TODO: comment in
+
+		// compute the number of primal and dual space-time dofs
+		unsigned long int n_primal_st_dofs = 0;
+		unsigned long int n_dual_st_dofs   = 0;
+
+		auto slab{grid->slabs.begin()};
+		auto ends{grid->slabs.end()};
+		for (; slab != ends; ++slab)
+		{
+			n_primal_st_dofs += slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs();
+			n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
+		}
+
+		DTM::pout << "\n#DoFs(primal; Space-Time) = " << n_primal_st_dofs
+				  << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs
+				  << std::endl;
+
+//		if (estimated_error < TOL_DWR)
+//			break;
 
 		++dwr_loop;
 	} while (dwr_loop <= max_dwr_loop);
@@ -395,34 +479,35 @@ primal_reinit_storage() {
 	primal.storage.u->resize(
 		static_cast<unsigned int>(grid->slabs.size())
 	);
-	
-	{
-		auto slab = grid->slabs.begin();
-		for (auto &element : *primal.storage.u) {
-			for (unsigned int j{0}; j < element.x.size(); ++j) {
-				element.x[j] = std::make_shared< dealii::Vector<double> > ();
-				
-				Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
-				
-				Assert(
-					slab->space.primal.dof.use_count(),
-					dealii::ExcNotInitialized()
-				);
-				
-				Assert(
-					slab->time.primal.dof.use_count(),
-					dealii::ExcNotInitialized()
-				);
-				
-				element.x[j]->reinit(
-					slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
-				);
-			}
-			++slab;
-		}
-	}
 }
 
+template<int dim>
+void
+Fluid<dim>::
+primal_reinit_storage_on_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	const typename DTM::types::storage_data_vectors<1>::iterator &x
+) {
+	for (unsigned int j{0}; j < x->x.size(); ++j) {
+		x->x[j] = std::make_shared< dealii::Vector<double> > ();
+
+		Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
+
+		Assert(
+			slab->space.primal.fe_info->dof.use_count(),
+			dealii::ExcNotInitialized()
+		);
+
+		Assert(
+			slab->time.primal.fe_info->dof.use_count(),
+			dealii::ExcNotInitialized()
+		);
+
+		x->x[j]->reinit(
+			slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
+		);
+	}
+}
 
 template<int dim>
 void
@@ -457,7 +542,7 @@ primal_assemble_system(
 			primal.L,
 			slab,
 			u,
-			( parameter_set->problem.compare("Navier-Stokes")==0 )
+			( parameter_set->problem.compare("Navier-Stokes") == 0 )
 		);
 		
 	}
@@ -474,16 +559,16 @@ primal_assemble_const_rhs(
 	primal.Mum = std::make_shared< dealii::Vector<double> > ();
 	
 	Assert(
-		slab->space.primal.dof.use_count(),
+		slab->space.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	Assert(
-		slab->time.primal.dof.use_count(),
+		slab->time.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	
 	primal.Mum->reinit(
-		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
+		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
 	);
 	*primal.Mum = 0.;
 	
@@ -506,16 +591,16 @@ primal_assemble_const_rhs(
 //	primal.f = std::make_shared< dealii::Vector<double> > ();
 //
 //	Assert(
-//		slab->space.primal.dof.use_count(),
+//		slab->space.primal.fe_info->dof.use_count(),
 //		dealii::ExcNotInitialized()
 //	);
 //	Assert(
-//		slab->time.primal.dof.use_count(),
+//		slab->time.primal.fe_info->dof.use_count(),
 //		dealii::ExcNotInitialized()
 //	);
 //
 //	primal.f->reinit(
-//		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
+//		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
 //	);
 //	*primal.f = 0.;
 //
@@ -552,16 +637,16 @@ primal_assemble_and_construct_Newton_rhs(
 	primal.Fu = std::make_shared< dealii::Vector<double> > ();
 
 	Assert(
-		slab->space.primal.dof.use_count(),
+		slab->space.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	Assert(
-		slab->time.primal.dof.use_count(),
+		slab->time.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
 
 	primal.Fu->reinit(
-		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
+		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
 	);
 	*primal.b = 0.;
 	*primal.Fu = 0.;
@@ -580,7 +665,7 @@ primal_assemble_and_construct_Newton_rhs(
 			primal.Fu,
 			slab,
 			u,
-			( parameter_set->problem.compare("Navier-Stokes")==0 )
+			( parameter_set->problem.compare("Navier-Stokes") == 0 )
 		);
 	}
 
@@ -598,7 +683,7 @@ primal_calculate_boundary_values(
 	bool zero
 ) {
 	std::shared_ptr< dealii::VectorFunctionFromTensorFunction<dim> > dirichlet_function
-		=std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
+		= std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
 			*function.convection.dirichlet,
 			0, (dim+1)
 		);
@@ -641,7 +726,7 @@ primal_calculate_boundary_values(
 				component_mask_convection->set(2, true);
 			}
 
-			// NOTE: not to break switch here is indended
+			// NOTE: not to break switch here is intended
 			[[fallthrough]];
 
 		case 2:
@@ -650,7 +735,7 @@ primal_calculate_boundary_values(
 				component_mask_convection->set(1, true);
 			}
 
-			// NOTE: not to break switch here is indended
+			// NOTE: not to break switch here is intended
 			[[fallthrough]];
 
 		case 1:
@@ -672,12 +757,12 @@ primal_calculate_boundary_values(
 				slab->time.primal.fe->tensor_degree()+1
 			);
 
-			auto cell_time = slab->time.primal.dof->begin_active();
-			auto endc_time = slab->time.primal.dof->end();
+			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
+			auto endc_time = slab->time.primal.fe_info->dof->end();
 
 			dealii::FEValues<1> time_fe_values(
-				*slab->time.primal.mapping,
-				*slab->time.primal.fe,
+				*slab->time.primal.fe_info->mapping,
+				*slab->time.primal.fe_info->fe,
 				support_points,
 				dealii::update_quadrature_points
 			);
@@ -702,7 +787,7 @@ primal_calculate_boundary_values(
 					if ( zero )
 					{
 						dealii::VectorTools::interpolate_boundary_values (
-							*slab->space.primal.dof,
+							*slab->space.primal.fe_info->dof,
 							static_cast< dealii::types::boundary_id > (
 								colour
 							),
@@ -713,7 +798,7 @@ primal_calculate_boundary_values(
 					}
 					else{
 						dealii::VectorTools::interpolate_boundary_values (
-							*slab->space.primal.dof,
+							*slab->space.primal.fe_info->dof,
 							static_cast< dealii::types::boundary_id > (
 								colour
 							),
@@ -727,11 +812,11 @@ primal_calculate_boundary_values(
 						dealii::types::global_dof_index idx =
 							el.first
 							// time offset
-							+ slab->space.primal.dof->n_dofs() *
+							+ slab->space.primal.fe_info->dof->n_dofs() *
 								(cell_time->index()
-								* slab->time.primal.fe->dofs_per_cell)
+								* slab->time.primal.fe_info->fe->dofs_per_cell)
 							// local in time dof
-							+ slab->space.primal.dof->n_dofs() * qt
+							+ slab->space.primal.fe_info->dof->n_dofs() * qt
 						;
 
 						boundary_values[idx] = el.second;
@@ -755,7 +840,7 @@ primal_calculate_boundary_values(
 				component_mask_convection->set(2, true);
 			}
 
-			// NOTE: not to break switch here is indended
+			// NOTE: not to break switch here is intended
 			[[fallthrough]];
 
 		case 2:
@@ -764,7 +849,7 @@ primal_calculate_boundary_values(
 				component_mask_convection->set(1, true);
 			}
 
-			// NOTE: not to break switch here is indended
+			// NOTE: not to break switch here is intended
 			[[fallthrough]];
 
 		case 1:
@@ -783,15 +868,15 @@ primal_calculate_boundary_values(
 		// std::map<dealii::types::global_dof_index, double>
 		{
 			const dealii::QGauss<1> support_points(
-				slab->time.primal.fe->tensor_degree()+1
+				slab->time.primal.fe_info->fe->tensor_degree()+1
 			);
 
-			auto cell_time = slab->time.primal.dof->begin_active();
-			auto endc_time = slab->time.primal.dof->end();
+			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
+			auto endc_time = slab->time.primal.fe_info->dof->end();
 
 			dealii::FEValues<1> time_fe_values(
-				*slab->time.primal.mapping,
-				*slab->time.primal.fe,
+				*slab->time.primal.fe_info->mapping,
+				*slab->time.primal.fe_info->fe,
 				support_points,
 				dealii::update_quadrature_points
 			);
@@ -804,7 +889,7 @@ primal_calculate_boundary_values(
 						boundary_values_qt;
 
 					dealii::VectorTools::interpolate_boundary_values (
-						*slab->space.primal.dof,
+						*slab->space.primal.fe_info->dof,
 						static_cast< dealii::types::boundary_id > (
 							colour
 						),
@@ -818,11 +903,11 @@ primal_calculate_boundary_values(
 						dealii::types::global_dof_index idx =
 							el.first
 							// time offset
-							+ slab->space.primal.dof->n_dofs() *
+							+ slab->space.primal.fe_info->dof->n_dofs() *
 								(cell_time->index()
-								* slab->time.primal.fe->dofs_per_cell)
+								* slab->time.primal.fe_info->fe->dofs_per_cell)
 							// local in time dof
-							+ slab->space.primal.dof->n_dofs() * qt
+							+ slab->space.primal.fe_info->dof->n_dofs() * qt
 						;
 
 						boundary_values[idx] = el.second;
@@ -850,7 +935,7 @@ primal_apply_bc(
 	// NOTE: a spurious, but nicely scaled, singular value is introduced
 	//       in the operator matrix for each boundary value constraint
 	//
-	if ( boundary_values.size()) {
+	if (boundary_values.size()) {
 		////////////////////////////////////////////////////////////////////
 		// apply boundary values to vector x
 		for (auto &boundary_value : boundary_values) {
@@ -858,8 +943,6 @@ primal_apply_bc(
 			(*x)[boundary_value.first] = boundary_value.second;
 		}
 	}
-
-
 }
 
 template<int dim>
@@ -887,7 +970,7 @@ primal_apply_bc(
 	// NOTE: a spurious, but nicely scaled, singular value is introduced
 	//       in the operator matrix for each boundary value constraint
 	//
-	if ( boundary_values.size()) {
+	if (boundary_values.size()) {
 		////////////////////////////////////////////////////////////////////
 		// internal checks
 		Assert(
@@ -1032,8 +1115,6 @@ primal_apply_bc(
 		// 				}
 		// 			}
 	}
-
-
 }
 
 template<int dim>
@@ -1047,59 +1128,52 @@ primal_solve_slab_problem(
 	primal.b = std::make_shared< dealii::Vector<double> > ();
 	primal.du = std::make_shared< dealii::Vector<double> >();
 	Assert(
-		slab->space.primal.dof.use_count(),
+		slab->space.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	Assert(
-		slab->time.primal.dof.use_count(),
+		slab->time.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	
 	primal.b->reinit(
-		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
+		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
 	);
 
 	primal.du->reinit(
-		slab->space.primal.dof->n_dofs() * slab->time.primal.dof->n_dofs()
+		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
 	);
 
-
-	
 	////////////////////////////////////////////////////////////////////////////
 	// apply inhomogeneous Dirichlet boundary values
 	//
-	//TODO: copy previous solution as initial solution
-	
+
 	DTM::pout << "dwr-instatfluid: compute boundary values..." ;
 
-
 	std::map<dealii::types::global_dof_index, double> initial_bc;
-	primal_calculate_boundary_values(slab,initial_bc);
+	primal_calculate_boundary_values(slab, initial_bc);
     std::map<dealii::types::global_dof_index, double> zero_bc;
-    primal_calculate_boundary_values(slab,zero_bc,true);
+    primal_calculate_boundary_values(slab, zero_bc, true);
 
     DTM::pout << " (done)" << std::endl;
 
     DTM::pout << "dwr-instatfluid: apply previous solution as initial Newton guess..." ;
 
-    for ( unsigned int i{0} ; i < slab->space.primal.dof->n_dofs() ; i++) {
-    	for ( unsigned int ii{0} ; ii < slab->time.primal.dof->n_dofs() ; ii++) {
-    		(*u->x[0])[i+
-					   slab->space.primal.dof->n_dofs()*ii
-					   ] = (*primal.um)[i];
+    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
+    	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
+    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
     	}
     }
 
     DTM::pout << " (done)" << std::endl;
 
-    primal_apply_bc(initial_bc,u->x[0]);
+    primal_apply_bc(initial_bc, u->x[0]);
 	slab->spacetime.primal.constraints->distribute(
 		*u->x[0]
 	);
 
 	// assemble slab problem const rhs
 	primal_assemble_const_rhs(slab);
-
 
 	Assert(
 		primal.Mum.use_count(),
@@ -1120,7 +1194,7 @@ primal_solve_slab_problem(
 
     DTM::pout << std::setprecision(5) << "0\t" << newton_residual << std::endl;
 
-    while ( newton_residual > newton.lower_bound && newton_step < newton.max_steps)
+    while (newton_residual > newton.lower_bound && newton_step < newton.max_steps)
     {
     	old_newton_residual = newton_residual;
     	primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
@@ -1134,7 +1208,7 @@ primal_solve_slab_problem(
 
 		if (newton_residual/old_newton_residual > newton.rebuild){
 			primal_assemble_system(slab, u->x[0]);
-			primal_apply_bc(zero_bc,primal.L,primal.du,primal.b);
+			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any
 			//
@@ -1153,12 +1227,12 @@ primal_solve_slab_problem(
 			*primal.du
 		);
 
-		for ( line_search_step = 0 ; line_search_step < newton.line_search_steps ; line_search_step++) {
+		for (line_search_step = 0 ; line_search_step < newton.line_search_steps ; line_search_step++) {
 			u->x[0]->add(1.0,*primal.du);
 
 			primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
 			new_newton_residual = primal.b->linfty_norm();
-			if ( new_newton_residual < newton_residual)
+			if (new_newton_residual < newton_residual)
 				break;
 			else
 				u->x[0]->add(-1.0,*primal.du);
@@ -1168,25 +1242,36 @@ primal_solve_slab_problem(
 				  << std::scientific << newton_residual << "\t"
 				  << std::scientific << newton_residual/old_newton_residual << "\t";
 
-		if ( newton_residual/old_newton_residual > newton.rebuild)
+		if (newton_residual/old_newton_residual > newton.rebuild)
 			DTM::pout << "r\t";
 		else
 			DTM::pout << " \t";
 
 		DTM::pout << line_search_step << "\t" << std::scientific << std::endl;
+
+		if (line_search_step == newton.line_search_steps && std::abs(newton_residual - old_newton_residual) < 1e-15)
+			break;
+
 		newton_step++;
     }
-
 }
 
 
 template<int dim>
 void
 Fluid<dim>::
-primal_do_forward_TMS() {
+primal_do_forward_TMS(
+	const unsigned int dwr_loop,
+	bool last
+) {
 	////////////////////////////////////////////////////////////////////////////
 	// prepare time marching scheme (TMS) loop
 	//
+	Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
+
+	// resetting the goal functionals
+	error_estimator.goal_functional.fem.mean_drag = 0.;
+	error_estimator.goal_functional.fem.mean_lift = 0.;
 	
 	////////////////////////////////////////////////////////////////////////////
 	// grid: init slab iterator to first space-time slab: Omega x I_1
@@ -1228,12 +1313,28 @@ primal_do_forward_TMS() {
 			<< " = Omega_h x (" << slab->t_m << ", " << slab->t_n << ") "
 			<< std::endl;
 		
+		if ( !parameter_set->fe.primal_order.compare("low") )
+		{
+			grid->initialize_low_grid_components_on_slab(slab);
+			grid->distribute_low_on_slab(slab);
+		}
+		else if ( !parameter_set->fe.primal_order.compare("high") )
+		{
+			grid->initialize_high_grid_components_on_slab(slab);
+			grid->distribute_high_on_slab(slab);
+		}
+		else
+			AssertThrow(false, dealii::ExcNotImplemented());
+
+		grid->create_sparsity_pattern_primal_on_slab(slab);
+		primal_reinit_storage_on_slab(slab, u);
+
 		if (slab == grid->slabs.begin()) {
 			////////////////////////////////////////////////////////////////////////////
 			// interpolate (or project) initial value(s)
 			//
 			std::shared_ptr< dealii::VectorFunctionFromTensorFunction<dim> > dirichlet_function
-					=std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
+					= std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
 						*function.convection.dirichlet,
 						0, (dim+1)
 					);
@@ -1242,20 +1343,20 @@ primal_do_forward_TMS() {
 			function.convection.dirichlet->set_time(0);
 
 			primal.um = std::make_shared< dealii::Vector<double> > ();
-			primal.um->reinit(slab->space.primal.dof->n_dofs());
+			primal.um->reinit(slab->space.primal.fe_info->dof->n_dofs());
 			*primal.um = 0.;
 
 //			Assert(function.u_0.use_count(), dealii::ExcNotInitialized());
 //			function.u_0->set_time(slab->t_m);
 
 			Assert((slab != grid->slabs.end()), dealii::ExcInternalError());
-			Assert(slab->space.primal.mapping.use_count(), dealii::ExcNotInitialized());
-			Assert(slab->space.primal.dof.use_count(), dealii::ExcNotInitialized());
+			Assert(slab->space.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
+			Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 			Assert(primal.um.use_count(), dealii::ExcNotInitialized());
 			
 			dealii::VectorTools::interpolate(
-				*slab->space.primal.mapping,
-				*slab->space.primal.dof,
+				*slab->space.primal.fe_info->mapping,
+				*slab->space.primal.fe_info->dof,
 				*dirichlet_function, //*function.u_0,
 				*primal.um
 			);
@@ -1263,7 +1364,7 @@ primal_do_forward_TMS() {
 			// NOTE: after the first dwr-loop the initial triangulation could have
 			//       hanging nodes. Therefore,
 			// distribute hanging node constraints to make the result continuous again:
-			slab->space.primal.constraints->distribute(
+			slab->space.primal.fe_info->constraints->distribute(
 				*primal.um
 			);
 		}
@@ -1272,32 +1373,28 @@ primal_do_forward_TMS() {
 			Assert(primal.un.use_count(), dealii::ExcNotInitialized());
 
 			primal.um = std::make_shared< dealii::Vector<double> > ();
-			Assert(
-				slab->space.primal.block_sizes.use_count(),
-				dealii::ExcNotInitialized()
-			);
-			primal.um->reinit(slab->space.primal.dof->n_dofs());
+			primal.um->reinit(slab->space.primal.fe_info->dof->n_dofs());
 			*primal.um = 0.;
 
 			// for n > 1 interpolate between two (different) spatial meshes
 			// the solution u(t_n)|_{I_{n-1}}  to  u(t_m)|_{I_n}
 			dealii::VectorTools::interpolate_to_different_mesh(
 				// solution on I_{n-1}:
-				*std::prev(slab)->space.primal.dof,
+				*std::prev(slab)->space.primal.fe_info->dof,
 				*primal.un,
 				// solution on I_n:
-				*slab->space.primal.dof,
-				*slab->space.primal.constraints,
+				*slab->space.primal.fe_info->dof,
+				*slab->space.primal.fe_info->constraints,
 				*primal.um
 			);
 
-			slab->space.primal.constraints->distribute(
+			slab->space.primal.fe_info->constraints->distribute(
 				*primal.um
 			);
 		}
 		
 		// solve slab problem (i.e. apply boundary values and solve for u0)
-		primal_solve_slab_problem(slab,u);
+		primal_solve_slab_problem(slab, u);
 		
 		////////////////////////////////////////////////////////////////////////
 		// do postprocessings on the solution
@@ -1305,24 +1402,20 @@ primal_do_forward_TMS() {
 		
 		// evaluate solution u(t_n)
 		primal.un = std::make_shared< dealii::Vector<double> > ();
-		Assert(
-			slab->space.primal.block_sizes.use_count(),
-			dealii::ExcNotInitialized()
-		);
-			primal.un->reinit(slab->space.primal.dof->n_dofs());
+		primal.un->reinit(slab->space.primal.fe_info->dof->n_dofs());
 		*primal.un = 0.;
 
 		{
 			dealii::FEValues<1> fe_face_values_time(
-				*slab->time.primal.mapping,
-				*slab->time.primal.fe,
+				*slab->time.primal.fe_info->mapping,
+				*slab->time.primal.fe_info->fe,
 				dealii::QGaussLobatto<1>(2),
 				dealii::update_values
 			);
 
-			auto cell_time = slab->time.primal.dof->begin_active();
+			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
 			auto last_cell_time = cell_time;
-			auto endc_time = slab->time.primal.dof->end();
+			auto endc_time = slab->time.primal.fe_info->dof->end();
 
 			for ( ; cell_time != endc_time; ++cell_time) {
 				last_cell_time=cell_time;
@@ -1330,38 +1423,33 @@ primal_do_forward_TMS() {
 
 			cell_time=last_cell_time;
 			{
-				Assert((cell_time!=endc_time), dealii::ExcInternalError());
+				Assert((cell_time != endc_time), dealii::ExcInternalError());
 				fe_face_values_time.reinit(cell_time);
 
 				// evaluate solution for t_n of Q_n
 				for (unsigned int jj{0};
-					jj < slab->time.primal.fe->dofs_per_cell; ++jj)
+					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj)
 				for (dealii::types::global_dof_index i{0};
-					i < slab->space.primal.dof->n_dofs(); ++i) {
+					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
 					(*primal.un)[i] += (*u->x[0])[
 						i
 						// time offset
-						+ slab->space.primal.dof->n_dofs() *
-							(cell_time->index() * slab->time.primal.fe->dofs_per_cell)
+						+ slab->space.primal.fe_info->dof->n_dofs() *
+							(cell_time->index() * slab->time.primal.fe_info->fe->dofs_per_cell)
 						// local in time dof
-						+ slab->space.primal.dof->n_dofs() * jj
+						+ slab->space.primal.fe_info->dof->n_dofs() * jj
 					] * fe_face_values_time.shape_value(jj,1);
 				}
 			}
 		}
 
+		// output data
+		primal_do_data_output(slab, u, dwr_loop, last);
+
 		////////////////////////////////////////////////////////////////////////
 		// compute functional values:
 		//
-		compute_functional_values(primal.un, slab);
-
-		////////////////////////////////////////////////////////////////////////
-		// prepare next I_n slab problem:
-		//
-		
-		++n;
-		++slab;
-		++u;
+		compute_functional_values(u, slab);
 		
 		////////////////////////////////////////////////////////////////////////
 		// allow garbage collector to clean up memory
@@ -1372,6 +1460,16 @@ primal_do_forward_TMS() {
 // 		primal.f = nullptr;
 		primal.Mum = nullptr;
 		
+		grid->clear_primal_on_slab(slab);
+
+		////////////////////////////////////////////////////////////////////////
+		// prepare next I_n slab problem:
+		//
+
+		++n;
+		++slab;
+		++u;
+
 		DTM::pout << std::endl;
 	}
 	
@@ -1381,6 +1479,40 @@ primal_do_forward_TMS() {
 		<< "*************" << std::endl
 		<< std::endl;
 	
+	////////////////////////////////////////////////////////////////////////////
+	// output exact error
+
+	// analytical mean drag
+	double reference_goal_functional;
+	if (parameter_set->problem.compare("Navier-Stokes") == 0)
+		reference_goal_functional = error_estimator.goal_functional.reference.NSE.mean_drag;
+	else
+		reference_goal_functional = error_estimator.goal_functional.reference.Stokes.mean_drag;
+	// FEM mean drag
+	double fem_goal_functional = error_estimator.goal_functional.fem.mean_drag;
+
+	DTM::pout << "---------------------------" << std::endl;
+	DTM::pout << "Mean drag:" << std::endl;
+	DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
+	DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
+	DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
+	DTM::pout << "---------------------------" << std::endl << std::endl;
+
+	// analytical mean lift
+	if (parameter_set->problem.compare("Navier-Stokes") == 0)
+		reference_goal_functional = error_estimator.goal_functional.reference.NSE.mean_lift;
+	else
+		reference_goal_functional = error_estimator.goal_functional.reference.Stokes.mean_lift;
+	// FEM mean lift
+	fem_goal_functional = error_estimator.goal_functional.fem.mean_lift;
+
+	DTM::pout << "---------------------------" << std::endl;
+	DTM::pout << "Mean lift:" << std::endl;
+	DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
+	DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
+	DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
+	DTM::pout << "---------------------------" << std::endl << std::endl;
+
 	////////////////////////////////////////////////////////////////////////////
 	// allow garbage collector to clean up memory
 	//
@@ -1485,24 +1617,18 @@ primal_do_data_output_on_slab(
 	const typename DTM::types::storage_data_vectors<1>::iterator &u,
 	const unsigned int dwr_loop) {
 	// triggered output mode
-	Assert(slab->space.primal.dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 	Assert(
-		slab->space.primal.partitioning_locally_owned_dofs.use_count(),
+		slab->space.primal.fe_info->partitioning_locally_owned_dofs.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	primal.data_output->set_DoF_data(
-		slab->space.primal.dof,
-		slab->space.primal.partitioning_locally_owned_dofs
+		slab->space.primal.fe_info->dof,
+		slab->space.primal.fe_info->partitioning_locally_owned_dofs
 	);
 	
- 	auto u_trigger = std::make_shared< dealii::BlockVector<double> > ();
- 	Assert(
- 		slab->space.primal.block_sizes.use_count(),
- 		dealii::ExcNotInitialized()
- 	);
- 	u_trigger->reinit(
- 		*slab->space.primal.block_sizes
- 	);
+ 	auto u_trigger = std::make_shared< dealii::Vector<double> > ();
+ 	u_trigger->reinit(slab->space.primal.fe_info->dof->n_dofs());
 	
 	std::ostringstream filename;
 	filename
@@ -1512,19 +1638,19 @@ primal_do_data_output_on_slab(
 	{
 		// fe face values time: time face (I_n) information
 		dealii::FEValues<1> fe_face_values_time(
-			*slab->time.primal.mapping,
-			*slab->time.primal.fe,
+			*slab->time.primal.fe_info->mapping,
+			*slab->time.primal.fe_info->fe,
 			dealii::QGaussLobatto<1>(2),
 			dealii::update_quadrature_points
 		);
 		
 		Assert(
-			slab->time.primal.dof.use_count(),
+			slab->time.primal.fe_info->dof.use_count(),
 			dealii::ExcNotInitialized()
 		);
 		
-		auto cell_time = slab->time.primal.dof->begin_active();
-		auto endc_time = slab->time.primal.dof->end();
+		auto cell_time = slab->time.primal.fe_info->dof->begin_active();
+		auto endc_time = slab->time.primal.fe_info->dof->end();
 		
 		for ( ; cell_time != endc_time; ++cell_time) {
 			fe_face_values_time.reinit(cell_time);
@@ -1589,8 +1715,8 @@ primal_do_data_output_on_slab(
 			
 			// create fe values
 			dealii::FEValues<1> fe_values_time(
-				*slab->time.primal.mapping,
-				*slab->time.primal.fe,
+				*slab->time.primal.fe_info->mapping,
+				*slab->time.primal.fe_info->fe,
 				quad_time,
 				dealii::update_values |
 				dealii::update_quadrature_points
@@ -1607,22 +1733,22 @@ primal_do_data_output_on_slab(
  				// evaluate solution for t_q
  				for (
  					unsigned int jj{0};
- 					jj < slab->time.primal.fe->dofs_per_cell; ++jj) {
+ 					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj) {
  				for (
  					dealii::types::global_dof_index i{0};
- 					i < slab->space.primal.dof->n_dofs(); ++i) {
+ 					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
  					(*u_trigger)[i] += (*u->x[0])[
  						i
  						// time offset
- 						+ slab->space.primal.dof->n_dofs() *
+ 						+ slab->space.primal.fe_info->dof->n_dofs() *
  							local_dof_indices[jj]
  					] * fe_values_time.shape_value(jj,qt);
  				}}
 				
-				std::cout
-					<< "output generated for t = "
-					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
-					<< std::endl;
+//				std::cout
+//					<< "output generated for t = "
+//					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
+//					<< std::endl;
 				
 				primal.data_output->write_data(
 					filename.str(),
@@ -1646,24 +1772,18 @@ primal_do_data_output_on_slab_Qn_mode(
 	const typename DTM::types::storage_data_vectors<1>::iterator &u,
 	const unsigned int dwr_loop) {
 	// natural output of solutions on Q_n in their support points in time
-	Assert(slab->space.primal.dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 	Assert(
-		slab->space.primal.partitioning_locally_owned_dofs.use_count(),
+		slab->space.primal.fe_info->partitioning_locally_owned_dofs.use_count(),
 		dealii::ExcNotInitialized()
 	);
 	primal.data_output->set_DoF_data(
-		slab->space.primal.dof,
-		slab->space.primal.partitioning_locally_owned_dofs
+		slab->space.primal.fe_info->dof,
+		slab->space.primal.fe_info->partitioning_locally_owned_dofs
 	);
 	
-	auto u_trigger = std::make_shared< dealii::BlockVector<double> > ();
- 	Assert(
- 		slab->space.primal.block_sizes.use_count(),
- 		dealii::ExcNotInitialized()
- 	);
- 	u_trigger->reinit(
- 		*slab->space.primal.block_sizes
- 	);
+	auto u_trigger = std::make_shared< dealii::Vector<double> > ();
+ 	u_trigger->reinit(slab->space.primal.fe_info->dof->n_dofs());
  	
 	std::ostringstream filename;
 	filename
@@ -1676,21 +1796,21 @@ primal_do_data_output_on_slab_Qn_mode(
 		//
 		// create fe values
 		dealii::FEValues<1> fe_values_time(
-			*slab->time.primal.mapping,
-			*slab->time.primal.fe,
-			dealii::QGauss<1>(slab->time.primal.fe->tensor_degree()+1), // here
+			*slab->time.primal.fe_info->mapping,
+			*slab->time.primal.fe_info->fe,
+			dealii::QGauss<1>(slab->time.primal.fe_info->fe->tensor_degree()+1), // here
 			dealii::update_values |
 			dealii::update_quadrature_points
 		);
 		
-		auto cell_time = slab->time.primal.dof->begin_active();
-		auto endc_time = slab->time.primal.dof->end();
+		auto cell_time = slab->time.primal.fe_info->dof->begin_active();
+		auto endc_time = slab->time.primal.fe_info->dof->end();
 		
 		for ( ; cell_time != endc_time; ++cell_time) {
 			fe_values_time.reinit(cell_time);
 			
 			std::vector< dealii::types::global_dof_index > local_dof_indices_time(
-				slab->time.primal.fe->dofs_per_cell
+				slab->time.primal.fe_info->fe->dofs_per_cell
 			);
 			
 			cell_time->get_dof_indices(local_dof_indices_time);
@@ -1704,14 +1824,14 @@ primal_do_data_output_on_slab_Qn_mode(
  				// evaluate solution for t_q
  				for (
  					unsigned int jj{0};
- 					jj < slab->time.primal.fe->dofs_per_cell; ++jj) {
+ 					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj) {
  				for (
  					dealii::types::global_dof_index i{0};
- 					i < slab->space.primal.dof->n_dofs(); ++i) {
+ 					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
  					(*u_trigger)[i] += (*u->x[0])[
  						i
  						// time offset
- 						+ slab->space.primal.dof->n_dofs() *
+ 						+ slab->space.primal.fe_info->dof->n_dofs() *
  							local_dof_indices_time[jj]
  					] * fe_values_time.shape_value(jj,qt);
  				}}
@@ -1737,6 +1857,8 @@ template<int dim>
 void
 Fluid<dim>::
 primal_do_data_output(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	const typename DTM::types::storage_data_vectors<1>::iterator &x,
 	const unsigned int dwr_loop,
 	bool last
 ) {
@@ -1785,35 +1907,13 @@ primal_do_data_output(
 	if ( static_cast<unsigned int>(primal.data_output_dwr_loop) != dwr_loop )
 		return;
 	
-	DTM::pout
-		<< "primal solution data output: dwr loop = "
-		<< primal.data_output_dwr_loop
-		<< std::endl;
-	
-	primal.data_output_time_value = parameter_set->time.fluid.t0;
-	
-	Assert(grid->slabs.size(), dealii::ExcNotInitialized());
-	auto slab = grid->slabs.begin();
-	auto u = primal.storage.u->begin();
-	
 	if (!primal.data_output_trigger_type_fixed) {
 		// I_n output mode (output on natural Q_n support points in time)
-		while (slab != grid->slabs.end()) {
-			primal_do_data_output_on_slab_Qn_mode(slab,u,dwr_loop);
-			
-			++slab;
-			++u;
-		}
+		primal_do_data_output_on_slab_Qn_mode(slab, x, dwr_loop);
 	}
 	else {
 		// fixed trigger output mode
-		
-		while (slab != grid->slabs.end()) {
-			primal_do_data_output_on_slab(slab,u,dwr_loop);
-			
-			++slab;
-			++u;
-		}
+		primal_do_data_output_on_slab(slab, x, dwr_loop);
 	}
 }
 
@@ -3211,7 +3311,7 @@ compute_pressure(
 	dealii::Vector<double> x_h(dim + 1);
 	
 	dealii::VectorTools::point_value(
-		*slab->space.primal.dof,
+		*slab->space.primal.fe_info->dof,
 		*un, // input dof vector at t_n
 		x, // evaluation point
 		x_h
@@ -3246,8 +3346,8 @@ compute_drag_lift_tensor(
 	dealii::Tensor<1, dim> drag_lift_value;
 
 	typename dealii::DoFHandler<dim>::active_cell_iterator
-		cell = slab->space.primal.dof->begin_active(),
-		endc = slab->space.primal.dof->end();
+		cell = slab->space.primal.fe_info->dof->begin_active(),
+		endc = slab->space.primal.fe_info->dof->end();
 
 	for (; cell != endc; ++cell)
 	{
