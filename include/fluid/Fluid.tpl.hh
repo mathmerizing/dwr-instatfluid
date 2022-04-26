@@ -283,7 +283,10 @@ protected:
 		const typename DTM::types::storage_data_vectors<1>::iterator &z
 	);
 
-	virtual void dual_do_backward_TMS();
+	virtual void dual_do_backward_TMS(
+		const unsigned int dwr_loop,
+		bool last
+	);
 
 	// post-processing functions for data output
 	virtual void dual_init_data_output();
@@ -301,8 +304,14 @@ protected:
 	);
 
 	virtual void dual_do_data_output(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &z,
 		const unsigned int dwr_loop,
 		bool last
+	);
+
+	virtual void dual_sort_xdmf_by_time(
+		const unsigned int dwr_loop
 	);
 
 	////////////////////////////////////////////////////////////////////////////
@@ -310,7 +319,7 @@ protected:
 	//
 
 	virtual void compute_functional_values(
-			std::shared_ptr< dealii::Vector<double> > un,
+			const typename DTM::types::storage_data_vectors<1>::iterator &u,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 
@@ -322,7 +331,8 @@ protected:
 
 	virtual void compute_drag_lift_tensor(
 			std::shared_ptr< dealii::Vector<double> > un,
-			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+			dealii::Tensor<1, dim> &drag_lift_value
 	);
 
 	////////////////////////////////////////////////////////////////////////////
