@@ -2,7 +2,9 @@
  * @file   ParameterHandler.cc
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
+ * @author Julian Roth (JR)
  * 
+ * @Date 2022-04-26, high/low order problem, JR
  * @Date 2022-01-17, Added Newton parameters, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-06, stokes, UK
@@ -13,7 +15,7 @@
  * @date 2017-02-06, UK
  */
 
-/*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -63,151 +65,165 @@ ParameterHandler() {
 			"determines whether the symmetric stress tensor should be used"
 		);
 
-		// fe convection (primal)
 		declare_entry(
-			"primal convection space type",
+			"primal order",
+			"low",
+			dealii::Patterns::Anything()
+		);
+
+		declare_entry(
+			"dual order",
+			"high",
+			dealii::Patterns::Anything()
+		);
+
+		// LOW order problem
+		// fe convection (low)
+		declare_entry(
+			"low convection space type",
 			"cG",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal convection space type support points",
+			"low convection space type support points",
 			"canonical",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal convection p",
+			"low convection p",
 			"2",
 			dealii::Patterns::Integer()
 		);
 		
 		declare_entry(
-			"primal convection time type",
+			"low convection time type",
 			"dG",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal convection time type support points",
+			"low convection time type support points",
 			"Gauss",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal convection r",
-			"0",
+			"low convection r",
+			"1",
 			dealii::Patterns::Integer()
 		);
 		
-		// fe pressure (primal)
+		// fe pressure (low)
 		declare_entry(
-			"primal pressure space type",
+			"low pressure space type",
 			"cG",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal pressure space type support points",
+			"low pressure space type support points",
 			"canonical",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal pressure p",
+			"low pressure p",
 			"1",
 			dealii::Patterns::Integer()
 		);
 		
 		declare_entry(
-			"primal pressure time type",
+			"low pressure time type",
 			"dG",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal pressure time type support points",
+			"low pressure time type support points",
 			"Gauss",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"primal pressure r",
-			"0",
+			"low pressure r",
+			"1",
 			dealii::Patterns::Integer()
 		);
 		
-		// fe convection (dual)
+		// HIGH order problem
+		// fe convection (high)
 		declare_entry(
-			"dual convection space type",
+			"high convection space type",
 			"cG",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"dual convection space type support points",
+			"high convection space type support points",
 			"canonical",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"dual convection p",
+			"high convection p",
+			"4",
+			dealii::Patterns::Integer()
+		);
+		
+		declare_entry(
+			"high convection time type",
+			"dG",
+			dealii::Patterns::Anything()
+		);
+		
+		declare_entry(
+			"high convection time type support points",
+			"Gauss",
+			dealii::Patterns::Anything()
+		);
+		
+		declare_entry(
+			"high convection r",
+			"2",
+			dealii::Patterns::Integer()
+		);
+		
+		// fe pressure (high)
+		declare_entry(
+			"high pressure space type",
+			"cG",
+			dealii::Patterns::Anything()
+		);
+		
+		declare_entry(
+			"high pressure space type support points",
+			"canonical",
+			dealii::Patterns::Anything()
+		);
+		
+		declare_entry(
+			"high pressure p",
 			"2",
 			dealii::Patterns::Integer()
 		);
 		
 		declare_entry(
-			"dual convection time type",
+			"high pressure time type",
 			"dG",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"dual convection time type support points",
+			"high pressure time type support points",
 			"Gauss",
 			dealii::Patterns::Anything()
 		);
 		
 		declare_entry(
-			"dual convection r",
-			"0",
-			dealii::Patterns::Integer()
-		);
-		
-		// fe pressure (dual)
-		declare_entry(
-			"dual pressure space type",
-			"cG",
-			dealii::Patterns::Anything()
-		);
-		
-		declare_entry(
-			"dual pressure space type support points",
-			"canonical",
-			dealii::Patterns::Anything()
-		);
-		
-		declare_entry(
-			"dual pressure p",
-			"1",
-			dealii::Patterns::Integer()
-		);
-		
-		declare_entry(
-			"dual pressure time type",
-			"dG",
-			dealii::Patterns::Anything()
-		);
-		
-		declare_entry(
-			"dual pressure time type support points",
-			"Gauss",
-			dealii::Patterns::Anything()
-		);
-		
-		declare_entry(
-			"dual pressure r",
-			"0",
+			"high pressure r",
+			"2",
 			dealii::Patterns::Integer()
 		);
 	}
@@ -331,7 +347,7 @@ ParameterHandler() {
 	enter_subsection("DWR"); {
 		declare_entry(
 			"goal type",
-			"L2L2",
+			"mean_drag",
 			dealii::Patterns::Anything()
 		);
 		
@@ -385,6 +401,11 @@ ParameterHandler() {
 			dealii::Patterns::Double()
 		);
 		
+		declare_entry(
+			"refine and coarsen spacetime strategy",
+			"global",
+			dealii::Patterns::Anything()
+		);
 		
 		declare_entry(
 			"refine and coarsen space strategy",
@@ -428,6 +449,11 @@ ParameterHandler() {
 			dealii::Patterns::Double()
 		);
 		
+		declare_entry(
+			"refine and coarsen space riwi alpha",
+			"1.1",
+			dealii::Patterns::Double()
+		);
 		
 		declare_entry(
 			"refine and coarsen time strategy",
@@ -439,6 +465,18 @@ ParameterHandler() {
 			"refine and coarsen time top fraction",
 			"1.0",
 			dealii::Patterns::Double()
+		);
+
+		declare_entry(
+			"replace linearization points",
+			"false",
+			dealii::Patterns::Bool()
+		);
+
+		declare_entry(
+			"replace weights",
+			"false",
+			dealii::Patterns::Bool()
 		);
 	}
 	leave_subsection();
@@ -644,6 +682,37 @@ ParameterHandler() {
 		
 		declare_entry(
 			"dual data output patches",
+			"1",
+			dealii::Patterns::Integer()
+		);
+
+		declare_entry(
+			"error estimator data output dwr loop",
+			"all",
+			dealii::Patterns::Anything()
+		);
+
+		declare_entry(
+			"error estimator data output trigger type",
+			"fixed",
+			dealii::Patterns::Anything()
+		);
+
+		declare_entry(
+			"error estimator data output trigger time",
+			"-1.",
+			dealii::Patterns::Double()
+		);
+
+		declare_entry(
+			"error estimator data output patches auto mode",
+			"true",
+			dealii::Patterns::Bool(),
+			"error estimator data output patches auto mode => using 1 data output patch"
+		);
+
+		declare_entry(
+			"error estimator data output patches",
 			"1",
 			dealii::Patterns::Integer()
 		);

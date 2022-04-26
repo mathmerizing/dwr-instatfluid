@@ -2,7 +2,9 @@
  * @file   ParameterSet.cc
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
+ * @uathor Julian Roth (JR)
  * 
+ * @Date 2022-04-26, high/low order problem, JR
  * @Date 2022-01-17, Added Newton parameters, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-06, stokes, UK
@@ -15,7 +17,7 @@
  * @brief Keeps all parsed input parameters in a struct.
  */
 
-/*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -56,89 +58,108 @@ ParameterSet(
 			"symmetric stress"
 		);
 
-		fe.primal.convection.space_type = handler->get(
-			"primal convection space type"
+		fe.primal_order = handler->get(
+				"primal order"
 		);
-		fe.primal.convection.space_type_support_points = handler->get(
-			"primal convection space type support points"
+
+		fe.dual_order = handler->get(
+				"dual order"
 		);
-		fe.primal.convection.p = static_cast<unsigned int> (
-			handler->get_integer("primal convection p")
+
+		// LOW order problem
+		fe.low.convection.space_type = handler->get(
+			"low convection space type"
 		);
-		
-		fe.primal.convection.time_type = handler->get(
-			"primal convection time type"
+		fe.low.convection.space_type_support_points = handler->get(
+			"low convection space type support points"
 		);
-		fe.primal.convection.time_type_support_points = handler->get(
-			"primal convection time type support points"
-		);
-		fe.primal.convection.r = static_cast<unsigned int> (
-			handler->get_integer("primal convection r")
-		);
-		
-		
-		fe.primal.pressure.space_type = handler->get(
-			"primal pressure space type"
-		);
-		fe.primal.pressure.space_type_support_points = handler->get(
-			"primal pressure space type support points"
-		);
-		fe.primal.pressure.p = static_cast<unsigned int> (
-			handler->get_integer("primal pressure p")
+		fe.low.convection.p = static_cast<unsigned int> (
+			handler->get_integer("low convection p")
 		);
 		
-		fe.primal.pressure.time_type = handler->get(
-			"primal pressure time type"
+		fe.low.convection.time_type = handler->get(
+			"low convection time type"
 		);
-		fe.primal.pressure.time_type_support_points = handler->get(
-			"primal pressure time type support points"
+		fe.low.convection.time_type_support_points = handler->get(
+			"low convection time type support points"
 		);
-		fe.primal.pressure.r = static_cast<unsigned int> (
-			handler->get_integer("primal pressure r")
+		fe.low.convection.r = static_cast<unsigned int> (
+			handler->get_integer("low convection r")
 		);
 		
 		
-		// dual
-		fe.dual.convection.space_type = handler->get(
-			"dual convection space type"
+		fe.low.pressure.space_type = handler->get(
+			"low pressure space type"
 		);
-		fe.dual.convection.space_type_support_points = handler->get(
-			"dual convection space type support points"
+		fe.low.pressure.space_type_support_points = handler->get(
+			"low pressure space type support points"
 		);
-		fe.dual.convection.p = static_cast<unsigned int> (
-			handler->get_integer("dual convection p")
-		);
-		
-		fe.dual.convection.time_type = handler->get(
-			"dual convection time type"
-		);
-		fe.dual.convection.time_type_support_points = handler->get(
-			"dual convection time type support points"
-		);
-		fe.dual.convection.r = static_cast<unsigned int> (
-			handler->get_integer("dual convection r")
+		fe.low.pressure.p = static_cast<unsigned int> (
+			handler->get_integer("low pressure p")
 		);
 		
+		fe.low.pressure.time_type = handler->get(
+			"low pressure time type"
+		);
+		fe.low.pressure.time_type_support_points = handler->get(
+			"low pressure time type support points"
+		);
+		fe.low.pressure.r = static_cast<unsigned int> (
+			handler->get_integer("low pressure r")
+		);
 		
-		fe.dual.pressure.space_type = handler->get(
-			"dual pressure space type"
+		
+		// HIGH order problem
+		fe.high.convection.space_type = handler->get(
+			"high convection space type"
 		);
-		fe.dual.pressure.space_type_support_points = handler->get(
-			"dual pressure space type support points"
+		fe.high.convection.space_type_support_points = handler->get(
+			"high convection space type support points"
 		);
-		fe.dual.pressure.p = static_cast<unsigned int> (
-			handler->get_integer("dual pressure p")
+		fe.high.convection.p = static_cast<unsigned int> (
+			handler->get_integer("high convection p")
 		);
 		
-		fe.dual.pressure.time_type = handler->get(
-			"dual pressure time type"
+		fe.high.convection.time_type = handler->get(
+			"high convection time type"
 		);
-		fe.dual.pressure.time_type_support_points = handler->get(
-			"dual pressure time type support points"
+		fe.high.convection.time_type_support_points = handler->get(
+			"high convection time type support points"
 		);
-		fe.dual.pressure.r = static_cast<unsigned int> (
-			handler->get_integer("dual pressure r")
+		fe.high.convection.r = static_cast<unsigned int> (
+			handler->get_integer("high convection r")
 		);
+		
+		
+		fe.high.pressure.space_type = handler->get(
+			"high pressure space type"
+		);
+		fe.high.pressure.space_type_support_points = handler->get(
+			"high pressure space type support points"
+		);
+		fe.high.pressure.p = static_cast<unsigned int> (
+			handler->get_integer("high pressure p")
+		);
+		
+		fe.high.pressure.time_type = handler->get(
+			"high pressure time type"
+		);
+		fe.high.pressure.time_type_support_points = handler->get(
+			"high pressure time type support points"
+		);
+		fe.high.pressure.r = static_cast<unsigned int> (
+			handler->get_integer("high pressure r")
+		);
+
+		if (!fe.primal_order.compare("low"))
+			fe.primal = fe.low;
+		else
+			fe.primal = fe.high;
+
+		if (!fe.dual_order.compare("low"))
+			fe.dual = fe.low;
+		else
+			fe.dual = fe.high;
 	}
 	handler->leave_subsection();
 	
@@ -210,6 +231,9 @@ ParameterSet(
 			dwr.loops = static_cast<unsigned int> (handler->get_integer("loops"));
 		}
 		
+		dwr.refine_and_coarsen.spacetime.strategy = handler->get(
+			"refine and coarsen spacetime strategy"
+		);
 		
 		dwr.refine_and_coarsen.space.strategy = handler->get(
 			"refine and coarsen space strategy"
@@ -240,6 +264,10 @@ ParameterSet(
 			"refine and coarsen space Schwegler theta2"
 		);
 		
+		dwr.refine_and_coarsen.space.riwi_alpha = handler->get_double(
+			"refine and coarsen space riwi alpha"
+		);
+
 		
 		dwr.refine_and_coarsen.time.strategy = handler->get(
 			"refine and coarsen time strategy"
@@ -247,6 +275,14 @@ ParameterSet(
 		
 		dwr.refine_and_coarsen.time.top_fraction = handler->get_double(
 			"refine and coarsen time top fraction"
+		);
+
+		dwr.replace_linearization_points = handler->get_bool(
+			"replace linearization points"
+		);
+
+		dwr.replace_weights = handler->get_bool(
+			"replace weights"
 		);
 	}
 	handler->leave_subsection();
@@ -390,6 +426,20 @@ ParameterSet(
 		else {
 			data_output.dual.patches = static_cast<unsigned int> (
 				handler->get_integer("dual data output patches")
+			);
+		}
+
+		data_output.error_estimator.dwr_loop = handler->get("error estimator data output dwr loop");
+
+		data_output.error_estimator.trigger_type = handler->get("error estimator data output trigger type");
+		data_output.error_estimator.trigger = handler->get_double("error estimator data output trigger time");
+
+		if (handler->get_bool("error estimator data output patches auto mode")) {
+			data_output.error_estimator.patches = 1;
+		}
+		else {
+			data_output.error_estimator.patches = static_cast<unsigned int> (
+				handler->get_integer("error estimator data output patches")
 			);
 		}
 	}

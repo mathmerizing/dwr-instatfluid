@@ -174,6 +174,14 @@ struct ParameterSet {
 			double trigger;
 			unsigned int patches;
 		} dual;
+
+		struct {
+			std::string dwr_loop;
+			std::string trigger_type;
+
+			double trigger;
+			unsigned int patches;
+		} error_estimator;
 	} data_output;
 	
 	//Newton

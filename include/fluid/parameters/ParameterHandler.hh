@@ -2,7 +2,9 @@
  * @file   ParameterHandler.hh
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
+ * @author Julian Roth (JR)
  * 
+ * @Date 2022-04-26, high/low order problem, JR
  * @Date 2022-01-17, Added Newton parameters, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-07, stokes, UK
@@ -11,7 +13,7 @@
  * @date 2017-02-06, UK
  */
 
-/*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
