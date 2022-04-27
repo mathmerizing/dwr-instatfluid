@@ -87,9 +87,9 @@ public:
 	virtual void set_boundary_indicators();
 	
 	virtual void distribute();
-	virtual void distribute_low_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
-	virtual void distribute_high_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
-	virtual void distribute_pu_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	
 	virtual void create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
