@@ -22,7 +22,7 @@
  * @date 2012-03-13, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -146,13 +146,13 @@ assemble(
 	Assert(_zn.use_count(), dealii::ExcNotInitialized());
 	Assert(_Mzn.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->space.dual.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->time.dual.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.dual.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.dual.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 
 	Assert(slab->spacetime.dual.constraints.use_count(), dealii::ExcNotInitialized());
 	
@@ -166,13 +166,13 @@ assemble(
 	zn = _zn;
 	Mzn = _Mzn;
 	
-	space.dof = slab->space.dual.dof;
-	space.fe = slab->space.dual.fe;
-	space.mapping = slab->space.dual.mapping;
+	space.dof = slab->space.dual.fe_info->dof;
+	space.fe = slab->space.dual.fe_info->fe;
+	space.mapping = slab->space.dual.fe_info->mapping;
 	
-	time.dof = slab->time.dual.dof;
-	time.fe = slab->time.dual.fe;
-	time.mapping = slab->time.dual.mapping;
+	time.dof = slab->time.dual.fe_info->dof;
+	time.fe = slab->time.dual.fe_info->fe;
+	time.mapping = slab->time.dual.fe_info->mapping;
 
 	spacetime.constraints = slab->spacetime.dual.constraints;
 	

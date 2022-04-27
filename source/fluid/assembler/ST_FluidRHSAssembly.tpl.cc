@@ -22,7 +22,7 @@
  * @date 2012-03-13, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -242,13 +242,13 @@ assemble(
 	// check
 	Assert(_Fu.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->space.primal.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.primal.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.primal.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->time.primal.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.primal.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.primal.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 
 	Assert(slab->spacetime.primal.constraints.use_count(), dealii::ExcNotInitialized());
 	
@@ -260,14 +260,14 @@ assemble(
 	u = _u;
 	nonlin = _nonlin;
 	
-	space.dof = slab->space.primal.dof;
-	space.fe = slab->space.primal.fe;
-	space.mapping = slab->space.primal.mapping;
-	space.constraints = slab->space.primal.constraints;
+	space.dof = slab->space.primal.fe_info->dof;
+	space.fe = slab->space.primal.fe_info->fe;
+	space.mapping = slab->space.primal.fe_info->mapping;
+	space.constraints = slab->space.primal.fe_info->constraints;
 	
-	time.dof = slab->time.primal.dof;
-	time.fe = slab->time.primal.fe;
-	time.mapping = slab->time.primal.mapping;
+	time.dof = slab->time.primal.fe_info->dof;
+	time.fe = slab->time.primal.fe_info->fe;
+	time.mapping = slab->time.primal.fe_info->mapping;
 
 	// FEValuesExtractors
 	convection = 0;
@@ -276,13 +276,13 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
 	const dealii::QGaussLobatto<dim> quad_space(
+		std::max(
 			std::max(
-				std::max(
-					space.fe->base_element(0).base_element(0).tensor_degree(),
-					space.fe->base_element(0).base_element(1).tensor_degree()
-				),
-				static_cast<unsigned int> (1)
-			) + 1
+				space.fe->base_element(0).base_element(0).tensor_degree(),
+				space.fe->base_element(0).base_element(1).tensor_degree()
+			),
+			static_cast<unsigned int> (1)
+		) + 1
 	);
 
 	const dealii::QGauss<1> quad_time(

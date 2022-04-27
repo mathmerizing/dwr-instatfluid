@@ -21,7 +21,7 @@
  * @date 2012-03-13, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -144,13 +144,13 @@ assemble(
 	Assert(_um.use_count(), dealii::ExcNotInitialized());
 	Assert(_Mum.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->space.primal.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.primal.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.primal.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->time.primal.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.primal.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.primal.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 
 	Assert(slab->spacetime.primal.constraints.use_count(), dealii::ExcNotInitialized());
 	
@@ -164,13 +164,13 @@ assemble(
 	um = _um;
 	Mum = _Mum;
 	
-	space.dof = slab->space.primal.dof;
-	space.fe = slab->space.primal.fe;
-	space.mapping = slab->space.primal.mapping;
+	space.dof = slab->space.primal.fe_info->dof;
+	space.fe = slab->space.primal.fe_info->fe;
+	space.mapping = slab->space.primal.fe_info->mapping;
 	
-	time.dof = slab->time.primal.dof;
-	time.fe = slab->time.primal.fe;
-	time.mapping = slab->time.primal.mapping;
+	time.dof = slab->time.primal.fe_info->dof;
+	time.fe = slab->time.primal.fe_info->fe;
+	time.mapping = slab->time.primal.fe_info->mapping;
 
 	spacetime.constraints = slab->spacetime.primal.constraints;
 	

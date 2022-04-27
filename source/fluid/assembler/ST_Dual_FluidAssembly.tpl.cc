@@ -239,14 +239,14 @@ assemble(
 	
 	Assert(_L.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->space.dual.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.mapping.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.constraints.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->constraints.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->time.dual.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.dual.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.dual.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
 	Assert(slab->spacetime.dual.constraints.use_count(), dealii::ExcNotInitialized());
 	
@@ -257,14 +257,14 @@ assemble(
 	
 	L = _L;
 	
-	space.dof = slab->space.dual.dof;
-	space.fe = slab->space.dual.fe;
-	space.mapping = slab->space.dual.mapping;
-	space.constraints = slab->space.dual.constraints;
+	space.dof = slab->space.dual.fe_info->dof;
+	space.fe = slab->space.dual.fe_info->fe;
+	space.mapping = slab->space.dual.fe_info->mapping;
+	space.constraints = slab->space.dual.fe_info->constraints;
 	
-	time.dof = slab->time.dual.dof;
-	time.fe = slab->time.dual.fe;
-	time.mapping = slab->time.dual.mapping;
+	time.dof = slab->time.dual.fe_info->dof;
+	time.fe = slab->time.dual.fe_info->fe;
+	time.mapping = slab->time.dual.fe_info->mapping;
 	
  	spacetime.constraints = slab->spacetime.dual.constraints;
 	

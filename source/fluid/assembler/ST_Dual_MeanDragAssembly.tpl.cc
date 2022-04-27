@@ -19,7 +19,7 @@
  * @date 2012-03-13, UK
  */
 
-/*  Copyright (C) 2012-2022 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -204,14 +204,14 @@ assemble(
 	// check
 	Assert(dim==2 || dim==3, dealii::ExcNotImplemented());
 
-	Assert(slab->space.dual.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.mapping.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.constraints.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.dual.fe_info->constraints.use_count(), dealii::ExcNotInitialized());
 	
-	Assert(slab->time.dual.dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.dual.fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->time.dual.mapping.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
 	Assert(Je.use_count(), dealii::ExcNotInitialized());
 	Assert(Je->size(), dealii::ExcNotInitialized());
@@ -223,17 +223,17 @@ assemble(
 
 	_Je = std::make_shared< dealii::Vector<double> > ();
 	_Je->reinit(
-		slab->space.dual.dof->n_dofs() * slab->time.dual.dof->n_dofs()
+		slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
 	);
 
-	space.dof = slab->space.dual.dof;
-	space.fe = slab->space.dual.fe;
-	space.mapping = slab->space.dual.mapping;
-	space.constraints = slab->space.dual.constraints;
+	space.dof = slab->space.dual.fe_info->dof;
+	space.fe = slab->space.dual.fe_info->fe;
+	space.mapping = slab->space.dual.fe_info->mapping;
+	space.constraints = slab->space.dual.fe_info->constraints;
 	
-	time.dof = slab->time.dual.dof;
-	time.fe = slab->time.dual.fe;
-	time.mapping = slab->time.dual.mapping;
+	time.dof = slab->time.dual.fe_info->dof;
+	time.fe = slab->time.dual.fe_info->fe;
+	time.mapping = slab->time.dual.fe_info->mapping;
 	
 	// FEValuesExtractors
 	convection = 0;
@@ -254,24 +254,14 @@ assemble(
 	// WorkStream assemble
 	//
 	
-//	const dealii::QGaussLobatto<dim> quad_space(
-//		std::max(
-//			std::max(
-//				space.fe->base_element(0).base_element(0).tensor_degree(),
-//				space.fe->base_element(0).base_element(1).tensor_degree()
-//			),
-//			static_cast<unsigned int> (1)
-//		) + 1
-//	);
-	
-	const dealii::QGaussLobatto<dim - 1> face_quad_space(
+	const dealii::QGauss<dim - 1> face_quad_space(
 		std::max(
 			std::max(
 				space.fe->base_element(0).base_element(0).tensor_degree(),
 				space.fe->base_element(0).base_element(1).tensor_degree()
 			),
 			static_cast<unsigned int> (1)
-		) + 1
+		) + 4
 	);
 
 	const dealii::QGauss<1> quad_time(
@@ -373,8 +363,8 @@ void Assembler<dim>::local_assemble_cell(
 					scratch.space_fe_face_values.reinit(cell, face);
 					for (unsigned int q{0}; q < scratch.space_fe_face_values.n_quadrature_points; ++q) {
 						scratch.viscosity = function.viscosity->value(
-											scratch.space_fe_face_values.quadrature_point(q),0
-										);
+							scratch.space_fe_face_values.quadrature_point(q),0
+						);
 
 						for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
 							scratch.space_grad_v[k] =
@@ -383,22 +373,24 @@ void Assembler<dim>::local_assemble_cell(
 								scratch.space_fe_face_values[pressure].value(k,q);
 						}
 
+						dealii::Tensor<2, dim> sigma_fluid;
+						dealii::Tensor<2, dim> pI;
+
 						for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
 						for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
-							dealii::Tensor<2, dim> stress;
-							stress.clear();
-							for (unsigned int k{0}; k < dim; ++k)
-								stress[k][k] -= scratch.space_p[i];
+							// reset all values to zero
+							sigma_fluid.clear();
+							pI.clear();
 
+							for (unsigned int k{0}; k < dim; ++k)
+								pI[k][k] = scratch.space_p[i];
+
+							sigma_fluid = -pI + scratch.viscosity * scratch.space_grad_v[i];
 							if (symmetric_stress)
 							{
-								stress += scratch.viscosity * (scratch.space_grad_v[i] + transpose(scratch.space_grad_v[i]));
+								sigma_fluid += scratch.viscosity * transpose(scratch.space_grad_v[i]);
 							}
-							else
-							{
-								stress += scratch.viscosity * scratch.space_grad_v[i];
-							}
-							const dealii::Tensor<1, dim> drag_lift_value = -1.0 * stress * scratch.space_fe_face_values.normal_vector(q);
+							const dealii::Tensor<1, dim> drag_lift_value = -1.0 * sigma_fluid * scratch.space_fe_face_values.normal_vector(q);
 
 							copydata.vi_Jei_vector[n](
 								i + ii*space.fe->dofs_per_cell) +=
