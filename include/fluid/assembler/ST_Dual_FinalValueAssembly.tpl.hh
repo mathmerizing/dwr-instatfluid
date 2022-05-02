@@ -24,7 +24,7 @@
  * Implements the assembly of the dual Navier-Stokes solution from one slab to the next one.
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -131,7 +131,7 @@ public:
 	~Assembler() = default;
 	
 	void assemble(
-		std::shared_ptr< dealii::BlockVector<double> > zn,  // input
+		std::shared_ptr< dealii::Vector<double> > zn,  // input
 		std::shared_ptr< dealii::Vector<double> > Mzn, // output
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
@@ -149,7 +149,7 @@ protected:
 	
 private:
 	////////////////////////////////////////////////////////////////////////////
-	std::shared_ptr< dealii::BlockVector<double> > zn;
+	std::shared_ptr< dealii::Vector<double> > zn;
 	std::shared_ptr< dealii::Vector<double> > Mzn;
 	
 	struct {

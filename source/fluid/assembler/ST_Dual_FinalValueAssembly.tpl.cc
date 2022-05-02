@@ -137,7 +137,7 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::BlockVector<double> > _zn,  // input
+	std::shared_ptr< dealii::Vector<double> > _zn,  // input
 	std::shared_ptr< dealii::Vector<double> > _Mzn, // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {

@@ -1,7 +1,9 @@
 /**
  * @file DataOutput.tpl.hh
  * @author Uwe Koecher (UK)
+ * @author Julian Roth (JR)
  *
+ * @date 2022-05-02, remove BlockVector, JR
  * @date 2019-11-07, stokes, UK
  * @date 2018-05-15, piot, UK
  * @date 2016-08-11, DWR, UK
@@ -15,7 +17,7 @@
  * @brief This is a template to output a VECTOR as hdf5/xdmf.
  */
 
-/*  Copyright (C) 2012-2019 by Uwe Koecher                                    */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -111,7 +113,7 @@ public:
 	
 	virtual void write_data(
 		const std::string &solution_file_name,
-		std::shared_ptr< VectorType > solution_vector,
+		std::shared_ptr< dealii::Vector<double> > solution_vector,
 		std::shared_ptr< dealii::DataPostprocessor<dim> > data_postprocessor,
 		const double &time
 	);

@@ -242,10 +242,10 @@ protected:
 		} storage;
 
 		/// temporary storage for dual solution u at \f$ t_m \f$
-		std::shared_ptr< dealii::BlockVector<double> > zm;
+		std::shared_ptr< dealii::Vector<double> > zm;
 
 		/// temporary storage for dual solution u at \f$ t_n \f$
-		std::shared_ptr< dealii::BlockVector<double> > zn;
+		std::shared_ptr< dealii::Vector<double> > zn;
 
 		/// temporary storage for dual right hand side assembly
 		std::shared_ptr< dealii::Vector<double> > Mzn;

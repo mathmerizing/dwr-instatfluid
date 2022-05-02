@@ -1683,10 +1683,10 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 			// create sparsity patterns from block couplings
 
 			// stokes: "L" block matrix
-			dealii::DynamicSparsityPattern dsp; //dealii::BlockDynamicSparsityPattern dsp;
-			dsp.reinit(
-				*slab->space.primal.fe_info->partitioning_locally_owned_dofs
-			);
+			dealii::DynamicSparsityPattern dsp(slab->space.primal.fe_info->dof->n_dofs()); //dealii::BlockDynamicSparsityPattern dsp;
+//			dsp.reinit(
+//				slab->space.primal.fe_info->dof->n_dofs() //*slab->space.primal.fe_info->partitioning_locally_owned_dofs
+//			);
 
 			dealii::DoFTools::make_sparsity_pattern(
 				*slab->space.primal.fe_info->dof,
@@ -1792,10 +1792,10 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 				dealii::ExcNotInitialized()
 			);
 
-			Assert(
-				slab->space.primal.fe_info->block_sizes.use_count(),
-				dealii::ExcNotInitialized()
-			);
+//			Assert(
+//				slab->space.primal.fe_info->block_sizes.use_count(),
+//				dealii::ExcNotInitialized()
+//			);
 
 			dealii::DynamicSparsityPattern dsp_transfer_L(
 				slab->space.primal.fe_info->dof->n_dofs(), // test
@@ -1828,7 +1828,7 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 
 			slab->space.primal.sp_L = std::make_shared< dealii::SparsityPattern > ();
 			Assert(slab->space.primal.sp_L.use_count(), dealii::ExcNotInitialized());
-			slab->space.primal.sp_L->copy_from(slab->space.primal.sp_block_L); // dsp_transfer_L);
+			slab->space.primal.sp_L = slab->space.primal.sp_block_L; //slab->space.primal.sp_L->copy_from(slab->space.primal.sp_block_L); // dsp_transfer_L);
 		}
 
 		// Step 2:
@@ -1839,6 +1839,25 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 		);
 
 		// TODO: from here rethink how the code needs to be adapted from BlockSparsityPattern to SparsityPattern
+
+		// get all dofs componentwise
+		std::vector< dealii::types::global_dof_index > dofs_per_component(
+			slab->space.primal.fe_info->dof->get_fe_collection().n_components(), 0
+		);
+
+		dofs_per_component = dealii::DoFTools::count_dofs_per_fe_component(
+			*slab->space.primal.fe_info->dof,
+			true
+		);
+
+		// set specific values of dof counts
+		dealii::types::global_dof_index N_b; // convection
+
+		// dof count convection: vector-valued primitive FE
+		N_b = 0;
+		for (unsigned int d{0}; d < dim; ++d) {
+			N_b += dofs_per_component[d];
+		}
 
 		{
 			// sparsity pattern block for coupling between time cells
@@ -1852,30 +1871,33 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 
 				// TODO: use sp_L, once you have more time derivatives!
 				// NOTE: here we have only ((phi * \partial_t b)).
-				auto cell{slab->space.primal.sp_block_L->block(0,0).begin()};
-				auto endc{slab->space.primal.sp_block_L->block(0,0).end()};
+				auto cell{slab->space.primal.sp_block_L->begin()};
+				auto endc{slab->space.primal.sp_block_L->end()};
 
 				dealii::types::global_dof_index offset{0};
 				for ( ; cell != endc; ++cell) {
-					for (dealii::types::global_dof_index nn{0};
-						nn < slab->time.tria->n_global_active_cells(); ++nn) {
+					if (cell->row() < N_b && cell->column() < N_b) // only consider (v,v) entries of sparsity pattern
+					{
+						for (dealii::types::global_dof_index nn{0};
+							nn < slab->time.tria->n_global_active_cells(); ++nn) {
 
-						offset =
-							slab->space.primal.fe_info->dof->n_dofs() *
-							nn * slab->time.primal.fe_info->fe->dofs_per_cell;
+							offset =
+								slab->space.primal.fe_info->dof->n_dofs() *
+								nn * slab->time.primal.fe_info->fe->dofs_per_cell;
 
-						if (nn)
-						for (unsigned int i{0}; i < slab->time.primal.fe_info->fe->dofs_per_cell; ++i)
-						for (unsigned int j{0}; j < slab->time.primal.fe_info->fe->dofs_per_cell; ++j) {
-							dsp.add(
-								// downwind test
-								cell->row() + offset
-								+ slab->space.primal.fe_info->dof->n_dofs() * i,
-								// trial functions of K^-
-								cell->column() + offset
-								- slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->fe->dofs_per_cell
-								+ slab->space.primal.fe_info->dof->n_dofs() * j
-							);
+							if (nn)
+							for (unsigned int i{0}; i < slab->time.primal.fe_info->fe->dofs_per_cell; ++i)
+							for (unsigned int j{0}; j < slab->time.primal.fe_info->fe->dofs_per_cell; ++j) {
+								dsp.add(
+									// downwind test
+									cell->row() + offset
+									+ slab->space.primal.fe_info->dof->n_dofs() * i,
+									// trial functions of K^-
+									cell->column() + offset
+									- slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->fe->dofs_per_cell
+									+ slab->space.primal.fe_info->dof->n_dofs() * j
+								);
+							}
 						}
 					}
 				}
@@ -1938,7 +1960,7 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 	{
 		// create sparsity pattern
 		Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-		slab->space.dual.sp_block_L = std::make_shared< dealii::BlockSparsityPattern >();
+		slab->space.dual.sp_block_L = std::make_shared< dealii::SparsityPattern >();
 		slab->space.dual.sp_L = std::make_shared< dealii::SparsityPattern >();
 		{
 			// logical coupling tables for basis function and corresponding blocks
@@ -1978,10 +2000,10 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 			// create sparsity patterns from block couplings
 
 			// stokes: "L" block matrix
-			dealii::BlockDynamicSparsityPattern dsp;
-			dsp.reinit(
-				*slab->space.dual.fe_info->partitioning_locally_owned_dofs
-			);
+			dealii::DynamicSparsityPattern dsp(slab->space.dual.fe_info->dof->n_dofs());;
+//			dsp.reinit(
+//				*slab->space.dual.fe_info->partitioning_locally_owned_dofs
+//			);
 
 			dealii::DoFTools::make_sparsity_pattern(
 				*slab->space.dual.fe_info->dof,
@@ -2000,15 +2022,6 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 			);
 			slab->space.dual.sp_block_L->copy_from(dsp);
 		}
-
-// 			////////////////////////////////////////////////////////////////////////////
-// 			// TODO:    remove the following lines:
-// 			// WARNING: only working on 1 mpi process only!
-// 			// debug output of the sparsity patterns:
-// #ifdef DEBUG
-// 			std::ofstream out("sp_L.gpl");
-// 			slab->space.dual.sp_block_L->print_gnuplot(out);
-// #endif
 	}
 
 	////////////////////////////////////////////////////////////////////////////
@@ -2066,21 +2079,6 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 		}
 
 		slab->spacetime.dual.constraints->close();
-
-// 			DTM::pout
-// 				<< "Number of constraints: "
-// 				<< slab->spacetime.dual.constraints->n_constraints()
-// 				<< std::endl;
-
-// #ifdef DEBUG
-// 			std::cout << "space-time constraints" << std::endl;
-// 			slab->spacetime.dual.constraints->print(std::cout);
-// 			std::cout << std::endl << std::endl;
-//
-// 			// TODO: remove the following:
-// 			std::ofstream out("constraints.log");
-// 			slab->spacetime.dual.constraints->print(out);
-// #endif
 	}
 
 	// dual sparsity pattern (upwind trial function in time)
@@ -2111,43 +2109,43 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 				dealii::ExcNotInitialized()
 			);
 
-			Assert(
-				slab->space.dual.fe_info->block_sizes.use_count(),
-				dealii::ExcNotInitialized()
-			);
+//			Assert(
+//				slab->space.dual.fe_info->block_sizes.use_count(),
+//				dealii::ExcNotInitialized()
+//			);
 
 			dealii::DynamicSparsityPattern dsp_transfer_L(
 				slab->space.dual.fe_info->dof->n_dofs(), // test
 				slab->space.dual.fe_info->dof->n_dofs()  // trial
 			);
 
-			// K_bb block
-			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(0,0) ) {
-				dsp_transfer_L.add(
-					sp_entry.row(),
-					sp_entry.column()
-				);
-			}
-
-			// E_bp block
-			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(0,1) ) {
-				dsp_transfer_L.add(
-					sp_entry.row(),
-					sp_entry.column() + (*slab->space.dual.fe_info->block_sizes)[0]
-				);
-			}
-
-			// E_pb block
-			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(1,0) ) {
-				dsp_transfer_L.add(
-					sp_entry.row() + (*slab->space.dual.fe_info->block_sizes)[0],
-					sp_entry.column()
-				);
-			}
+//			// K_bb block
+//			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(0,0) ) {
+//				dsp_transfer_L.add(
+//					sp_entry.row(),
+//					sp_entry.column()
+//				);
+//			}
+//
+//			// E_bp block
+//			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(0,1) ) {
+//				dsp_transfer_L.add(
+//					sp_entry.row(),
+//					sp_entry.column() + (*slab->space.dual.fe_info->block_sizes)[0]
+//				);
+//			}
+//
+//			// E_pb block
+//			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(1,0) ) {
+//				dsp_transfer_L.add(
+//					sp_entry.row() + (*slab->space.dual.fe_info->block_sizes)[0],
+//					sp_entry.column()
+//				);
+//			}
 
 			slab->space.dual.sp_L = std::make_shared< dealii::SparsityPattern > ();
 			Assert(slab->space.dual.sp_L.use_count(), dealii::ExcNotInitialized());
-			slab->space.dual.sp_L->copy_from(dsp_transfer_L);
+			slab->space.dual.sp_L = slab->space.dual.sp_block_L; //slab->space.dual.sp_L->copy_from(dsp_transfer_L);
 		}
 
 		// Step 2:
@@ -2156,6 +2154,25 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 			slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs(), // test
 			slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()  // trial
 		);
+
+		// get all dofs componentwise
+		std::vector< dealii::types::global_dof_index > dofs_per_component(
+			slab->space.dual.fe_info->dof->get_fe_collection().n_components(), 0
+		);
+
+		dofs_per_component = dealii::DoFTools::count_dofs_per_fe_component(
+			*slab->space.dual.fe_info->dof,
+			true
+		);
+
+		// set specific values of dof counts
+		dealii::types::global_dof_index N_b; // convection
+
+		// dof count convection: vector-valued primitive FE
+		N_b = 0;
+		for (unsigned int d{0}; d < dim; ++d) {
+			N_b += dofs_per_component[d];
+		}
 
 		{
 			// sparsity pattern block for coupling between time cells
@@ -2169,30 +2186,33 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 
 				// TODO: use sp_L, once you have more time derivatives!
 				// NOTE: here we have only ((phi * \partial_t b)).
-				auto cell{slab->space.dual.sp_block_L->block(0,0).begin()};
-				auto endc{slab->space.dual.sp_block_L->block(0,0).end()};
+				auto cell{slab->space.dual.sp_block_L->begin()}; // block(0,0)
+				auto endc{slab->space.dual.sp_block_L->end()}; // block(0,0)
 
 				dealii::types::global_dof_index offset{0};
 				for ( ; cell != endc; ++cell) {
-					for (dealii::types::global_dof_index nn{0};
-						nn < slab->time.tria->n_global_active_cells(); ++nn) {
+					if (cell->row() < N_b && cell->column() < N_b) // only consider (v,v) entries of sparsity pattern
+					{
+						for (dealii::types::global_dof_index nn{0};
+							nn < slab->time.tria->n_global_active_cells(); ++nn) {
 
-						offset =
-							slab->space.dual.fe_info->dof->n_dofs() *
-							nn * slab->time.dual.fe_info->fe->dofs_per_cell;
+							offset =
+								slab->space.dual.fe_info->dof->n_dofs() *
+								nn * slab->time.dual.fe_info->fe->dofs_per_cell;
 
-						if (nn)
-						for (unsigned int i{0}; i < slab->time.dual.fe_info->fe->dofs_per_cell; ++i)
-						for (unsigned int j{0}; j < slab->time.dual.fe_info->fe->dofs_per_cell; ++j) {
-							dual_dsp.add(
-								// test
-								cell->row() + offset
-								- slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->fe->dofs_per_cell
-								+ slab->space.dual.fe_info->dof->n_dofs() * i,
-								// trial
-								cell->column() + offset
-								+ slab->space.dual.fe_info->dof->n_dofs() * j
-							);
+							if (nn)
+							for (unsigned int i{0}; i < slab->time.dual.fe_info->fe->dofs_per_cell; ++i)
+							for (unsigned int j{0}; j < slab->time.dual.fe_info->fe->dofs_per_cell; ++j) {
+								dual_dsp.add(
+									// test
+									cell->row() + offset
+									- slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->fe->dofs_per_cell
+									+ slab->space.dual.fe_info->dof->n_dofs() * i,
+									// trial
+									cell->column() + offset
+									+ slab->space.dual.fe_info->dof->n_dofs() * j
+								);
+							}
 						}
 					}
 				}

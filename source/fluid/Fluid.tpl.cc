@@ -754,7 +754,7 @@ primal_calculate_boundary_values(
 		// std::map<dealii::types::global_dof_index, double>
 		{
 			const dealii::QGauss<1> support_points(
-				slab->time.primal.fe->tensor_degree()+1
+				slab->time.primal.fe_info->fe->tensor_degree()+1
 			);
 
 			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
@@ -2594,14 +2594,15 @@ dual_do_backward_TMS(
 	Assert(primal.storage.u->size(), dealii::ExcNotInitialized());
 	auto u = std::prev(primal.storage.u->end());
 
-	// error indicators
-	Assert(error_estimator.storage.eta_space.use_count(), dealii::ExcNotInitialized());
-	Assert(error_estimator.storage.eta_space->size(), dealii::ExcNotInitialized());
-	auto eta_space = std::prev(error_estimator.storage.eta_space->end());
-
-	Assert(error_estimator.storage.eta_time.use_count(), dealii::ExcNotInitialized());
-	Assert(error_estimator.storage.eta_time->size(), dealii::ExcNotInitialized());
-	auto eta_time = std::prev(error_estimator.storage.eta_time->end());
+	// TODO: comment in
+//	// error indicators
+//	Assert(error_estimator.storage.eta_space.use_count(), dealii::ExcNotInitialized());
+//	Assert(error_estimator.storage.eta_space->size(), dealii::ExcNotInitialized());
+//	auto eta_space = std::prev(error_estimator.storage.eta_space->end());
+//
+//	Assert(error_estimator.storage.eta_time.use_count(), dealii::ExcNotInitialized());
+//	Assert(error_estimator.storage.eta_time->size(), dealii::ExcNotInitialized());
+//	auto eta_time = std::prev(error_estimator.storage.eta_time->end());
 
 	////////////////////////////////////////////////////////////////////////////
 	// interpolate (or project) final condition
@@ -2672,11 +2673,12 @@ dual_do_backward_TMS(
 			// error indicators
 			grid->initialize_pu_grid_components_on_slab(slab);
 			grid->distribute_pu_on_slab(slab);
-			eta_reinit_storage_on_slab(
-				slab,
-				eta_space,
-				eta_time
-			);
+			// TODO: comment in
+//			eta_reinit_storage_on_slab(
+//				slab,
+//				eta_space,
+//				eta_time
+//			);
 
 			// TODO: comment in
 //			error_estimator.pu_dwr = std::make_shared< stokes::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > ();
@@ -2699,7 +2701,7 @@ dual_do_backward_TMS(
 			//
 
 			dual.zn = std::make_shared< dealii::Vector<double> > ();
-			dual.zn->reinit(*slab->space.dual.fe_info->dof->n_dofs());
+			dual.zn->reinit(slab->space.dual.fe_info->dof->n_dofs());
 			*dual.zn = 0.;
 
 			Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
@@ -2725,7 +2727,7 @@ dual_do_backward_TMS(
 			Assert(dual.zm.use_count(), dealii::ExcNotInitialized());
 
 			dual.zn = std::make_shared< dealii::Vector<double> > ();
-			dual.zn->reinit(*slab->space.dual.fe_info->dof->n_dofs());
+			dual.zn->reinit(slab->space.dual.fe_info->dof->n_dofs());
 			*dual.zn = 0.;
 
 			// for n < N interpolate between two (different) spatial meshes
@@ -2808,7 +2810,7 @@ dual_do_backward_TMS(
 
 		// evaluate solution z(t_m)
 		dual.zm = std::make_shared< dealii::Vector<double> > ();
-		dual.zm->reinit(*slab->space.dual.fe_info->dof->n_dofs());
+		dual.zm->reinit(slab->space.dual.fe_info->dof->n_dofs());
 		*dual.zm = 0.;
 
 		{
@@ -2851,10 +2853,11 @@ dual_do_backward_TMS(
 
 		// output data
 		dual_do_data_output(slab, z, dwr_loop, last);
-		if (n < N)
-			eta_do_data_output(std::next(slab), std::next(eta_space), std::next(eta_time), dwr_loop, last);
-		if (n == 1)
-			eta_do_data_output(slab, eta_space, eta_time, dwr_loop, last);
+		// TODO: comment in
+//		if (n < N)
+//			eta_do_data_output(std::next(slab), std::next(eta_space), std::next(eta_time), dwr_loop, last);
+//		if (n == 1)
+//			eta_do_data_output(slab, eta_space, eta_time, dwr_loop, last);
 
 		////////////////////////////////////////////////////////////////////////
 		// allow garbage collector to clean up memory
@@ -2877,8 +2880,9 @@ dual_do_backward_TMS(
 		--slab;
 		--z;
 		--u;
-		--eta_space;
-		--eta_time;
+		// TODO: comment in
+//		--eta_space;
+//		--eta_time;
 
 		DTM::pout << std::endl;
 	}
@@ -3006,7 +3010,7 @@ dual_do_data_output_on_slab(
 
  	auto z_trigger = std::make_shared< dealii::Vector<double> > ();
  	z_trigger->reinit(
- 		*slab->space.dual.fe_info->dof->n_dofs()
+ 		slab->space.dual.fe_info->dof->n_dofs()
  	);
 
 	std::ostringstream filename;
@@ -3103,7 +3107,7 @@ dual_do_data_output_on_slab(
 
 			fe_values_time.reinit(cell_time);
 
-			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.dual.fe->dofs_per_cell);
+			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.dual.fe_info->fe->dofs_per_cell);
 			cell_time->get_dof_indices(local_dof_indices);
 
 			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
@@ -3161,7 +3165,7 @@ dual_do_data_output_on_slab_Qn_mode(
 
 	auto z_trigger = std::make_shared< dealii::Vector<double> > ();
  	z_trigger->reinit(
- 		*slab->space.dual.fe_info->dof->n_dofs()
+ 		slab->space.dual.fe_info->dof->n_dofs()
  	);
 
 	std::ostringstream filename;

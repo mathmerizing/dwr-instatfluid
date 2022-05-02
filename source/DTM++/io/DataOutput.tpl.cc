@@ -232,7 +232,7 @@ void
 DataOutput<dim>::
 write_data(
 	const std::string &solution_name,
-	std::shared_ptr< VectorType > solution_vector,
+	std::shared_ptr< dealii::Vector<double> > solution_vector,
 	std::shared_ptr< dealii::DataPostprocessor<dim> > data_postprocessor,
 	const double &time) {
 	Assert(format == DataFormat::HDF5_XDMF, dealii::ExcNotImplemented());

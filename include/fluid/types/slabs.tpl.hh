@@ -90,29 +90,29 @@ struct s_slab {
 		struct {
 			std::shared_ptr< struct FESpaceInfo > fe_info;
 			
-			std::shared_ptr< dealii::BlockSparsityPattern > sp_block_L;
+			std::shared_ptr< dealii::SparsityPattern > sp_block_L;
 			std::shared_ptr< dealii::SparsityPattern > sp_L;
 		} primal;
 		
  		struct {
 			std::shared_ptr< struct FESpaceInfo > fe_info;
 
- 			std::shared_ptr< dealii::BlockSparsityPattern > sp_block_L;
+ 			std::shared_ptr< dealii::SparsityPattern > sp_block_L;
  			std::shared_ptr< dealii::SparsityPattern > sp_L;
  		} dual;
+
+ 		struct {
+ 			std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
+ 		} high;
+
+ 		struct {
+ 			std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
+ 		} low;
+
+ 		struct {
+ 			std::shared_ptr< struct ScalarFESpaceInfo > fe_info = std::make_shared< struct ScalarFESpaceInfo >();
+ 		} pu;
 	} space;
-
-	struct {
-		std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
-	} high;
-
-	struct {
-		std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
-	} low;
-	
-	struct {
-		std::shared_ptr< struct ScalarFESpaceInfo > fe_info = std::make_shared< struct ScalarFESpaceInfo >();
-	} pu;
 
 	//////////////////////////////////////////////////////////////////
 	// TIME
