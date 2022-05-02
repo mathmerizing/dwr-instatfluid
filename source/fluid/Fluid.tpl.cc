@@ -298,20 +298,18 @@ run() {
 		dual_reinit_storage();
 		dual_init_data_output();
 		{
-			// TODO: comment in
-//			// error indicators
-//			eta_reinit_storage();
-//			eta_init_data_output();
+			// error indicators
+			eta_reinit_storage();
+			eta_init_data_output();
 		}
 		dual_do_backward_TMS(dwr_loop, false);
-		//dual_do_data_output(dwr_loop,false); // TODO: comment in
 		{
 			dual_sort_xdmf_by_time(dwr_loop);
-//			eta_sort_xdmf_by_time(dwr_loop); // // TODO: comment in
+			eta_sort_xdmf_by_time(dwr_loop);
 		}
 
 		// error estimation
-//		compute_effectivity_index(); // TODO: comment in
+		compute_effectivity_index();
 
 		// compute the number of primal and dual space-time dofs
 		unsigned long int n_primal_st_dofs = 0;
@@ -2334,26 +2332,6 @@ dual_solve_slab_problem(
 			}
 		} // for each (boundary) colour
 
-//#ifdef DEBUG
-//		{
-//
-//			std::ostringstream filename;
-//			filename << "L"
-//			<< ".gpl";
-//			std::ofstream out(filename.str().c_str(), std::ios_base::out);
-//
-//			dual.L->print(out);
-//			out.close();
-//		}
-//#endif
-
-// 		dealii::MatrixTools::apply_boundary_values(
-// 			boundary_values,
-// 			*dual.L,
-// 			*u->x[0],
-// 			*dual.b
-// 		);
-
 		////////////////////////////////////////////////////////////////////////
 		// MatrixTools::apply_boundary_values (number = double for A,x,b)
 		// input: A sparse matrix: IR^(m,n)
@@ -2518,18 +2496,6 @@ dual_solve_slab_problem(
 // 					}
 // 				}
 // 			}
-
-// #ifdef DEBUG
-// 			{
-// 				std::ostringstream filename;
-// 				filename << "L"
-// 				<< ".gpl";
-// 				std::ofstream out(filename.str().c_str(), std::ios_base::out);
-//
-// 				dual.L->print(out);
-// 				out.close();
-// 			}
-// #endif
 		}
 	}
 	DTM::pout << " (done)" << std::endl;
@@ -2594,15 +2560,14 @@ dual_do_backward_TMS(
 	Assert(primal.storage.u->size(), dealii::ExcNotInitialized());
 	auto u = std::prev(primal.storage.u->end());
 
-	// TODO: comment in
-//	// error indicators
-//	Assert(error_estimator.storage.eta_space.use_count(), dealii::ExcNotInitialized());
-//	Assert(error_estimator.storage.eta_space->size(), dealii::ExcNotInitialized());
-//	auto eta_space = std::prev(error_estimator.storage.eta_space->end());
-//
-//	Assert(error_estimator.storage.eta_time.use_count(), dealii::ExcNotInitialized());
-//	Assert(error_estimator.storage.eta_time->size(), dealii::ExcNotInitialized());
-//	auto eta_time = std::prev(error_estimator.storage.eta_time->end());
+	// error indicators
+	Assert(error_estimator.storage.eta_space.use_count(), dealii::ExcNotInitialized());
+	Assert(error_estimator.storage.eta_space->size(), dealii::ExcNotInitialized());
+	auto eta_space = std::prev(error_estimator.storage.eta_space->end());
+
+	Assert(error_estimator.storage.eta_time.use_count(), dealii::ExcNotInitialized());
+	Assert(error_estimator.storage.eta_time->size(), dealii::ExcNotInitialized());
+	auto eta_time = std::prev(error_estimator.storage.eta_time->end());
 
 	////////////////////////////////////////////////////////////////////////////
 	// interpolate (or project) final condition
@@ -2673,25 +2638,24 @@ dual_do_backward_TMS(
 			// error indicators
 			grid->initialize_pu_grid_components_on_slab(slab);
 			grid->distribute_pu_on_slab(slab);
-			// TODO: comment in
-//			eta_reinit_storage_on_slab(
-//				slab,
-//				eta_space,
-//				eta_time
-//			);
 
-			// TODO: comment in
-//			error_estimator.pu_dwr = std::make_shared< stokes::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > ();
-//			// set the important variables for the error estimator
-//			error_estimator.pu_dwr->init(
-//				function.viscosity,
-//				grid,
-//				parameter_set->fe.symmetric_stress,
-//				parameter_set->dwr.replace_linearization_points,
-//				parameter_set->dwr.replace_weights,
-//				parameter_set->fe.primal_order,
-//				parameter_set->fe.dual_order
-//			);
+			eta_reinit_storage_on_slab(
+				slab,
+				eta_space,
+				eta_time
+			);
+
+			error_estimator.pu_dwr = std::make_shared< fluid::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > ();
+			// set the important variables for the error estimator
+			error_estimator.pu_dwr->init(
+				function.viscosity,
+				grid,
+				parameter_set->fe.symmetric_stress,
+				parameter_set->dwr.replace_linearization_points,
+				parameter_set->dwr.replace_weights,
+				parameter_set->fe.primal_order,
+				parameter_set->fe.dual_order
+			);
 		}
 
 
@@ -2754,55 +2718,54 @@ dual_do_backward_TMS(
 		// solve slab problem (i.e. apply boundary values and solve for z0)
 		dual_solve_slab_problem(slab, z);
 
-		// TODO: comment in error estimation
-//		////////////////////////////////////
-//		// error estimation with PU-DWR
-//		//
-//		// NOTE: to estimate the error we possibly need to extrapolate z in time
-//		// to extrapolate in time, we also need z(t_m^-) which is from the solution from the last time slab
-//		// hence we always lag one slab with the error estimation
-//		//
-//		Assert(error_estimator.pu_dwr.use_count(), dealii::ExcNotInitialized());
-//		// evaluate error on next slab
-//		if (n < N)
-//		{
-//			error_estimator.pu_dwr->estimate_on_slab(std::next(slab), std::next(u), std::next(z), std::next(eta_space), std::next(eta_time));
-//
-//			// apply B. Endtmayer's post processing of the error indicators
-//			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
-//			for (auto line : std::next(slab)->space.pu.fe_info->constraints->get_lines())
-//			{
-//				// spatial error indicators
-//				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-//					(*std::next(eta_space)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_space)->x[0])[line.index];
-//				(*std::next(eta_space)->x[0])[line.index] = 0.;
-//
-//				// temporal error indicators
-//				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-//					(*std::next(eta_time)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_time)->x[0])[line.index];
-//				(*std::next(eta_time)->x[0])[line.index] = 0.;
-//			}
-//		}
-//		// evaluate error on first slab
-//		if (n == 1)
-//		{
-//			error_estimator.pu_dwr->estimate_on_slab(slab, u, z, eta_space, eta_time);
-//
-//			// apply B. Endtmayer's post processing of the error indicators
-//			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
-//			for (auto line : slab->space.pu.fe_info->constraints->get_lines())
-//			{
-//				// spatial error indicators
-//				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-//					(*eta_space->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*eta_space->x[0])[line.index];
-//				(*eta_space->x[0])[line.index] = 0.;
-//
-//				// temporal error indicators
-//				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-//					(*eta_time->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*eta_time->x[0])[line.index];
-//				(*eta_time->x[0])[line.index] = 0.;
-//			}
-//		}
+		////////////////////////////////////
+		// error estimation with PU-DWR
+		//
+		// NOTE: to estimate the error we possibly need to extrapolate z in time
+		// to extrapolate in time, we also need z(t_m^-) which is from the solution from the last time slab
+		// hence we always lag one slab with the error estimation
+		//
+		Assert(error_estimator.pu_dwr.use_count(), dealii::ExcNotInitialized());
+		// evaluate error on next slab
+		if (n < N)
+		{
+			error_estimator.pu_dwr->estimate_on_slab(std::next(slab), std::next(u), std::next(z), std::next(eta_space), std::next(eta_time));
+
+			// apply B. Endtmayer's post processing of the error indicators
+			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
+			for (auto line : std::next(slab)->space.pu.fe_info->constraints->get_lines())
+			{
+				// spatial error indicators
+				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
+					(*std::next(eta_space)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_space)->x[0])[line.index];
+				(*std::next(eta_space)->x[0])[line.index] = 0.;
+
+				// temporal error indicators
+				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
+					(*std::next(eta_time)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_time)->x[0])[line.index];
+				(*std::next(eta_time)->x[0])[line.index] = 0.;
+			}
+		}
+		// evaluate error on first slab
+		if (n == 1)
+		{
+			error_estimator.pu_dwr->estimate_on_slab(slab, u, z, eta_space, eta_time);
+
+			// apply B. Endtmayer's post processing of the error indicators
+			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
+			for (auto line : slab->space.pu.fe_info->constraints->get_lines())
+			{
+				// spatial error indicators
+				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
+					(*eta_space->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*eta_space->x[0])[line.index];
+				(*eta_space->x[0])[line.index] = 0.;
+
+				// temporal error indicators
+				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
+					(*eta_time->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*eta_time->x[0])[line.index];
+				(*eta_time->x[0])[line.index] = 0.;
+			}
+		}
 
 		////////////////////////////////////////////////////////////////////////
 		// do postprocessing on the solution
@@ -2853,11 +2816,10 @@ dual_do_backward_TMS(
 
 		// output data
 		dual_do_data_output(slab, z, dwr_loop, last);
-		// TODO: comment in
-//		if (n < N)
-//			eta_do_data_output(std::next(slab), std::next(eta_space), std::next(eta_time), dwr_loop, last);
-//		if (n == 1)
-//			eta_do_data_output(slab, eta_space, eta_time, dwr_loop, last);
+		if (n < N)
+			eta_do_data_output(std::next(slab), std::next(eta_space), std::next(eta_time), dwr_loop, last);
+		if (n == 1)
+			eta_do_data_output(slab, eta_space, eta_time, dwr_loop, last);
 
 		////////////////////////////////////////////////////////////////////////
 		// allow garbage collector to clean up memory
@@ -2880,9 +2842,8 @@ dual_do_backward_TMS(
 		--slab;
 		--z;
 		--u;
-		// TODO: comment in
-//		--eta_space;
-//		--eta_time;
+		--eta_space;
+		--eta_time;
 
 		DTM::pout << std::endl;
 	}

@@ -35,7 +35,7 @@
 // PROJECT includes
 #include <fluid/parameters/ParameterSet.hh>
 #include <fluid/grid/Grid.tpl.hh>
-//#include <fluid/ErrorEstimator/ErrorEstimator.tpl.hh>
+#include <fluid/ErrorEstimator/ErrorEstimator.tpl.hh>
 
 #include <fluid/FluidDataPostprocessor.tpl.hh>
 
@@ -356,7 +356,7 @@ protected:
 		bool   data_output_trigger_type_fixed;
 
 		/// error estimator
-		// std::shared_ptr< fluid::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > pu_dwr; // TODO: comment this in
+		std::shared_ptr< fluid::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > pu_dwr;
 
 		struct {
 			// J(u) = ...

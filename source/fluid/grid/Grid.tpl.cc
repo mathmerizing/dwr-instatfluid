@@ -1838,8 +1838,6 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 			slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()  // trial
 		);
 
-		// TODO: from here rethink how the code needs to be adapted from BlockSparsityPattern to SparsityPattern
-
 		// get all dofs componentwise
 		std::vector< dealii::types::global_dof_index > dofs_per_component(
 			slab->space.primal.fe_info->dof->get_fe_collection().n_components(), 0
@@ -1952,9 +1950,6 @@ template<int dim>
 void
 Grid<dim>::
 create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
-	// TODO: from here rethink how the code needs to be adapted from BlockSparsityPattern to SparsityPattern
-	// (see also function above)
-
 	////////////////////////////////////////////////////////////////////////
 	// space
 	{
