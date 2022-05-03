@@ -1157,15 +1157,16 @@ primal_solve_slab_problem(
 
     DTM::pout << "dwr-instatfluid: apply previous solution as initial Newton guess..." ;
 
-    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
-    	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
-    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
-    	}
-    }
+//    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
+//    	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
+//    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
+//    	}
+//    }
 
     DTM::pout << " (done)" << std::endl;
 
     primal_apply_bc(initial_bc, u->x[0]);
+    std::cout << "n_constraints = " << slab->spacetime.primal.constraints->n_constraints() << std::endl;
 	slab->spacetime.primal.constraints->distribute(
 		*u->x[0]
 	);
@@ -1192,7 +1193,7 @@ primal_solve_slab_problem(
 
     DTM::pout << std::setprecision(5) << "0\t" << newton_residual << std::endl;
 
-    while (newton_residual > newton.lower_bound && newton_step < newton.max_steps)
+    while (newton_residual > newton.lower_bound && newton_step <= newton.max_steps)
     {
     	old_newton_residual = newton_residual;
     	primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
@@ -1225,17 +1226,23 @@ primal_solve_slab_problem(
 			*primal.du
 		);
 
-		for (line_search_step = 0 ; line_search_step < newton.line_search_steps ; line_search_step++) {
+		std::cout << "Before linesearch: " << u->x[0]->linfty_norm() << std::endl;
+		for (line_search_step = 0; line_search_step < newton.line_search_steps; line_search_step++) {
 			u->x[0]->add(1.0,*primal.du);
 
 			primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
 			new_newton_residual = primal.b->linfty_norm();
+
+			std::cout << "new_newton_residual = " << new_newton_residual << std::endl;
+			break;
+
 			if (new_newton_residual < newton_residual)
 				break;
 			else
 				u->x[0]->add(-1.0,*primal.du);
-			*primal.du*= newton.line_search_damping;
+			*primal.du *= newton.line_search_damping;
 		}
+		std::cout << "After linesearch: " << u->x[0]->linfty_norm() << std::endl;
 		DTM::pout << std::setprecision(5) << newton_step << "\t"
 				  << std::scientific << newton_residual << "\t"
 				  << std::scientific << newton_residual/old_newton_residual << "\t";
@@ -1248,8 +1255,10 @@ primal_solve_slab_problem(
 		DTM::pout << line_search_step << "\t" << std::scientific << std::endl;
 
 		if (line_search_step == newton.line_search_steps && std::abs(newton_residual - old_newton_residual) < 1e-15)
+		{
+			DTM::pout << "res\t" << newton_residual << std::endl;
 			break;
-
+		}
 		newton_step++;
     }
 }
