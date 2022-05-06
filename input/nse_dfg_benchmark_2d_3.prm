@@ -81,7 +81,7 @@ subsection Fluid Time Integration
 end
 
 subsection Newton
-    set max steps = 1#60
+    set max steps = 1#3#60
     set lower bound = 1.0e-9
     set rebuild parameter = 0.1
     set line search steps = 3#10

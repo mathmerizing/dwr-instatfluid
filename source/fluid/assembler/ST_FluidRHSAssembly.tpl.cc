@@ -397,9 +397,9 @@ void Assembler<dim>::local_assemble_cell(
 				scratch.div_v       = 0;
 				scratch.p           = 0;
 
-				for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
-				for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
-					//correct ST solution vector entry
+				for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
+				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+					// correct ST solution vector entry
 					double u_i_ii = (*u)[
 						scratch.space_local_dof_indices[i]
 						   	// time offset
@@ -408,34 +408,34 @@ void Assembler<dim>::local_assemble_cell(
 							// local in time dof
 							+ space.dof->n_dofs() * ii
 							];
-					//partial_t v(qt,qx)
+					// partial_t v(qt,qx)
 					scratch.partial_t_v += u_i_ii
 							* scratch.space_fe_values[convection].value(i,q)
 							* scratch.time_fe_values.shape_grad(ii,qt)[0];
 
-					//all other evals use shape values in time, so multiply only once
+					// all other evals use shape values in time, so multiply only once
 					u_i_ii *= scratch.time_fe_values.shape_value(ii,qt);
 
-					//v
+					// v
 					scratch.v += u_i_ii * scratch.space_phi[i];
 
-					//symgrad v
+					// symgrad v
 					scratch.symgrad_v += u_i_ii * scratch.space_symgrad_phi[i];
 
-					//grad v
+					// grad v
 					scratch.grad_v += u_i_ii * scratch.space_grad_phi[i];
 
-					//div v
+					// div v
 					scratch.div_v += u_i_ii * scratch.space_div_phi[i];
 
-					//p
+					// p
 					scratch.p += u_i_ii * scratch.space_psi[i];
 
 				}
 				scratch.spacetime_JxW = scratch.space_fe_values.JxW(q) * scratch.time_fe_values.JxW(qt);
 				// for Navier-Stokes assemble Convection term
-				if ( nonlin ){
-					for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
+				if (nonlin) {
+					for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
 					for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 						copydata.vi_rhs_vector[n](
 								i + ii*space.fe->dofs_per_cell
@@ -449,7 +449,7 @@ void Assembler<dim>::local_assemble_cell(
 					}
 				}
 
-				for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
+				for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
 				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 					copydata.vi_rhs_vector[n](
 							i + ii*space.fe->dofs_per_cell
@@ -498,10 +498,10 @@ void Assembler<dim>::local_assemble_cell(
  		// prepare [.]_t_m trace operator
  		scratch.time_fe_face_values.reinit(cell_time);
 		// assemble: face (w^+ * u^-)
- 		for ( unsigned int q{0} ; q < scratch.space_fe_values.n_quadrature_points ; ++q) {
+ 		for (unsigned int q{0} ; q < scratch.space_fe_values.n_quadrature_points ; ++q) {
  			scratch.u_plus = 0;
- 			for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
-			for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+ 			for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
+			for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 				//correct ST solution vector entry
 				double u_i_ii = (*u)[
 						scratch.space_local_dof_indices[i]
@@ -517,8 +517,8 @@ void Assembler<dim>::local_assemble_cell(
 							*scratch.time_fe_face_values.shape_value(ii,0);
 			}
 
- 			for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
-			for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+ 			for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
+			for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 				copydata.vi_rhs_vector[n](
 						i + ii*space.fe->dofs_per_cell
 				) +=
@@ -531,11 +531,11 @@ void Assembler<dim>::local_assemble_cell(
  		}
 
 		// assemble: face (w^+ * u^-)
-		if ( n ){
-			for ( unsigned int q{0} ; q < scratch.space_fe_values.n_quadrature_points; ++q){
+		if (n){
+			for (unsigned int q{0} ; q < scratch.space_fe_values.n_quadrature_points; ++q){
 				scratch.u_minus = 0;
-				for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
-				for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+				for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
+				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 					//correct ST solution vector entry of previous time cell
 					double u_i_ii = (*u)[
 							scratch.space_local_dof_indices[i]
@@ -551,8 +551,8 @@ void Assembler<dim>::local_assemble_cell(
 								* scratch.time_fe_face_values_neighbor.shape_value(ii,1);
 				}
 
-				for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
-				for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+				for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii)
+				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
 					copydata.vi_rhs_vector[n](
 						i + ii * space.fe->dofs_per_cell
 				    ) -=
@@ -566,10 +566,8 @@ void Assembler<dim>::local_assemble_cell(
 
 		}
 
-
-
 		// update
-		if ( (n+1) < time.n_global_active_cells) {
+		if ((n+1) < time.n_global_active_cells) {
 			scratch.time_fe_face_values_neighbor.reinit(cell_time);
 		}
 

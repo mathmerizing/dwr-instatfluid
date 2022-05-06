@@ -239,6 +239,10 @@ assemble(
     std::shared_ptr< dealii::Vector<double> > _u,
 	bool _nonlin
 ) {
+	if (slab->space.primal.fe_info->dof->n_dofs() > 800)
+	{
+		std::cout << "Calling Assembler<dim>::assemble" << std::endl;
+	}
 	
 	////////////////////////////////////////////////////////////////////////////
 	// check
@@ -405,7 +409,7 @@ void Assembler<dim>::local_assemble_cell(
 				
 				for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
 					scratch.space_phi[k] =
-							scratch.space_fe_values[convection].value(k,q);
+						scratch.space_fe_values[convection].value(k,q);
 					scratch.space_symgrad_phi[k] =
 						scratch.space_fe_values[convection].symmetric_gradient(k,q);
 					scratch.space_grad_phi[k] =
@@ -416,7 +420,7 @@ void Assembler<dim>::local_assemble_cell(
 						scratch.space_fe_values[pressure].value(k,q);
 				}
 				
-				if(nonlin){
+				if (nonlin) {
 					scratch.v 		    = 0;
 					scratch.grad_v      = 0;
 
@@ -467,6 +471,7 @@ void Assembler<dim>::local_assemble_cell(
 							);
 					}
 				}
+
 				for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
 				for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
 				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)

@@ -669,7 +669,9 @@ primal_assemble_and_construct_Newton_rhs(
 
 	*primal.b = *primal.Mum;
 	primal.b->add(-1., *primal.Fu);
-	primal_apply_bc(boundary_values,primal.b);
+	std::cout << "primal.b->linfty_norm() = " << primal.b->linfty_norm() << std::endl;
+	primal_apply_bc(boundary_values, primal.b);
+	std::cout << "primal.b->linfty_norm() + BC = " << primal.b->linfty_norm() << std::endl;
 }
 
 template<int dim>
@@ -1036,22 +1038,22 @@ primal_apply_bc(
 		//       all boundary value constraints are identical, i.e.
 		//       a fixed and nicely scaled value.
 		//
-		double diagonal_scaling_value{0.};
+		double diagonal_scaling_value{1.}; //0.};
 
-		for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-			if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
-				diagonal_scaling_value = A->el(i,i);
-			}
-		}
-
-		if (diagonal_scaling_value == double(0.)) {
-			diagonal_scaling_value = double(1.);
-		}
-
-		Assert(
-			(diagonal_scaling_value != double(0.)),
-			dealii::ExcInternalError()
-		);
+//		for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+//			if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
+//				diagonal_scaling_value = A->el(i,i);
+//			}
+//		}
+//
+//		if (diagonal_scaling_value == double(0.)) {
+//			diagonal_scaling_value = double(1.);
+//		}
+//
+//		Assert(
+//			(diagonal_scaling_value != double(0.)),
+//			dealii::ExcInternalError()
+//		);
 
 		////////////////////////////////////////////////////////////////////
 		// apply boundary values:
@@ -1123,7 +1125,7 @@ primal_solve_slab_problem(
 	const typename DTM::types::storage_data_vectors<1>::iterator &u
 ) {
 	
-	primal.b = std::make_shared< dealii::Vector<double> > ();
+	primal.b  = std::make_shared< dealii::Vector<double> >();
 	primal.du = std::make_shared< dealii::Vector<double> >();
 	Assert(
 		slab->space.primal.fe_info->dof.use_count(),
@@ -1152,11 +1154,14 @@ primal_solve_slab_problem(
 	primal_calculate_boundary_values(slab, initial_bc);
     std::map<dealii::types::global_dof_index, double> zero_bc;
     primal_calculate_boundary_values(slab, zero_bc, true);
+    // for debugging
+    std::map<dealii::types::global_dof_index, double> no_bc;
 
     DTM::pout << " (done)" << std::endl;
 
     DTM::pout << "dwr-instatfluid: apply previous solution as initial Newton guess..." ;
 
+    // TODO: comment this in! we want a good initial guess.
 //    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
 //    	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
 //    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
@@ -1196,9 +1201,16 @@ primal_solve_slab_problem(
     while (newton_residual > newton.lower_bound && newton_step <= newton.max_steps)
     {
     	old_newton_residual = newton_residual;
+
+//    	// for debugging:
+//    	primal_assemble_and_construct_Newton_rhs(slab, no_bc, u->x[0]);
+//    	double no_bc_residual = primal.b->linfty_norm();
+
     	primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
 
     	newton_residual = primal.b->linfty_norm();
+
+//    	std::cout << "no_bc - zero_bc: res = " << (no_bc_residual - newton_residual) << std::endl;
 		if (newton_residual < newton.lower_bound)
 		{
 			DTM::pout << "res\t" << newton_residual << std::endl;
@@ -1207,11 +1219,57 @@ primal_solve_slab_problem(
 
 		if (newton_residual/old_newton_residual > newton.rebuild){
 			primal_assemble_system(slab, u->x[0]);
+
+			if (slab->space.primal.fe_info->dof->n_dofs() > 800)
+			{
+				std::cout << "slab->tau_n() = " << slab->tau_n() << std::endl;
+
+				std::ostringstream filename;
+				filename << "L_primal_2_dwr_loop_PRE_BC.gpl";
+				std::ofstream out(filename.str().c_str(), std::ios_base::out);
+
+				primal.L->print(out);
+				out.close();
+			}
+
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any
 			//
 			slab->spacetime.primal.constraints->condense(*primal.L);
+
+			// for debugging:
+//			if (slab->space.primal.fe_info->dof->n_dofs() > 100)
+//			{
+//				std::ostringstream filename;
+//				filename << "L_primal_1_dwr_loop.gpl";
+//				std::ofstream out(filename.str().c_str(), std::ios_base::out);
+//
+//				primal.L->print(out);
+//				out.close();
+//
+//				exit(111);
+//			}
+
+			if (slab->space.primal.fe_info->dof->n_dofs() > 800)
+			{
+				std::ofstream constraints_out("constraints.log");
+				slab->spacetime.primal.constraints->print(constraints_out);
+				constraints_out.close();
+
+				std::ofstream mesh_out("debug_mesh.svg");
+				dealii::GridOut grid_out_space;
+				grid_out_space.write_svg(*slab->space.tria, mesh_out);
+
+				std::ostringstream filename;
+				filename << "L_primal_2_dwr_loop.gpl";
+				std::ofstream out(filename.str().c_str(), std::ios_base::out);
+
+				primal.L->print(out);
+				out.close();
+
+				//exit(222);
+			}
 		}
 
 		////////////////////////////////////////////////////////////////////////////
@@ -1230,16 +1288,44 @@ primal_solve_slab_problem(
 		for (line_search_step = 0; line_search_step < newton.line_search_steps; line_search_step++) {
 			u->x[0]->add(1.0,*primal.du);
 
+			dealii::Vector<double> tmp_residual_vec(primal.du->size());
+			primal.L->vmult(tmp_residual_vec, *primal.du); //*u->x[0]);
+			tmp_residual_vec.add(-1., *primal.b);
+			tmp_residual_vec *= -1.;
+			slab->spacetime.primal.constraints->distribute(
+				tmp_residual_vec
+			);
+
+			std::cout << "tmp_residual = " << tmp_residual_vec.linfty_norm() << std::endl;
+
+			primal_apply_bc(initial_bc, primal.L, primal.du, primal.b);
+			std::shared_ptr< dealii::Vector<double> > tmp = std::make_shared< dealii::Vector<double> > ();
+			tmp->reinit(primal.du->size());
+			*tmp = 0.;
+			primal_assemble_and_construct_Newton_rhs(slab, initial_bc, tmp);
+
+			dealii::Vector<double> tmp_residual_vec2(primal.du->size());
+			primal.L->vmult(tmp_residual_vec2, *primal.du); //*u->x[0]);
+			tmp_residual_vec2.add(-1., *primal.b);
+			tmp_residual_vec2 *= -1.;
+			slab->spacetime.primal.constraints->distribute(
+				tmp_residual_vec2
+			);
+			std::cout << "tmp_residual2 = " << tmp_residual_vec2.linfty_norm() << std::endl;
+
 			primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+			slab->spacetime.primal.constraints->distribute(
+				*primal.b
+			);
 			new_newton_residual = primal.b->linfty_norm();
 
 			std::cout << "new_newton_residual = " << new_newton_residual << std::endl;
-			break;
+			break; // TODO: comment this out !
 
 			if (new_newton_residual < newton_residual)
 				break;
 			else
-				u->x[0]->add(-1.0,*primal.du);
+				u->x[0]->add(-1.0, *primal.du);
 			*primal.du *= newton.line_search_damping;
 		}
 		std::cout << "After linesearch: " << u->x[0]->linfty_norm() << std::endl;
@@ -1256,10 +1342,17 @@ primal_solve_slab_problem(
 
 		if (line_search_step == newton.line_search_steps && std::abs(newton_residual - old_newton_residual) < 1e-15)
 		{
-			DTM::pout << "res\t" << newton_residual << std::endl;
 			break;
 		}
 		newton_step++;
+    }
+
+    if (slab->space.primal.fe_info->dof->n_dofs() > 800)
+    {
+		primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+		newton_residual = primal.b->linfty_norm();
+		DTM::pout << "res\t" << newton_residual << std::endl;
+		exit(223);
     }
 }
 
@@ -3945,6 +4038,7 @@ refine_and_coarsen_space_time_grid(
 
 				if (eta_k[n] >= threshold) {
 					slab->set_refine_in_time_flag();
+					DTM::pout << "Marked slab " << n << " for temporal refinement" << std::endl;
 				}
 			}
 		}
