@@ -211,7 +211,10 @@ private:
 		std::shared_ptr< dealii::FiniteElement<1> > fe;
 		std::shared_ptr< dealii::Mapping<1> > mapping;
 	} time;
-	
+
+ 	struct {
+ 		std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+ 	} spacetime;
 	
 	// FEValuesExtractors for the Tensor<1,dim> convection field and the pressure
 	dealii::FEValuesExtractors::Vector convection;

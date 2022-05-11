@@ -182,9 +182,9 @@ private:
 		std::shared_ptr< dealii::Mapping<1> > mapping;
 	} time;
 
-// 	struct {
-// 		std::shared_ptr< dealii::AffineConstraints<double> > constraints;
-// 	} spacetime;
+ 	struct {
+ 		std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+ 	} spacetime;
 
 	dealii::FEValuesExtractors::Vector convection;
 	dealii::FEValuesExtractors::Scalar pressure;

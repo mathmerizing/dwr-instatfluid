@@ -213,6 +213,8 @@ assemble(
 	Assert(slab->time.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
 	Assert(slab->time.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
+	Assert(slab->spacetime.dual.constraints.use_count(), dealii::ExcNotInitialized());
+
 	Assert(Je.use_count(), dealii::ExcNotInitialized());
 	Assert(Je->size(), dealii::ExcNotInitialized());
 
@@ -235,6 +237,8 @@ assemble(
 	time.fe = slab->time.dual.fe_info->fe;
 	time.mapping = slab->time.dual.fe_info->mapping;
 	
+	spacetime.constraints = slab->spacetime.dual.constraints;
+
 	// FEValuesExtractors
 	convection = 0;
  	pressure   = dim;
@@ -423,7 +427,7 @@ void Assembler<dim>::copy_local_to_global_cell(
 	);
 	
 	for (unsigned int n{0}; n < copydata.vi_Jei_vector.size(); ++n) {
-		space.constraints->distribute_local_to_global(
+		spacetime.constraints->distribute_local_to_global(
 			copydata.vi_Jei_vector[n],
 			copydata.local_dof_indices[n],
 			*_Je

@@ -239,11 +239,6 @@ assemble(
     std::shared_ptr< dealii::Vector<double> > _u,
 	bool _nonlin
 ) {
-	if (slab->space.primal.fe_info->dof->n_dofs() > 800)
-	{
-		std::cout << "Calling Assembler<dim>::assemble" << std::endl;
-	}
-	
 	////////////////////////////////////////////////////////////////////////////
 	// check
 	Assert(dim==2 || dim==3, dealii::ExcNotImplemented());

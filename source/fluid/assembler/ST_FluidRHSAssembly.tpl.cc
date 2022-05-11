@@ -269,6 +269,8 @@ assemble(
 	time.fe = slab->time.primal.fe_info->fe;
 	time.mapping = slab->time.primal.fe_info->mapping;
 
+	spacetime.constraints = slab->spacetime.primal.constraints;
+
 	// FEValuesExtractors
 	convection = 0;
  	pressure   = dim;
@@ -582,8 +584,8 @@ void Assembler<dim>::copy_local_to_global_cell(
 			dealii::ExcNotInitialized()
 	);
 
-	for ( unsigned int n{0} ; n < copydata.vi_rhs_vector.size(); ++ n){
-		space.constraints->distribute_local_to_global(
+	for (unsigned int n{0} ; n < copydata.vi_rhs_vector.size(); ++ n){
+		spacetime.constraints->distribute_local_to_global(
 			copydata.vi_rhs_vector[n],
 			copydata.local_dof_indices[n],
 			*Fu

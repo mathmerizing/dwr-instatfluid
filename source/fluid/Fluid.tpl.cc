@@ -669,9 +669,7 @@ primal_assemble_and_construct_Newton_rhs(
 
 	*primal.b = *primal.Mum;
 	primal.b->add(-1., *primal.Fu);
-	std::cout << "primal.b->linfty_norm() = " << primal.b->linfty_norm() << std::endl;
 	primal_apply_bc(boundary_values, primal.b);
-	std::cout << "primal.b->linfty_norm() + BC = " << primal.b->linfty_norm() << std::endl;
 }
 
 template<int dim>
@@ -1154,25 +1152,21 @@ primal_solve_slab_problem(
 	primal_calculate_boundary_values(slab, initial_bc);
     std::map<dealii::types::global_dof_index, double> zero_bc;
     primal_calculate_boundary_values(slab, zero_bc, true);
-    // for debugging
-    std::map<dealii::types::global_dof_index, double> no_bc;
 
     DTM::pout << " (done)" << std::endl;
 
     DTM::pout << "dwr-instatfluid: apply previous solution as initial Newton guess..." ;
 
-    // TODO: comment this in! we want a good initial guess.
-//    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
-//    	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
-//    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
-//    	}
-//    }
+    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
+    	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
+    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
+    	}
+    }
 
     DTM::pout << " (done)" << std::endl;
 
     primal_apply_bc(initial_bc, u->x[0]);
-    std::cout << "n_constraints = " << slab->spacetime.primal.constraints->n_constraints() << std::endl;
-	slab->spacetime.primal.constraints->distribute(
+    slab->spacetime.primal.constraints->distribute(
 		*u->x[0]
 	);
 
@@ -1201,17 +1195,10 @@ primal_solve_slab_problem(
     while (newton_residual > newton.lower_bound && newton_step <= newton.max_steps)
     {
     	old_newton_residual = newton_residual;
-
-//    	// for debugging:
-//    	primal_assemble_and_construct_Newton_rhs(slab, no_bc, u->x[0]);
-//    	double no_bc_residual = primal.b->linfty_norm();
-
     	primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
-
     	newton_residual = primal.b->linfty_norm();
 
-//    	std::cout << "no_bc - zero_bc: res = " << (no_bc_residual - newton_residual) << std::endl;
-		if (newton_residual < newton.lower_bound)
+    	if (newton_residual < newton.lower_bound)
 		{
 			DTM::pout << "res\t" << newton_residual << std::endl;
 			break;
@@ -1219,57 +1206,12 @@ primal_solve_slab_problem(
 
 		if (newton_residual/old_newton_residual > newton.rebuild){
 			primal_assemble_system(slab, u->x[0]);
-
-			if (slab->space.primal.fe_info->dof->n_dofs() > 800)
-			{
-				std::cout << "slab->tau_n() = " << slab->tau_n() << std::endl;
-
-				std::ostringstream filename;
-				filename << "L_primal_2_dwr_loop_PRE_BC.gpl";
-				std::ofstream out(filename.str().c_str(), std::ios_base::out);
-
-				primal.L->print(out);
-				out.close();
-			}
-
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
+
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any
 			//
 			slab->spacetime.primal.constraints->condense(*primal.L);
-
-			// for debugging:
-//			if (slab->space.primal.fe_info->dof->n_dofs() > 100)
-//			{
-//				std::ostringstream filename;
-//				filename << "L_primal_1_dwr_loop.gpl";
-//				std::ofstream out(filename.str().c_str(), std::ios_base::out);
-//
-//				primal.L->print(out);
-//				out.close();
-//
-//				exit(111);
-//			}
-
-			if (slab->space.primal.fe_info->dof->n_dofs() > 800)
-			{
-				std::ofstream constraints_out("constraints.log");
-				slab->spacetime.primal.constraints->print(constraints_out);
-				constraints_out.close();
-
-				std::ofstream mesh_out("debug_mesh.svg");
-				dealii::GridOut grid_out_space;
-				grid_out_space.write_svg(*slab->space.tria, mesh_out);
-
-				std::ostringstream filename;
-				filename << "L_primal_2_dwr_loop.gpl";
-				std::ofstream out(filename.str().c_str(), std::ios_base::out);
-
-				primal.L->print(out);
-				out.close();
-
-				//exit(222);
-			}
 		}
 
 		////////////////////////////////////////////////////////////////////////////
@@ -1284,43 +1226,15 @@ primal_solve_slab_problem(
 			*primal.du
 		);
 
-		std::cout << "Before linesearch: " << u->x[0]->linfty_norm() << std::endl;
 		for (line_search_step = 0; line_search_step < newton.line_search_steps; line_search_step++) {
 			u->x[0]->add(1.0,*primal.du);
-
-			dealii::Vector<double> tmp_residual_vec(primal.du->size());
-			primal.L->vmult(tmp_residual_vec, *primal.du); //*u->x[0]);
-			tmp_residual_vec.add(-1., *primal.b);
-			tmp_residual_vec *= -1.;
-			slab->spacetime.primal.constraints->distribute(
-				tmp_residual_vec
-			);
-
-			std::cout << "tmp_residual = " << tmp_residual_vec.linfty_norm() << std::endl;
-
-			primal_apply_bc(initial_bc, primal.L, primal.du, primal.b);
-			std::shared_ptr< dealii::Vector<double> > tmp = std::make_shared< dealii::Vector<double> > ();
-			tmp->reinit(primal.du->size());
-			*tmp = 0.;
-			primal_assemble_and_construct_Newton_rhs(slab, initial_bc, tmp);
-
-			dealii::Vector<double> tmp_residual_vec2(primal.du->size());
-			primal.L->vmult(tmp_residual_vec2, *primal.du); //*u->x[0]);
-			tmp_residual_vec2.add(-1., *primal.b);
-			tmp_residual_vec2 *= -1.;
-			slab->spacetime.primal.constraints->distribute(
-				tmp_residual_vec2
-			);
-			std::cout << "tmp_residual2 = " << tmp_residual_vec2.linfty_norm() << std::endl;
 
 			primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
 			slab->spacetime.primal.constraints->distribute(
 				*primal.b
 			);
-			new_newton_residual = primal.b->linfty_norm();
 
-			std::cout << "new_newton_residual = " << new_newton_residual << std::endl;
-			break; // TODO: comment this out !
+			new_newton_residual = primal.b->linfty_norm();
 
 			if (new_newton_residual < newton_residual)
 				break;
@@ -1328,7 +1242,7 @@ primal_solve_slab_problem(
 				u->x[0]->add(-1.0, *primal.du);
 			*primal.du *= newton.line_search_damping;
 		}
-		std::cout << "After linesearch: " << u->x[0]->linfty_norm() << std::endl;
+
 		DTM::pout << std::setprecision(5) << newton_step << "\t"
 				  << std::scientific << newton_residual << "\t"
 				  << std::scientific << newton_residual/old_newton_residual << "\t";
@@ -1345,14 +1259,6 @@ primal_solve_slab_problem(
 			break;
 		}
 		newton_step++;
-    }
-
-    if (slab->space.primal.fe_info->dof->n_dofs() > 800)
-    {
-		primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
-		newton_residual = primal.b->linfty_norm();
-		DTM::pout << "res\t" << newton_residual << std::endl;
-		exit(223);
     }
 }
 

@@ -81,10 +81,10 @@ subsection Fluid Time Integration
 end
 
 subsection Newton
-    set max steps = 1#3#60
+    set max steps = 60
     set lower bound = 1.0e-9
     set rebuild parameter = 0.1
-    set line search steps = 3#10
+    set line search steps = 10
     set line search damping = 0.6
 end
 
@@ -93,7 +93,7 @@ subsection DWR
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 2 #5 #4 #2 #3
+    set solver control max iterations = 5 #4 #2 #3
     set replace linearization points = true
     set replace weights = true
     
