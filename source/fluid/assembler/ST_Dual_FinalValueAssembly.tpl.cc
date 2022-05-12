@@ -179,8 +179,14 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
 	
-	const dealii::QGauss<dim> quad_space(
-		space.fe->tensor_degree()+1
+	const dealii::QGaussLobatto<dim> quad_space(
+		std::max(
+				std::max(
+						space.fe->base_element(0).base_element(0).tensor_degree(),
+						space.fe->base_element(0).base_element(1).tensor_degree()
+				),
+				static_cast<unsigned int> (1)
+		) + 1
 	);
 	
 	const dealii::QGaussLobatto<1> face_nodes(2);
@@ -240,52 +246,54 @@ void Assembler<dim>::local_assemble_cell(
 	
 	auto cell_time = time.dof->begin_active();
 	auto endc_time = time.dof->end();
-	
+	auto last_time = time.dof->begin_active();
+	++cell_time;
 	for ( ; cell_time != endc_time; ++cell_time) {
-		copydata.vi_zn_vector = 0;
-		
-		// dof mapping
-		cell_time->get_dof_indices(scratch.time_local_dof_indices);
-		for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
-		for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii) {
-			copydata.local_dof_indices[
-				i + ii*space.fe->dofs_per_cell
-			] =
-				scratch.space_local_dof_indices[i]
-				+ scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
+		last_time = cell_time;
+	}
+	cell_time = last_time;
+
+	copydata.vi_zn_vector = 0;
+
+	// dof mapping
+	cell_time->get_dof_indices(scratch.time_local_dof_indices);
+	for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
+	for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii) {
+		copydata.local_dof_indices[
+			i + ii*space.fe->dofs_per_cell
+		] =
+			scratch.space_local_dof_indices[i]
+			+ scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
+	}
+
+	// assemble: face (w^+ * z^-) only on the last time cell of Q_n
+	scratch.time_fe_face_values.reinit(cell_time);
+	
+	for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
+		scratch.zn = 0;
+		for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
+			scratch.zn +=
+				(*zn)[scratch.space_local_dof_indices[j]] *
+				scratch.space_fe_values[convection].value(j,q);
 		}
 		
-		// assemble: face (w^+ * z^-) only on the last time cell of Q_n
-		scratch.time_fe_face_values.reinit(cell_time);
-		
-		for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
-			scratch.zn = 0;
-			for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-				scratch.zn +=
-					(*zn)[scratch.space_local_dof_indices[j]] *
-					scratch.space_fe_values[convection].value(j,q);
-			}
-			
-			for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
-			for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
-				copydata.vi_zn_vector(
-					i + ii*space.fe->dofs_per_cell
-				) +=
-					// trace operator: (+) w(x,t_0)^+ * z(x,t_0)^-
-					(
-						scratch.space_fe_values[convection].value(i,q) * // TODO: prefetch
-						scratch.time_fe_face_values.shape_value(ii,1) *
+		for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
+		for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
+			copydata.vi_zn_vector(
+				i + ii*space.fe->dofs_per_cell
+			) +=
+				// trace operator: (+) w(x,t_0)^+ * z(x,t_0)^-
+				(
+					scratch.space_fe_values[convection].value(i,q) * // TODO: prefetch
+					scratch.time_fe_face_values.shape_value(ii,1) *
 
-						scratch.zn *
+					scratch.zn *
 
-						scratch.space_fe_values.JxW(q) // TODO: prefetch
-					)
-				;
-			}
-		} // x_q
-		
-		break;
-	}
+					scratch.space_fe_values.JxW(q) // TODO: prefetch
+				)
+			;
+		}
+	} // x_q
 }
 
 template<int dim>
