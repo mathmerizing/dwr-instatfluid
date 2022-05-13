@@ -271,7 +271,8 @@ protected:
 	);
 
 	virtual void dual_assemble_system(
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::Vector<double > > u
 	);
 
 	virtual void dual_assemble_rhs(

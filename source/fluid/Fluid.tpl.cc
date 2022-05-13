@@ -540,7 +540,7 @@ primal_assemble_system(
 			primal.L,
 			slab,
 			u,
-			( parameter_set->problem.compare("Navier-Stokes") == 0 )
+			(parameter_set->problem.compare("Navier-Stokes") == 0)
 		);
 		
 	}
@@ -1981,10 +1981,9 @@ template<int dim>
 void
 Fluid<dim>::
 dual_assemble_system(
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double > > u
 ) {
-	// TODO: include primal solution u on slab here!
-
 	// ASSEMBLY SPACE-TIME OPERATOR MATRIX /////////////////////////////////////
 	Assert(
 		slab->spacetime.dual.sp.use_count(),
@@ -2010,7 +2009,9 @@ dual_assemble_system(
 		Assert(dual.L.use_count(), dealii::ExcNotInitialized());
 		dual_assembler.assemble(
 			dual.L,
-			slab
+			slab,
+			u,
+			(parameter_set->problem.compare("Navier-Stokes") == 0)
 		);
 
 		DTM::pout << " (done)" << std::endl;
@@ -2720,7 +2721,7 @@ dual_do_backward_TMS(
 		}
 
 		// assemble slab problem
-		dual_assemble_system(slab); // TODO: include primal solution in the assembly of the dual system matrix!
+		dual_assemble_system(slab, u->x[0]);
 		dual_assemble_rhs(slab);
 
 		// solve slab problem (i.e. apply boundary values and solve for z0)

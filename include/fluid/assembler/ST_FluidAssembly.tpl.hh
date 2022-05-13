@@ -17,7 +17,7 @@
  * @date 2012-03-13, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contriubtors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contriubtors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */

@@ -5,6 +5,7 @@
  * @author G. Kanschat, W. Bangerth and the deal.II authors
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-05-13, nonlinearity in dual, JR
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-12_20, add dual assembly, JR
  * @date 2021-11-09, rm block, UK
@@ -73,6 +74,8 @@ namespace Scratch {
 template<int dim>
 struct FluidAssembly {
 	FluidAssembly(
+		const dealii::DoFHandler<dim>    &dof_dual,
+		const dealii::DoFHandler<dim>    &dof_primal,
 		// space
 		const dealii::FiniteElement<dim> &fe_space,
 		const dealii::Mapping<dim>       &mapping_space,
@@ -81,15 +84,26 @@ struct FluidAssembly {
 		const dealii::FiniteElement<1> &fe_time,
 		const dealii::Mapping<1>       &mapping_time,
 		const dealii::Quadrature<1>    &quad_time,
-		const dealii::Quadrature<1>    &face_nodes
+		const dealii::Quadrature<1>    &face_nodes,
+		// primal space
+		const dealii::FiniteElement<dim> &primal_fe_space,
+		const dealii::Mapping<dim>       &primal_mapping_space,
+		// time
+		const dealii::FiniteElement<1> &primal_fe_time,
+		const dealii::Mapping<1>       &primal_mapping_time
 	);
 	
 	FluidAssembly(const FluidAssembly &scratch);
 	
 	// space
+	const dealii::DoFHandler<dim> &dof_dual;
+	const dealii::DoFHandler<dim> &dof_primal;
+
+	// space-dual
 	dealii::FEValues<dim> space_fe_values;
 	
 	// convection
+	std::vector< dealii::Tensor<1,dim> >          space_phi;
 	std::vector< dealii::SymmetricTensor<2,dim> > space_symgrad_phi;
 	std::vector< dealii::Tensor<2,dim> >          space_grad_phi;
 	std::vector<double>                           space_div_phi;
@@ -100,9 +114,16 @@ struct FluidAssembly {
 	unsigned int space_dofs_per_cell;
 	double space_JxW;
 	std::vector< dealii::types::global_dof_index > space_local_dof_indices;
+
+	// space-primal
+	dealii::FEValues<dim> primal_space_fe_values;
+	std::vector< dealii::Tensor<1,dim> >          primal_space_phi;
+	std::vector< dealii::Tensor<2,dim> >          primal_space_grad_phi;
+	std::vector< dealii::types::global_dof_index > primal_space_local_dof_indices;
 	
 	// time
 	dealii::FEValues<1> time_fe_values;
+	dealii::FEValues<1> primal_time_fe_values;
 	dealii::FEValues<1> time_fe_face_values;
 	dealii::FEValues<1> time_fe_face_values_neighbor;
 	
@@ -115,6 +136,10 @@ struct FluidAssembly {
 	std::vector< dealii::types::global_dof_index > time_local_dof_indices_neighbor;
 	
 	// other
+	// solution evals
+    dealii::Tensor<1,dim> v;
+	dealii::Tensor<2,dim> grad_v;
+
 	double viscosity;
 };
 
@@ -157,7 +182,9 @@ public:
 
 	void assemble(
 		std::shared_ptr< dealii::SparseMatrix<double> > L,
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	    std::shared_ptr< dealii::Vector<double> > _u,
+		bool _nonlin = false
 	);
 	
 protected:
@@ -174,12 +201,15 @@ protected:
 private:
 	std::shared_ptr< dealii::SparseMatrix<double> > L;
 	
+	bool nonlin;
+
 	bool symmetric_stress;
 
 	struct {
 		std::shared_ptr< dealii::Function<dim> > viscosity;
 	} function;
 	
+	// dual-space
 	struct {
 		std::shared_ptr< dealii::DoFHandler<dim> > dof;
 		std::shared_ptr< dealii::FESystem<dim> > fe;
@@ -187,6 +217,7 @@ private:
 		std::shared_ptr< dealii::AffineConstraints<double> > constraints;
 	} space;
 	
+	// dual-time
 	struct {
 		dealii::types::global_dof_index n_global_active_cells;
 		
@@ -195,12 +226,28 @@ private:
 		std::shared_ptr< dealii::Mapping<1> > mapping;
 	} time;
 	
+	// primal FEM datastructures to evalutuate u and ∇u
+	struct {
+		struct {
+			std::shared_ptr< dealii::DoFHandler<dim> > dof;
+			std::shared_ptr< dealii::FESystem<dim> > fe;
+			std::shared_ptr< dealii::Mapping<dim> > mapping;
+		} space;
+
+		struct {
+			std::shared_ptr< dealii::DoFHandler<1> > dof;
+			std::shared_ptr< dealii::FiniteElement<1> > fe;
+			std::shared_ptr< dealii::Mapping<1> > mapping;
+		} time;
+	} primal;
+
  	struct {
  		std::shared_ptr< dealii::AffineConstraints<double> > constraints;
  	} spacetime;
 	
 	dealii::FEValuesExtractors::Vector convection;
 	dealii::FEValuesExtractors::Scalar pressure;
+    std::shared_ptr< dealii::Vector<double> > u;
 };
 
 }}}} // namespaces

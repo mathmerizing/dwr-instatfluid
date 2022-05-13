@@ -566,16 +566,6 @@ estimate_on_slab(
 		);
 
 		Assert(
-			cell_time->center()[0] == low_cell_time_tm_tdof->center()[0],
-			dealii::ExcInternalError()
-		);
-
-		Assert(
-			cell_time->center()[0] == low_cell_time_tn_tdof->center()[0],
-			dealii::ExcInternalError()
-		);
-
-		Assert(
 			low_local_dof_indices_time.size() ==
 			slab->time.low.fe_info->fe->dofs_per_cell,
 			dealii::ExcNotInitialized()

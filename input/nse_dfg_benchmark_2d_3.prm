@@ -4,7 +4,7 @@
 
 # Overall space dimension:
 set dim = 2 
-set problem = Stokes #Navier-Stokes
+set problem = Navier-Stokes
 
 subsection Fluid Problem Specification
     # Finite Elements in space-time
@@ -70,19 +70,19 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 0 #!!! USE !!!:3
+    set global refinement = 1 #2 #!!! USE !!!:3 # TODO: >= 2, otherwise Newton diverges
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0 #0.50
-    set final time     = 8.0 #1.50
-    set time step size = 0.4 #1.0 #0.025 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
+    set final time     = 2.0 #8.0 #1.50 # TODO: change back to 8.0 !!!
+    set time step size = 0.2 #1.0 #0.025 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
     set global refinement = 0
 end
 
 subsection Newton
     set max steps = 60
-    set lower bound = 1.0e-9
+    set lower bound = 1.0e-10
     set rebuild parameter = 0.1
     set line search steps = 10
     set line search damping = 0.6
@@ -93,7 +93,7 @@ subsection DWR
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 5 #4 #2 #3
+    set solver control max iterations = 2 #5 #4 #2 #3
     set replace linearization points = true
     set replace weights = true
     

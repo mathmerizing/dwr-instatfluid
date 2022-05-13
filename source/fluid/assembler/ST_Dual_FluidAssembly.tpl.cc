@@ -5,6 +5,7 @@
  * @author G. Kanschat, W. Bangerth and the deal.II authors
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @Date 2022-05-13, nonlinearity in dual, JR
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-12-20, dual assembler, JR
  * @date 2021-11-05, dynamics for stokes, JR
@@ -65,6 +66,8 @@ namespace Scratch {
 
 template<int dim>
 FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properly initialized")
+		const dealii::DoFHandler<dim>    &dof_dual,
+		const dealii::DoFHandler<dim>    &dof_primal,
 		// space
 		const dealii::FiniteElement<dim> &fe_space,
 		const dealii::Mapping<dim>       &mapping_space,
@@ -73,8 +76,16 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 		const dealii::FiniteElement<1> &fe_time,
 		const dealii::Mapping<1>       &mapping_time,
 		const dealii::Quadrature<1>    &quad_time,
-		const dealii::Quadrature<1>    &face_nodes) :
+		const dealii::Quadrature<1>    &face_nodes,
+		// primal space
+		const dealii::FiniteElement<dim> &primal_fe_space,
+		const dealii::Mapping<dim>       &primal_mapping_space,
+		// primal time
+		const dealii::FiniteElement<1> &primal_fe_time,
+		const dealii::Mapping<1>       &primal_mapping_time) :
 	// init space
+	dof_dual(dof_dual),
+	dof_primal(dof_primal),
 	space_fe_values(
 		mapping_space,
 		fe_space,
@@ -84,11 +95,23 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 		dealii::update_JxW_values |
 		dealii::update_quadrature_points
 	),
+	space_phi(fe_space.dofs_per_cell),
 	space_symgrad_phi(fe_space.dofs_per_cell),
 	space_grad_phi(fe_space.dofs_per_cell),
 	space_div_phi(fe_space.dofs_per_cell),
 	space_psi(fe_space.dofs_per_cell),
 	space_local_dof_indices(fe_space.dofs_per_cell),
+	primal_space_fe_values(
+		primal_mapping_space,
+		primal_fe_space,
+		quad_space,
+		dealii::update_values |
+		dealii::update_gradients |
+		dealii::update_quadrature_points
+	),
+	primal_space_phi(primal_fe_space.dofs_per_cell),
+	primal_space_grad_phi(primal_fe_space.dofs_per_cell),
+	primal_space_local_dof_indices(primal_fe_space.dofs_per_cell),
 	// init time
 	time_fe_values(
 		mapping_time,
@@ -97,6 +120,14 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 		dealii::update_values |
 		dealii::update_gradients |
 		dealii::update_JxW_values |
+		dealii::update_quadrature_points
+	),
+	primal_time_fe_values(
+		primal_mapping_time,
+		primal_fe_time,
+		quad_time,
+		dealii::update_values |
+		dealii::update_gradients |
 		dealii::update_quadrature_points
 	),
 	time_fe_face_values(
@@ -115,17 +146,22 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 	time_zeta(fe_time.dofs_per_cell),
 	time_grad_zeta(fe_time.dofs_per_cell),
 	time_local_dof_indices(fe_time.dofs_per_cell),
-	time_local_dof_indices_neighbor(fe_time.dofs_per_cell) {
+	time_local_dof_indices_neighbor(fe_time.dofs_per_cell),
+	v(),
+	grad_v() {
 }
 
 template<int dim>
 FluidAssembly<dim>::FluidAssembly(const FluidAssembly &scratch) :
+	dof_dual(scratch.dof_dual),
+	dof_primal(scratch.dof_primal),
 	space_fe_values(
 		scratch.space_fe_values.get_mapping(),
 		scratch.space_fe_values.get_fe(),
 		scratch.space_fe_values.get_quadrature(),
 		scratch.space_fe_values.get_update_flags()
 	),
+	space_phi(scratch.space_phi),
 	space_symgrad_phi(scratch.space_symgrad_phi),
 	space_grad_phi(scratch.space_grad_phi),
 	space_div_phi(scratch.space_div_phi),
@@ -133,12 +169,27 @@ FluidAssembly<dim>::FluidAssembly(const FluidAssembly &scratch) :
 	space_dofs_per_cell(scratch.space_dofs_per_cell),
 	space_JxW(scratch.space_JxW),
 	space_local_dof_indices(scratch.space_local_dof_indices),
+	primal_space_fe_values(
+		scratch.primal_space_fe_values.get_mapping(),
+		scratch.primal_space_fe_values.get_fe(),
+		scratch.primal_space_fe_values.get_quadrature(),
+		scratch.primal_space_fe_values.get_update_flags()
+	),
+	primal_space_phi(scratch.primal_space_phi),
+	primal_space_grad_phi(scratch.primal_space_grad_phi),
+	primal_space_local_dof_indices(scratch.primal_space_local_dof_indices),
 	//
 	time_fe_values(
 		scratch.time_fe_values.get_mapping(),
 		scratch.time_fe_values.get_fe(),
 		scratch.time_fe_values.get_quadrature(),
 		scratch.time_fe_values.get_update_flags()
+	),
+	primal_time_fe_values(
+		scratch.primal_time_fe_values.get_mapping(),
+		scratch.primal_time_fe_values.get_fe(),
+		scratch.primal_time_fe_values.get_quadrature(),
+		scratch.primal_time_fe_values.get_update_flags()
 	),
 	time_fe_face_values(
 		scratch.time_fe_face_values.get_mapping(),
@@ -159,6 +210,8 @@ FluidAssembly<dim>::FluidAssembly(const FluidAssembly &scratch) :
 	time_local_dof_indices(scratch.time_local_dof_indices),
 	time_local_dof_indices_neighbor(scratch.time_local_dof_indices_neighbor),
 	//
+	v(scratch.v),
+	grad_v(scratch.grad_v),
 	viscosity(scratch.viscosity) {
 }
 
@@ -231,7 +284,10 @@ void
 Assembler<dim>::
 assemble(
 	std::shared_ptr< dealii::SparseMatrix<double> > _L,
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+    std::shared_ptr< dealii::Vector<double> > _u,
+	bool _nonlin
+) {
 	
 	////////////////////////////////////////////////////////////////////////////
 	// check
@@ -244,9 +300,17 @@ assemble(
 	Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	Assert(slab->space.dual.fe_info->constraints.use_count(), dealii::ExcNotInitialized());
 	
+	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->space.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
+
 	Assert(slab->time.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 	Assert(slab->time.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
 	Assert(slab->time.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
+
+	Assert(slab->time.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+	Assert(slab->time.primal.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 	
 	Assert(slab->spacetime.dual.constraints.use_count(), dealii::ExcNotInitialized());
 	
@@ -256,16 +320,26 @@ assemble(
 	// init
 	
 	L = _L;
+	u = _u;
+	nonlin = _nonlin;
 	
 	space.dof = slab->space.dual.fe_info->dof;
 	space.fe = slab->space.dual.fe_info->fe;
 	space.mapping = slab->space.dual.fe_info->mapping;
 	space.constraints = slab->space.dual.fe_info->constraints;
 	
+	primal.space.dof = slab->space.primal.fe_info->dof;
+	primal.space.fe = slab->space.primal.fe_info->fe;
+	primal.space.mapping = slab->space.primal.fe_info->mapping;
+
 	time.dof = slab->time.dual.fe_info->dof;
 	time.fe = slab->time.dual.fe_info->fe;
 	time.mapping = slab->time.dual.fe_info->mapping;
 	
+	primal.time.dof = slab->time.primal.fe_info->dof;
+	primal.time.fe = slab->time.primal.fe_info->fe;
+	primal.time.mapping = slab->time.primal.fe_info->mapping;
+
  	spacetime.constraints = slab->spacetime.dual.constraints;
 	
 	// FEValuesExtractors
@@ -333,13 +407,19 @@ assemble(
 			std::placeholders::_1
 		),
 		Assembly::Scratch::FluidAssembly<dim> (
+			*slab->space.dual.fe_info->dof,
+			*slab->space.primal.fe_info->dof,
 			*space.fe,
 			*space.mapping,
 			quad_space,
 			*time.fe,
 			*time.mapping,
 			quad_time,
-			face_nodes
+			face_nodes,
+			*primal.space.fe,
+			*primal.space.mapping,
+			*primal.time.fe,
+			*primal.time.mapping
 		),
 		Assembly::CopyData::FluidAssembly<dim> (
 			*space.fe,
@@ -356,8 +436,24 @@ void Assembler<dim>::local_assemble_cell(
 	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
 	Assembly::Scratch::FluidAssembly<dim> &scratch,
 	Assembly::CopyData::FluidAssembly<dim> &copydata) {
-	cell->get_dof_indices(scratch.space_local_dof_indices);
-	scratch.space_fe_values.reinit(cell);
+
+	typename dealii::DoFHandler<dim>::active_cell_iterator cell_dual(&cell->get_triangulation(),
+																   cell->level(),
+																   cell->index(),
+																   &scratch.dof_dual);
+
+	typename dealii::DoFHandler<dim>::active_cell_iterator cell_primal(&cell->get_triangulation(),
+																	cell->level(),
+																	cell->index(),
+																   &scratch.dof_primal);
+
+	// reinit scratch and data to current cell
+	scratch.space_fe_values.reinit(cell_dual);
+	scratch.primal_space_fe_values.reinit(cell_primal);
+
+	// fetch local dof data
+	cell_dual->get_dof_indices(scratch.space_local_dof_indices);
+	cell_primal->get_dof_indices(scratch.primal_space_local_dof_indices);
 	
 	auto cell_time = time.dof->begin_active();
 	auto endc_time = time.dof->end();
@@ -391,7 +487,10 @@ void Assembler<dim>::local_assemble_cell(
 					scratch.space_fe_values.quadrature_point(q),0
 				);
 				
+				// prefetch dual
 				for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
+					scratch.space_phi[k] =
+						scratch.space_fe_values[convection].value(k,q);
 					scratch.space_symgrad_phi[k] =
 						scratch.space_fe_values[convection].symmetric_gradient(k,q);
 					scratch.space_grad_phi[k] =
@@ -402,6 +501,67 @@ void Assembler<dim>::local_assemble_cell(
 						scratch.space_fe_values[pressure].value(k,q);
 				}
 				
+				// prefetch primal
+				for (unsigned int k{0}; k < primal.space.fe->dofs_per_cell; ++k) {
+					scratch.primal_space_phi[k] =
+						scratch.primal_space_fe_values[convection].value(k,q);
+					scratch.primal_space_grad_phi[k] =
+						scratch.primal_space_fe_values[convection].gradient(k,q);
+				}
+
+				if (nonlin) {
+					scratch.v 		    = 0;
+					scratch.grad_v      = 0;
+
+					for (unsigned int ii{0}; ii < primal.time.fe->dofs_per_cell; ++ii)
+					for (unsigned int i{0}; i < primal.space.fe->dofs_per_cell; ++i) {
+						// correct ST solution vector entry
+						double u_i_ii = (*u)[
+							scratch.primal_space_local_dof_indices[i]
+								// time offset
+								+ primal.space.dof->n_dofs() *
+								   (n * primal.time.fe->dofs_per_cell)
+								// local in time dof
+								+ primal.space.dof->n_dofs() * ii
+								];
+
+						// all other evals use shape values in time, so multiply only once
+						u_i_ii *= scratch.primal_time_fe_values.shape_value(ii,qt);
+
+						// v
+						scratch.v += u_i_ii * scratch.primal_space_phi[i];
+
+						// grad v
+						scratch.grad_v += u_i_ii * scratch.primal_space_grad_phi[i];
+					}
+
+					// for Navier-Stokes assemble convection term derivatives
+					for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
+					for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
+					for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
+					for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
+						copydata.vi_ui_matrix[n](
+							i + ii*space.fe->dofs_per_cell,
+							j + jj*space.fe->dofs_per_cell
+						) +=
+							// convection C(u)_bb
+							(
+								(
+									scratch.space_grad_phi[i] * scratch.v
+									+ scratch.grad_v * scratch.space_phi[i]
+								)
+									* scratch.time_fe_values.shape_value(ii,qt) *
+
+								scratch.space_phi[j] *
+									scratch.time_fe_values.shape_value(jj,qt) *
+
+
+								scratch.space_fe_values.JxW(q)
+									* scratch.time_fe_values.JxW(qt)
+							);
+					}
+				}
+
 				for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
 				for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
 				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)

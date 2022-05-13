@@ -116,7 +116,7 @@ FluidAssembly<dim>::FluidAssembly( // @suppress("Class members should be properl
 	time_local_dof_indices(fe_time.dofs_per_cell),
 	time_local_dof_indices_neighbor(fe_time.dofs_per_cell),
 	v(),
-	grad_v(){
+	grad_v() {
 }
 
 template<int dim>
@@ -419,9 +419,9 @@ void Assembler<dim>::local_assemble_cell(
 					scratch.v 		    = 0;
 					scratch.grad_v      = 0;
 
-					for ( unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
-					for ( unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
-						//correct ST solution vector entry
+					for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
+					for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
+						// correct ST solution vector entry
 						double u_i_ii = (*u)[
 							scratch.space_local_dof_indices[i]
 								// time offset
@@ -431,13 +431,13 @@ void Assembler<dim>::local_assemble_cell(
 								+ space.dof->n_dofs() * ii
 								];
 
-						//all other evals use shape values in time, so multiply only once
+						// all other evals use shape values in time, so multiply only once
 						u_i_ii *= scratch.time_fe_values.shape_value(ii,qt);
 
-						//v
+						// v
 						scratch.v += u_i_ii * scratch.space_phi[i];
 
-						//grad v
+						// grad v
 						scratch.grad_v += u_i_ii * scratch.space_grad_phi[i];
 					}
 
@@ -452,12 +452,12 @@ void Assembler<dim>::local_assemble_cell(
 						) +=
 							// convection C(u)_bb
 							(
-								scratch.space_phi[i]*
-									scratch.time_fe_values.shape_value(ii,qt)*
+								scratch.space_phi[i] *
+									scratch.time_fe_values.shape_value(ii,qt) *
 
 								(
-									scratch.space_grad_phi[j]*scratch.v
-									+scratch.grad_v*scratch.space_phi[j]
+									scratch.space_grad_phi[j] * scratch.v
+									+ scratch.grad_v * scratch.space_phi[j]
 								)
 									* scratch.time_fe_values.shape_value(jj,qt) *
 
