@@ -5,6 +5,7 @@
  * @author Marius Paul Bruchhaeuser (MPB)
  * @author Julian Roth (JR)
  *
+ * @date 2022-05-16, added NSE nonlinearity, JR
  * @date 2022-05-02, added to fluid, JR
  * @date 2022-02-07, started working on Stokes, JR
  * @date 2020-02-07, back-merge from dwr-stokes-condiffrea, UK
@@ -183,6 +184,8 @@ ErrorEstimateOnCell<dim>::ErrorEstimateOnCell(const ErrorEstimateOnCell &scratch
 	value_symgrad_u_kh_convection(scratch.value_symgrad_u_kh_convection),
 	value_u_k_pressure(scratch.value_u_k_pressure),
 	value_u_kh_pressure(scratch.value_u_kh_pressure),
+	value_u_k_convection(scratch.value_u_k_convection),
+	value_u_kh_convection(scratch.value_u_kh_convection),
 	value_div_u_k_convection(scratch.value_div_u_k_convection),
 	value_div_u_kh_convection(scratch.value_div_u_kh_convection),
 	//
@@ -2074,7 +2077,24 @@ assemble_error_on_cell(
 		scratch.value_div_z_k_z_kh_convection = 0;
 
 		////////////////////////////////////////
-		// 3. term: incompressibility condition
+		// 3. term: NSE nonlinearity
+		//
+		if (nonlinear)
+		{
+			// get ∇ v_k and ∇ v_kh
+			if (symmetric_stress)
+			{
+				scratch.value_grad_u_k_convection = 0;
+				scratch.value_grad_u_kh_convection = 0;
+			}
+
+			// get v_k and v_kh
+			scratch.value_u_k_convection = 0;
+			scratch.value_u_kh_convection = 0;
+		}
+
+		////////////////////////////////////////
+		// 4. term: incompressibility condition
 		//
 
 		// (∇ ·v_k, [z^p-z^p_k]χ_i)
@@ -2171,7 +2191,32 @@ assemble_error_on_cell(
 				* scratch.div_phi_convection[scratch.j];
 
 			////////////////////////////////////////
-			// 3. term: incompressibility condition
+			// 3. term: NSE nonlinearity
+			//
+			if (nonlinear)
+			{
+				// get ∇ v_k and ∇ v_kh
+				if (symmetric_stress)
+				{
+					scratch.value_grad_u_k_convection +=
+						scratch.local_u_k_tq[scratch.j]
+						* scratch.grad_phi_convection[scratch.j];
+					scratch.value_grad_u_kh_convection +=
+						scratch.local_u_kh_tq[scratch.j]
+						* scratch.grad_phi_convection[scratch.j];
+				}
+
+				// get v_k and v_kh
+				scratch.value_u_k_convection +=
+					scratch.local_u_k_tq[scratch.j]
+					* scratch.phi_convection[scratch.j];
+				scratch.value_u_kh_convection +=
+					scratch.local_u_kh_tq[scratch.j]
+					* scratch.phi_convection[scratch.j];
+			}
+
+			////////////////////////////////////////
+			// 4. term: incompressibility condition
 			//
 
 			// (∇ ·v_k, [z^p-z^p_k]χ_i)
@@ -2365,7 +2410,33 @@ assemble_error_on_cell(
 			);
 
 			////////////////////////////////////////
-			// 3. term: incompressibility condition
+			// 3. term: NSE nonlinearity
+			//
+			if (nonlinear)
+			{
+				// ((v_k ·∇)v_k, (z^v-z^v_k)χ_i)
+				copydata.local_eta_k_vector[scratch.j] -= (
+					scalar_product(
+						(scratch.value_grad_u_k_convection * scratch.value_u_k_convection),
+						scratch.value_z_z_k_convection
+					)
+					* scratch.chi[scratch.j]
+					* scratch.JxW * cell_time_JxW
+				);
+
+				// ((v_kh ·∇)v_kh, (z^v_k-z^v_kh)χ_i)
+				copydata.local_eta_h_vector[scratch.j] -= (
+					scalar_product(
+						(scratch.value_grad_u_kh_convection * scratch.value_u_kh_convection),
+						scratch.value_z_k_z_kh_convection
+					)
+					* scratch.chi[scratch.j]
+					* scratch.JxW * cell_time_JxW
+				);
+			}
+
+			////////////////////////////////////////
+			// 4. term: incompressibility condition
 			//
 
 			// (∇ ·v_k, [z^p-z^p_k]χ_i)
@@ -2432,7 +2503,8 @@ init(
 	bool _replace_linearization_point,
 	bool _replace_weights,
 	std::string _primal_order,
-	std::string _dual_order)
+	std::string _dual_order,
+	bool _nonlinear)
 {
 	Assert(_viscosity.use_count(), dealii::ExcNotInitialized());
 	function.viscosity = _viscosity;
@@ -2445,6 +2517,7 @@ init(
 	replace_weights = _replace_weights;
 	primal_order = _primal_order;
 	dual_order = _dual_order;
+	nonlinear = _nonlinear;
 
 	// FEValuesExtractors
 	convection = 0;

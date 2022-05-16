@@ -164,8 +164,6 @@ struct ErrorEstimateOnCell {
 	// NOTE: I sometimes omit the PU when writing the adjoint error terms. --> I don't remember whether I actually did.
 
 	// t_m:
-	// TODO: Are these all tensors?!
-//	double value_jump_u;   // [ u(t) ]_t = u(t^+) - u(t^-)
 	dealii::Tensor<1,dim> value_jump_u_kh_convection;   // [ v_kh(t) ]_t = v_kh(t^+) - v_kh(t^-)
 	dealii::Tensor<1,dim> value_jump_u_k_convection;    // [ v_k(t) ]_t  = v_k(t^+)  - v_k(t^-)
 	dealii::Tensor<1,dim> value_z_z_k_convection;    // z^v(t) - z^v_k(t)
@@ -189,11 +187,14 @@ struct ErrorEstimateOnCell {
 	dealii::SymmetricTensor<2,dim> value_symgrad_u_k_convection;    	// 1/2(∇v_k + (∇v_k)^T)(t)
 	dealii::SymmetricTensor<2,dim> value_symgrad_u_kh_convection; 		// 1/2(∇v_kh + (∇v_kh)^T)(t)
 	double value_u_k_pressure;                            				// ∇p_k(t)
-	double value_u_kh_pressure;                           				// ∇p_kh(t)
+	double value_u_kh_pressure;                          				// ∇p_kh(t)
+	dealii::Tensor<1,dim> value_u_k_convection;    						//  v_k(t)
+	dealii::Tensor<1,dim> value_u_kh_convection;						//  v_kh(t)
 	double value_div_u_k_convection;					  				// ∇ · u_k(t)
 	double value_div_u_kh_convection;					  			    // ∇ · u_kh(t)
 
 	// t_q: dual residuals:
+	// TODO
 
 	////////////////////////////////////////////////////////////////////////////
 	// other:
@@ -273,7 +274,8 @@ public:
 		bool _replace_linearization_point,
 		bool _replace_weights,
 		std::string _primal_order,
-		std::string _dual_order
+		std::string _dual_order,
+		bool _nonlinear
 	);
 
 protected:
@@ -380,6 +382,8 @@ protected:
 
 	std::shared_ptr< fluid::ParameterSet > parameter_set;
 	std::shared_ptr< fluid::Grid<dim> > grid;
+
+	bool nonlinear;
 
 	struct {
 		std::shared_ptr< dealii::Function<dim> > viscosity;

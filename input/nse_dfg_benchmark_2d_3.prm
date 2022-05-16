@@ -70,12 +70,12 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 1 #2 #!!! USE !!!:3 # TODO: >= 2, otherwise Newton diverges
+    set global refinement = 3 #!!! USE !!!:3 # TODO: >= 2, otherwise Newton diverges
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0 #0.50
-    set final time     = 2.0 #8.0 #1.50 # TODO: change back to 8.0 !!!
+    set final time     = 8.0 #1.50
     set time step size = 0.2 #1.0 #0.025 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
     set global refinement = 0
 end

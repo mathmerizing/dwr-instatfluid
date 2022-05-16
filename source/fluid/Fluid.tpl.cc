@@ -2663,7 +2663,8 @@ dual_do_backward_TMS(
 				parameter_set->dwr.replace_linearization_points,
 				parameter_set->dwr.replace_weights,
 				parameter_set->fe.primal_order,
-				parameter_set->fe.dual_order
+				parameter_set->fe.dual_order,
+				(parameter_set->problem.compare("Navier-Stokes") == 0)
 			);
 		}
 
