@@ -1212,15 +1212,14 @@ primal_solve_slab_problem(
 			// condense hanging nodes in system matrix, if any
 			//
 			slab->spacetime.primal.constraints->condense(*primal.L);
+
+			primal.iA.initialize(*primal.L);
 		}
 
 		////////////////////////////////////////////////////////////////////////////
 		// solve linear system with direct solver
 		//
-
-		dealii::SparseDirectUMFPACK iA;
-		iA.initialize(*primal.L);
-		iA.vmult(*primal.du, *primal.b);
+		primal.iA.vmult(*primal.du, *primal.b);
 
 		slab->spacetime.primal.constraints->distribute(
 			*primal.du

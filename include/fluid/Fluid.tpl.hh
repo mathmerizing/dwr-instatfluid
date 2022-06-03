@@ -56,6 +56,7 @@
 #include <deal.II/lac/block_sparse_matrix.h>
 #include <deal.II/lac/vector.h>
 #include <deal.II/lac/block_vector.h>
+#include <deal.II/lac/sparse_direct.h>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -150,6 +151,8 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > b;
 //		std::shared_ptr< dealii::Vector<double> > f;
 		
+		dealii::SparseDirectUMFPACK iA;
+
 		// Data Output
 		std::shared_ptr< fluid::DataPostprocessor<dim> > data_postprocessor;
 		std::shared_ptr< DTM::DataOutput<dim> > data_output;
