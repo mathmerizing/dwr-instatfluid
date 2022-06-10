@@ -419,6 +419,7 @@ void Assembler<dim>::local_assemble_cell(
 					scratch.v 		    = 0;
 					scratch.grad_v      = 0;
 
+					// Space-Time version of do_function_values (https://www.dealii.org/current/doxygen/deal.II/fe_2fe__values_8cc_source.html#l03073)
 					for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
 					for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
 						// correct ST solution vector entry
