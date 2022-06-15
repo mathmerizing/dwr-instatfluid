@@ -294,14 +294,14 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
 	
-	const dealii::QGaussLobatto<dim> quad_space(
+	const dealii::QGauss<dim> quad_space(
 		std::max(
 			std::max(
 				space.fe->base_element(0).base_element(0).tensor_degree(),
 				space.fe->base_element(0).base_element(1).tensor_degree()
 			),
 			static_cast<unsigned int> (1)
-		) + 1
+		) + 2
 	);
 	
 	const dealii::QGauss<1> quad_time(
@@ -424,13 +424,18 @@ void Assembler<dim>::local_assemble_cell(
 					for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
 						// correct ST solution vector entry
 						double u_i_ii = (*u)[
-							scratch.space_local_dof_indices[i]
-								// time offset
-								+ space.dof->n_dofs() *
-								   (n * time.fe->dofs_per_cell)
-								// local in time dof
-								+ space.dof->n_dofs() * ii
-								];
+											 scratch.space_local_dof_indices[i]
+										// time offset
+										+ space.dof->n_dofs() *
+											scratch.time_local_dof_indices[ii]
+															  ];
+//							scratch.space_local_dof_indices[i]
+//								// time offset
+//								+ space.dof->n_dofs() *
+//								   (n * time.fe->dofs_per_cell)
+//								// local in time dof
+//								+ space.dof->n_dofs() * ii
+//								];
 
 						// all other evals use shape values in time, so multiply only once
 						u_i_ii *= scratch.time_fe_values.shape_value(ii,qt);

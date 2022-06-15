@@ -367,7 +367,7 @@ assemble(
 				space.fe->base_element(0).base_element(1).tensor_degree()
 			),
 			static_cast<unsigned int> (1)
-		) + 1
+		) + 2
 	);
 	
 	const dealii::QGauss<1> quad_time(
