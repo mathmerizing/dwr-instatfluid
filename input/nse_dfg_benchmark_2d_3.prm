@@ -4,7 +4,7 @@
 
 # Overall space dimension:
 set dim = 2 
-set problem = Navier-Stokes
+set problem = Stokes #Navier-Stokes
 
 subsection Fluid Problem Specification
     # Finite Elements in space-time
@@ -25,7 +25,7 @@ subsection Fluid Problem Specification
     set low convection space type support points = Gauss-Lobatto
     
     set low convection time type = dG
-    set low convection r = 1
+    set low convection r = 0#1
     set low convection time type support points = Gauss
 
     # pressure
@@ -34,7 +34,7 @@ subsection Fluid Problem Specification
     set low pressure space type support points = Gauss-Lobatto
     
     set low pressure time type = dG
-    set low pressure r = 1
+    set low pressure r = 0#1
     set low pressure time type support points = Gauss
     
     # HIGH order problem
@@ -44,7 +44,7 @@ subsection Fluid Problem Specification
     set high convection space type support points = Gauss-Lobatto
     
     set high convection time type = dG
-    set high convection r = 2
+    set high convection r = 1#2
     set high convection time type support points = Gauss
 
     # pressure
@@ -53,7 +53,7 @@ subsection Fluid Problem Specification
     set high pressure space type support points = Gauss-Lobatto
     
     set high pressure time type = dG
-    set high pressure r = 2
+    set high pressure r = 1#2
     set high pressure time type support points = Gauss
 end
 
@@ -70,7 +70,7 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 3 #!!! USE !!!:3 # TODO: >= 2, otherwise Newton diverges
+    set global refinement = 1 #2 #!!! USE !!!:3 # TODO: >= 2, otherwise Newton diverges
 end
 
 subsection Fluid Time Integration
@@ -93,7 +93,7 @@ subsection DWR
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 2 #5 #4 #2 #3
+    set solver control max iterations = 1 #3 #5 #4 #2 #3
     set replace linearization points = true
     set replace weights = true
     
@@ -155,7 +155,7 @@ subsection Output Quantities
 #    set primal data output trigger type = fixed # fixed mode: fixed output trigger time
     set primal data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
     
-    set primal data output patches auto mode = true # use < primal p > data output patches (auto mode)
+    set primal data output patches auto mode = false#true # use < primal p > data output patches (auto mode)
     set primal data output patches           = 1    # use this (no auto mode)
     
     ############################################################################

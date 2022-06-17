@@ -769,14 +769,15 @@ primal_calculate_boundary_values(
 				time_fe_values.reinit(cell_time);
 
 				for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
+					// TODO: change back the time points
 					dirichlet_function->set_time(
-						time_fe_values.quadrature_point(qt)[0]
+						slab->t_n // time_fe_values.quadrature_point(qt)[0]
 					);
 
 					// pass through time to the actual function since it
 					// doesn't work through the wrapper from a tensor function
 					function.convection.dirichlet->set_time(
-						time_fe_values.quadrature_point(qt)[0]
+						slab->t_n // time_fe_values.quadrature_point(qt)[0]
 					);
 
 					std::map<dealii::types::global_dof_index,double>
@@ -1846,12 +1847,54 @@ primal_do_data_output_on_slab_Qn_mode(
 // 					<< fe_values_time.quadrature_point(qt)[0]
 // 					<< std::endl;
 				
+ 				// TODO: change back the time
 				primal.data_output->write_data(
 					filename.str(),
 					u_trigger,
 					primal.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
+					slab->t_n // fe_values_time.quadrature_point(qt)[0] // t_trigger
 				);
+
+				// TODO: delete vtk output
+				{
+					// get slab number
+					int slab_number = 0;
+					auto tmp_slab = grid->slabs.begin();
+					while (slab != tmp_slab)
+					{
+						slab_number++;
+						tmp_slab++;
+					}
+
+					std::vector<std::string> solution_names;
+					solution_names.push_back("x_velo");
+					solution_names.push_back("y_velo");
+					solution_names.push_back("p_fluid");
+
+					std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
+						data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
+
+					dealii::DataOut<dim> data_out;
+					data_out.attach_dof_handler(*slab->space.low.fe_info->dof);
+
+					data_out.add_data_vector(*u_trigger, solution_names,
+											 dealii::DataOut<dim>::type_dof_data,
+											 data_component_interpretation);
+
+					data_out.build_patches();
+					data_out.set_flags(
+							dealii::DataOutBase::VtkFlags(
+									slab->t_n,
+									slab_number
+							)
+					);
+
+					// save VTK files
+					const std::string filename =
+						"interpolated_solution-" + dealii::Utilities::int_to_string(slab_number, 6) + ".vtk";
+					std::ofstream output(filename);
+					data_out.write_vtk(output);
+				}
 			}
 		}
 	}
