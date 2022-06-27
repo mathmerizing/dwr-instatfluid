@@ -3464,10 +3464,33 @@ compute_functional_values(
 	auto cell_time = slab->time.primal.fe_info->dof->begin_active();
 	auto endc_time = slab->time.primal.fe_info->dof->end();
 
+	std::shared_ptr< dealii::Quadrature<1> > quad_time;
+	{
+		if ( !(parameter_set->
+			fe.low.convection.time_type_support_points
+			.compare("Gauss")) ) {
+			quad_time =
+			std::make_shared< dealii::QGauss<1> > (
+				(parameter_set->fe.low.convection.r + 1)
+			);
+		} else if ( !(parameter_set->
+				fe.low.convection.time_type_support_points
+				.compare("Gauss-Lobatto")) ){
+			if (parameter_set->fe.low.convection.r < 1){
+				quad_time = std::make_shared< QRightBox<1> > ();
+			} else {
+				quad_time =
+						std::make_shared< dealii::QGaussLobatto<1> > (
+								(parameter_set->fe.low.convection.r + 1)
+						);
+			}
+		}
+	}
+
 	dealii::FEValues<1> fe_values_time(
 		*slab->time.primal.fe_info->mapping,
 		*slab->time.primal.fe_info->fe,
-		dealii::QGauss<1>(parameter_set->fe.primal.convection.r + 1),
+		*quad_time,
 		dealii::update_quadrature_points | dealii::update_JxW_values
 	);
 
