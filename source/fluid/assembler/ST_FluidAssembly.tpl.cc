@@ -555,6 +555,7 @@ void Assembler<dim>::local_assemble_cell(
 								* scratch.time_fe_values.shape_value(jj,qt) *
 							
 							scratch.space_fe_values.JxW(q)
+								* (1. / time.fe->dofs_per_cell)
 //								* scratch.time_fe_values.JxW(qt)
 						)
 					;

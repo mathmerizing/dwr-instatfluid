@@ -582,13 +582,7 @@ initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::
 	slab->space.high.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
 
 	slab->space.high.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
-		std::max(
-			static_cast<unsigned int> (1),
-			std::max(
-				parameter_set->fe.high.convection.p,
-				parameter_set->fe.high.pressure.p
-			)
-		)
+		1
 	);
 
 	////////////////////////////////////////////////////////////////////////
@@ -623,10 +617,32 @@ initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::
 					(parameter_set->fe.high.convection.r + 1)
 				);
 
-// 					DTM::pout
-// 						<< "FE time: (high) convection b: "
-// 						<< "created QGauss<1> quadrature"
-// 						<< std::endl;
+					DTM::pout
+						<< "FE time: (high) convection b: "
+						<< "created QGauss<1> quadrature"
+						<< std::endl;
+			} else if ( !(parameter_set->
+					fe.high.convection.time_type_support_points
+					.compare("Gauss-Lobatto")) ){
+
+				if (parameter_set->fe.high.convection.r < 1){
+					fe_quad_time_high_convection =
+							std::make_shared< QRightBox<1> > ();
+						DTM::pout
+							<< "FE time: (high) convection b: "
+							<< "created QRightBox quadrature"
+							<< std::endl;
+				} else {
+					fe_quad_time_high_convection =
+							std::make_shared< dealii::QGaussLobatto<1> > (
+									(parameter_set->fe.high.convection.r + 1)
+							);
+
+					DTM::pout
+					<< "FE time: (high) convection b: "
+					<< "created QGaussLobatto<1> quadrature"
+					<< std::endl;
+				}
 			}
 		}
 

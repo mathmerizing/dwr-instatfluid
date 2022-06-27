@@ -39,6 +39,7 @@
 
 // PROJECT includes
 #include <fluid/assembler/ST_Dual_FluidAssembly.tpl.hh>
+#include <fluid/QRightBox.tpl.hh>
 
 // deal.II includes
 #include <deal.II/base/exceptions.h>
@@ -282,6 +283,14 @@ set_symmetric_stress(
 template<int dim>
 void
 Assembler<dim>::
+set_time_quad_type(
+	std::string _quad_type) {
+	time.quad_type = _quad_type;
+}
+
+template<int dim>
+void
+Assembler<dim>::
 assemble(
 	std::shared_ptr< dealii::SparseMatrix<double> > _L,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
@@ -370,9 +379,18 @@ assemble(
 		) + 2
 	);
 	
-	const dealii::QGauss<1> quad_time(
-		time.fe->tensor_degree()+1
-	);
+	std::shared_ptr< dealii::Quadrature<1> > quad_time;
+	if (!time.quad_type.compare("Gauss-Lobatto")){
+		if (time.fe->tensor_degree()<1){
+			quad_time = std::make_shared<QRightBox<1>>();
+		}
+		else {
+			quad_time = std::make_shared<dealii::QGaussLobatto<1> >(time.fe->tensor_degree()+1);
+		}
+
+	}else {
+		quad_time = std::make_shared<dealii::QGauss<1> >(time.fe->tensor_degree()+1);
+	}
 	
 	const dealii::QGaussLobatto<1> face_nodes(2);
 	
@@ -414,7 +432,7 @@ assemble(
 			quad_space,
 			*time.fe,
 			*time.mapping,
-			quad_time,
+			*quad_time,
 			face_nodes,
 			*primal.space.fe,
 			*primal.space.mapping,
@@ -626,7 +644,8 @@ void Assembler<dim>::local_assemble_cell(
 								* scratch.time_fe_values.shape_value(jj,qt) *
 							
 							scratch.space_fe_values.JxW(q)
-								* scratch.time_fe_values.JxW(qt)
+								* (1. / time.fe->dofs_per_cell)
+//								* scratch.time_fe_values.JxW(qt)
 						)
 					;
 				}
@@ -682,7 +701,6 @@ void Assembler<dim>::local_assemble_cell(
 			next_cell_time->get_dof_indices(
 				scratch.time_local_dof_indices_neighbor
 			);
-			std::cout << "get_dof_indices of next_cell_time" << std::endl;
 
 			scratch.time_fe_face_values_neighbor.reinit(next_cell_time);
 

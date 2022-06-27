@@ -537,7 +537,11 @@ primal_assemble_system(
 			function.viscosity
 		);
 
-		assembler.set_time_quad_type(parameter_set->fe.low.convection.time_type_support_points);
+		assembler.set_time_quad_type((
+				!parameter_set->fe.primal_order.compare("low") ?
+						parameter_set->fe.low.convection.time_type_support_points :
+						parameter_set->fe.high.convection.time_type_support_points
+		));
 
 		Assert(primal.L.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
@@ -662,7 +666,11 @@ primal_assemble_and_construct_Newton_rhs(
 			function.viscosity
 		);
 
-		assembler.set_time_quad_type(parameter_set->fe.low.convection.time_type_support_points);
+		assembler.set_time_quad_type((
+				!parameter_set->fe.primal_order.compare("low") ?
+						parameter_set->fe.low.convection.time_type_support_points :
+						parameter_set->fe.high.convection.time_type_support_points
+		));
 
 		Assert(primal.Fu.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
@@ -757,33 +765,60 @@ primal_calculate_boundary_values(
 		// create boundary_values as
 		// std::map<dealii::types::global_dof_index, double>
 		{
-
 			std::shared_ptr< dealii::Quadrature<1> > support_points;
-			if ( !(parameter_set->
-					fe.low.convection.time_type_support_points
-					.compare("Gauss")) ) {
+			if (!parameter_set->fe.primal_order.compare("low"))
+			{
+				if ( !(parameter_set->
+						fe.low.convection.time_type_support_points
+						.compare("Gauss")) ) {
 
-				support_points =
-						std::make_shared< dealii::QGauss<1> > (
-								(parameter_set->fe.low.convection.r + 1)
-						);
-
-			} else if ( !(parameter_set->
-					fe.low.convection.time_type_support_points
-					.compare("Gauss-Lobatto")) ){
-
-				if (parameter_set->fe.low.convection.r < 1){
 					support_points =
-							std::make_shared< QRightBox<1> > ();
-
-				} else {
-					support_points =
-							std::make_shared< dealii::QGaussLobatto<1> > (
+							std::make_shared< dealii::QGauss<1> > (
 									(parameter_set->fe.low.convection.r + 1)
 							);
+				} else if ( !(parameter_set->
+						fe.low.convection.time_type_support_points
+						.compare("Gauss-Lobatto")) ){
 
+					if (parameter_set->fe.low.convection.r < 1){
+						support_points =
+								std::make_shared< QRightBox<1> > ();
+					} else {
+						support_points =
+								std::make_shared< dealii::QGaussLobatto<1> > (
+										(parameter_set->fe.low.convection.r + 1)
+								);
+					}
 				}
 			}
+			else
+			{
+				if ( !(parameter_set->
+						fe.high.convection.time_type_support_points
+						.compare("Gauss")) ) {
+
+					support_points =
+							std::make_shared< dealii::QGauss<1> > (
+									(parameter_set->fe.high.convection.r + 1)
+							);
+
+				} else if ( !(parameter_set->
+						fe.high.convection.time_type_support_points
+						.compare("Gauss-Lobatto")) ){
+
+					if (parameter_set->fe.high.convection.r < 1){
+						support_points =
+								std::make_shared< QRightBox<1> > ();
+
+					} else {
+						support_points =
+								std::make_shared< dealii::QGaussLobatto<1> > (
+										(parameter_set->fe.high.convection.r + 1)
+								);
+					}
+				}
+			}
+
 
 
 			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
@@ -2076,6 +2111,12 @@ dual_assemble_system(
 		dual_assembler.set_functions(
 			function.viscosity
 		);
+
+		dual_assembler.set_time_quad_type((
+				!parameter_set->fe.dual_order.compare("low") ?
+						parameter_set->fe.low.convection.time_type_support_points :
+						parameter_set->fe.high.convection.time_type_support_points
+		));
 
 		DTM::pout << "dynamic fluid: assemble space-time slab dual operator matrix...";
 		Assert(dual.L.use_count(), dealii::ExcNotInitialized());
