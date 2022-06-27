@@ -44,6 +44,7 @@
 // PROJECT includes
 #include <fluid/grid/Grid.tpl.hh>
 #include <fluid/grid/TriaGenerator.tpl.hh>
+#include <fluid/QRightBox.tpl.hh>
 
 #include <fluid/types/boundary_id.hh>
 
@@ -342,13 +343,7 @@ initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::d
 	slab->space.low.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
 
 	slab->space.low.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
-		std::max(
-			static_cast<unsigned int> (1),
-			std::max(
-				parameter_set->fe.low.convection.p,
-				parameter_set->fe.low.pressure.p
-			)
-		)
+			1
 	);
 
 	////////////////////////////////////////////////////////////////////////
@@ -383,10 +378,32 @@ initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::d
 					(parameter_set->fe.low.convection.r + 1)
 				);
 
-// 					DTM::pout
-// 						<< "FE time: (low) convection b: "
-// 						<< "created QGauss<1> quadrature"
-// 						<< std::endl;
+ 					DTM::pout
+ 						<< "FE time: (low) convection b: "
+ 						<< "created QGauss<1> quadrature"
+ 						<< std::endl;
+			} else if ( !(parameter_set->
+					fe.low.convection.time_type_support_points
+					.compare("Gauss-Lobatto")) ){
+
+				if (parameter_set->fe.low.convection.r < 1){
+					fe_quad_time_convection =
+							std::make_shared< QRightBox<1> > ();
+						DTM::pout
+							<< "FE time: (low) convection b: "
+							<< "created QRightBox quadrature"
+							<< std::endl;
+				} else {
+					fe_quad_time_convection =
+							std::make_shared< dealii::QGaussLobatto<1> > (
+									(parameter_set->fe.low.convection.r + 1)
+							);
+
+					DTM::pout
+					<< "FE time: (low) convection b: "
+					<< "created QGaussLobatto<1> quadrature"
+					<< std::endl;
+				}
 			}
 		}
 
@@ -407,7 +424,7 @@ initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::d
 					*fe_quad_time_convection
 				);
 			}
-
+			
 			AssertThrow(
 				slab->time.low.fe_info->fe.use_count(),
 				dealii::ExcMessage("low convection FE time not known")

@@ -177,14 +177,14 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
 
-	const dealii::QGaussLobatto<dim> quad_space(
+	const dealii::QGauss<dim> quad_space(
 		std::max(
 			std::max(
 				space.fe->base_element(0).base_element(0).tensor_degree(),
 				space.fe->base_element(0).base_element(1).tensor_degree()
 			),
 			static_cast<unsigned int> (1)
-		) + 1
+		) + 2
 	);
 	
 	const dealii::QGaussLobatto<1> face_nodes(2);

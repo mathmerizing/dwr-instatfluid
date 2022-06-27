@@ -36,6 +36,8 @@
 // PROJECT includes
 #include <fluid/Fluid.tpl.hh>
 
+#include <fluid/QRightBox.tpl.hh>
+
 #include <fluid/grid/Grid_Selector.tpl.hh>
 
 #include <fluid/Viscosity/Viscosity_Selector.tpl.hh>
@@ -534,7 +536,9 @@ primal_assemble_system(
 		assembler.set_functions(
 			function.viscosity
 		);
-		
+
+		assembler.set_time_quad_type(parameter_set->fe.low.convection.time_type_support_points);
+
 		Assert(primal.L.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
 			primal.L,
@@ -658,6 +662,8 @@ primal_assemble_and_construct_Newton_rhs(
 			function.viscosity
 		);
 
+		assembler.set_time_quad_type(parameter_set->fe.low.convection.time_type_support_points);
+
 		Assert(primal.Fu.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
 			primal.Fu,
@@ -751,9 +757,34 @@ primal_calculate_boundary_values(
 		// create boundary_values as
 		// std::map<dealii::types::global_dof_index, double>
 		{
-			const dealii::QGauss<1> support_points(
-				slab->time.primal.fe_info->fe->tensor_degree()+1
-			);
+
+			std::shared_ptr< dealii::Quadrature<1> > support_points;
+			if ( !(parameter_set->
+					fe.low.convection.time_type_support_points
+					.compare("Gauss")) ) {
+
+				support_points =
+						std::make_shared< dealii::QGauss<1> > (
+								(parameter_set->fe.low.convection.r + 1)
+						);
+
+			} else if ( !(parameter_set->
+					fe.low.convection.time_type_support_points
+					.compare("Gauss-Lobatto")) ){
+
+				if (parameter_set->fe.low.convection.r < 1){
+					support_points =
+							std::make_shared< QRightBox<1> > ();
+
+				} else {
+					support_points =
+							std::make_shared< dealii::QGaussLobatto<1> > (
+									(parameter_set->fe.low.convection.r + 1)
+							);
+
+				}
+			}
+
 
 			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
 			auto endc_time = slab->time.primal.fe_info->dof->end();
@@ -761,23 +792,22 @@ primal_calculate_boundary_values(
 			dealii::FEValues<1> time_fe_values(
 				*slab->time.primal.fe_info->mapping,
 				*slab->time.primal.fe_info->fe,
-				support_points,
+				*support_points,
 				dealii::update_quadrature_points
 			);
 
 			for ( ; cell_time != endc_time; ++cell_time) {
 				time_fe_values.reinit(cell_time);
 
-				for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
-					// TODO: change back the time points
+				for (unsigned int qt{0}; qt < support_points->size(); ++qt) {
 					dirichlet_function->set_time(
-						slab->t_n // time_fe_values.quadrature_point(qt)[0]
+						time_fe_values.quadrature_point(qt)[0]
 					);
 
 					// pass through time to the actual function since it
 					// doesn't work through the wrapper from a tensor function
 					function.convection.dirichlet->set_time(
-						slab->t_n // time_fe_values.quadrature_point(qt)[0]
+						time_fe_values.quadrature_point(qt)[0]
 					);
 
 					std::map<dealii::types::global_dof_index,double>

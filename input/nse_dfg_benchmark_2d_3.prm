@@ -4,7 +4,7 @@
 
 # Overall space dimension:
 set dim = 2 
-set problem = Stokes #Navier-Stokes
+set problem = Navier-Stokes #  Stokes #   
 
 subsection Fluid Problem Specification
     # Finite Elements in space-time
@@ -25,8 +25,8 @@ subsection Fluid Problem Specification
     set low convection space type support points = Gauss-Lobatto
     
     set low convection time type = dG
-    set low convection r = 0#1
-    set low convection time type support points = Gauss
+    set low convection r = 0#1# 
+    set low convection time type support points = Gauss-Lobatto
 
     # pressure
     set low pressure space type = cG
@@ -34,8 +34,8 @@ subsection Fluid Problem Specification
     set low pressure space type support points = Gauss-Lobatto
     
     set low pressure time type = dG
-    set low pressure r = 0#1
-    set low pressure time type support points = Gauss
+    set low pressure r = 0#1#
+    set low pressure time type support points = Gauss-Lobatto
     
     # HIGH order problem
     # convection

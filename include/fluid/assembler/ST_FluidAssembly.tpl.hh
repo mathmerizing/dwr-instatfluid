@@ -156,6 +156,8 @@ public:
 	
 	void set_symmetric_stress(bool use_symmetric_stress);
 
+	void set_time_quad_type(std::string quad_type);
+
 	void assemble(
 		std::shared_ptr< dealii::SparseMatrix<double> > L,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
@@ -198,6 +200,7 @@ private:
 		std::shared_ptr< dealii::DoFHandler<1> > dof;
 		std::shared_ptr< dealii::FiniteElement<1> > fe;
 		std::shared_ptr< dealii::Mapping<1> > mapping;
+		std::string quad_type;
 	} time;
 	
  	struct {
