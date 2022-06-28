@@ -369,7 +369,7 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
 	
-	const dealii::QGaussLobatto<dim> quad_space(
+	const dealii::QGauss<dim> quad_space(
 		std::max(
 			std::max(
 				space.fe->base_element(0).base_element(0).tensor_degree(),
@@ -379,19 +379,23 @@ assemble(
 		) + 2
 	);
 	
-	std::shared_ptr< dealii::Quadrature<1> > quad_time;
-	if (!time.quad_type.compare("Gauss-Lobatto")){
-		if (time.fe->tensor_degree()<1){
-			quad_time = std::make_shared<QRightBox<1>>();
-		}
-		else {
-			quad_time = std::make_shared<dealii::QGaussLobatto<1> >(time.fe->tensor_degree()+1);
-		}
-
-	}else {
-		quad_time = std::make_shared<dealii::QGauss<1> >(time.fe->tensor_degree()+1);
-	}
+	const dealii::QGauss<1> quad_time(
+		time.fe->tensor_degree()+2
+	);
 	
+//	std::shared_ptr< dealii::Quadrature<1> > quad_time;
+//	if (!time.quad_type.compare("Gauss-Lobatto")){
+//		if (time.fe->tensor_degree()<1){
+//			quad_time = std::make_shared<QRightBox<1>>();
+//		}
+//		else {
+//			quad_time = std::make_shared<dealii::QGaussLobatto<1> >(time.fe->tensor_degree()+1);
+//		}
+//
+//	}else {
+//		quad_time = std::make_shared<dealii::QGauss<1> >(time.fe->tensor_degree()+1);
+//	}
+//
 	const dealii::QGaussLobatto<1> face_nodes(2);
 	
 	time.n_global_active_cells = slab->time.tria->n_global_active_cells();
@@ -432,7 +436,7 @@ assemble(
 			quad_space,
 			*time.fe,
 			*time.mapping,
-			*quad_time,
+			quad_time,
 			face_nodes,
 			*primal.space.fe,
 			*primal.space.mapping,
@@ -644,8 +648,7 @@ void Assembler<dim>::local_assemble_cell(
 								* scratch.time_fe_values.shape_value(jj,qt) *
 							
 							scratch.space_fe_values.JxW(q)
-								* (1. / time.fe->dofs_per_cell)
-//								* scratch.time_fe_values.JxW(qt)
+								* scratch.time_fe_values.JxW(qt)
 						)
 					;
 				}

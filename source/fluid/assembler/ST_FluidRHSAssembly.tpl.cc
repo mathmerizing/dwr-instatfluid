@@ -295,18 +295,22 @@ assemble(
 			static_cast<unsigned int> (1)
 		) + 2
 	);
-	std::shared_ptr< dealii::Quadrature<1> > quad_time;
-	if (!time.quad_type.compare("Gauss-Lobatto")){
-		if (time.fe->tensor_degree()<1){
-			quad_time = std::make_shared<QRightBox<1>>();
-		}
-		else {
-			quad_time = std::make_shared<dealii::QGaussLobatto<1> >(time.fe->tensor_degree()+1);
-		}
 
-	}else {
-		quad_time = std::make_shared<dealii::QGauss<1> >(time.fe->tensor_degree()+1);
-	}
+	const dealii::QGauss<1> quad_time(
+		time.fe->tensor_degree()+2
+	);
+//	std::shared_ptr< dealii::Quadrature<1> > quad_time;
+//	if (!time.quad_type.compare("Gauss-Lobatto")){
+//		if (time.fe->tensor_degree()<1){
+//			quad_time = std::make_shared<QRightBox<1>>();
+//		}
+//		else {
+//			quad_time = std::make_shared<dealii::QGaussLobatto<1> >(time.fe->tensor_degree()+1);
+//		}
+//
+//	}else {
+//		quad_time = std::make_shared<dealii::QGauss<1> >(time.fe->tensor_degree()+1);
+//	}
 
 	dealii::QGaussLobatto<1> face_nodes(2);
 
@@ -346,7 +350,7 @@ assemble(
 			quad_space,
 			*time.fe,
 			*time.mapping,
-			*quad_time,
+			quad_time,
 			face_nodes
 		),
 		Assembly::CopyData::FluidRHSAssembly<dim> (
@@ -506,9 +510,7 @@ void Assembler<dim>::local_assemble_cell(
 							+ ( scratch.space_psi[i]
 								 *scratch.time_fe_values.shape_value(ii,qt)*
 								 scratch.div_v*
-								 scratch.space_fe_values.JxW(q)
-									* (1. / time.fe->dofs_per_cell)
-//								 scratch.spacetime_JxW
+								 scratch.spacetime_JxW
 								 )
 					;
 				}

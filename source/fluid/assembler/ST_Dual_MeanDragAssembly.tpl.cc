@@ -269,7 +269,7 @@ assemble(
 	);
 
 	const dealii::QGauss<1> quad_time(
-		time.fe->tensor_degree()+1
+		time.fe->tensor_degree()+2
 	);
 	
 	time.n_global_active_cells = slab->time.tria->n_global_active_cells();
