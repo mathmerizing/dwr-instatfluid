@@ -1275,7 +1275,20 @@ primal_solve_slab_problem(
 		}
 
 		if (newton_residual/old_newton_residual > newton.rebuild){
-			primal_assemble_system(slab, u->x[0]);
+			// NOTE: for Stokes without adaptive refinement the system matrix needs only to be inverted on the first slab
+			if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_m == parameter_set->time.fluid.t0)
+			{
+				primal_assemble_system(slab, u->x[0]);
+			}
+			else
+			{
+				// system matrix doesn't need to be assembled, since it hasn't changed
+				// hence also primal.iA stays the same
+				primal.L = std::make_shared< dealii::SparseMatrix<double> > ();
+				primal.L->reinit(*slab->spacetime.primal.sp);
+				*primal.L = 0;
+			}
+
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
 
 			////////////////////////////////////////////////////////////////////////////
@@ -1283,7 +1296,9 @@ primal_solve_slab_problem(
 			//
 			slab->spacetime.primal.constraints->condense(*primal.L);
 
-			primal.iA.initialize(*primal.L);
+			// NOTE: for Stokes without adaptive refinement the system matrix needs only to be inverted on the first slab
+			if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_m == parameter_set->time.fluid.t0)
+				primal.iA.initialize(*primal.L);
 		}
 
 		////////////////////////////////////////////////////////////////////////////
@@ -1999,54 +2014,53 @@ primal_do_data_output_on_slab_Qn_mode(
 // 					<< fe_values_time.quadrature_point(qt)[0]
 // 					<< std::endl;
 				
- 				// TODO: change back the time
-				primal.data_output->write_data(
+ 				primal.data_output->write_data(
 					filename.str(),
 					u_trigger,
 					primal.data_postprocessor,
-					slab->t_n // fe_values_time.quadrature_point(qt)[0] // t_trigger
+					fe_values_time.quadrature_point(qt)[0] // t_trigger
 				);
 
-				// TODO: delete vtk output
-				{
-					// get slab number
-					int slab_number = 0;
-					auto tmp_slab = grid->slabs.begin();
-					while (slab != tmp_slab)
-					{
-						slab_number++;
-						tmp_slab++;
-					}
-
-					std::vector<std::string> solution_names;
-					solution_names.push_back("x_velo");
-					solution_names.push_back("y_velo");
-					solution_names.push_back("p_fluid");
-
-					std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
-						data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
-
-					dealii::DataOut<dim> data_out;
-					data_out.attach_dof_handler(*slab->space.low.fe_info->dof);
-
-					data_out.add_data_vector(*u_trigger, solution_names,
-											 dealii::DataOut<dim>::type_dof_data,
-											 data_component_interpretation);
-
-					data_out.build_patches();
-					data_out.set_flags(
-							dealii::DataOutBase::VtkFlags(
-									slab->t_n,
-									slab_number
-							)
-					);
-
-					// save VTK files
-					const std::string filename =
-						"interpolated_solution-" + dealii::Utilities::int_to_string(slab_number, 6) + ".vtk";
-					std::ofstream output(filename);
-					data_out.write_vtk(output);
-				}
+//				// TODO: delete vtk output
+//				{
+//					// get slab number
+//					int slab_number = 0;
+//					auto tmp_slab = grid->slabs.begin();
+//					while (slab != tmp_slab)
+//					{
+//						slab_number++;
+//						tmp_slab++;
+//					}
+//
+//					std::vector<std::string> solution_names;
+//					solution_names.push_back("x_velo");
+//					solution_names.push_back("y_velo");
+//					solution_names.push_back("p_fluid");
+//
+//					std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
+//						data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
+//
+//					dealii::DataOut<dim> data_out;
+//					data_out.attach_dof_handler(*slab->space.low.fe_info->dof);
+//
+//					data_out.add_data_vector(*u_trigger, solution_names,
+//											 dealii::DataOut<dim>::type_dof_data,
+//											 data_component_interpretation);
+//
+//					data_out.build_patches();
+//					data_out.set_flags(
+//							dealii::DataOutBase::VtkFlags(
+//									slab->t_n,
+//									slab_number
+//							)
+//					);
+//
+//					// save VTK files
+//					const std::string filename =
+//						"interpolated_solution-" + dealii::Utilities::int_to_string(slab_number, 6) + ".vtk";
+//					std::ofstream output(filename);
+//					data_out.write_vtk(output);
+//				}
 			}
 		}
 	}
@@ -2630,22 +2644,23 @@ dual_solve_slab_problem(
 			//       all boundary value constraints are identical, i.e.
 			//       a fixed and nicely scaled value.
 			//
-			double diagonal_scaling_value{0.};
-
-			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-				if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
-					diagonal_scaling_value = A->el(i,i);
-				}
-			}
-
-			if (diagonal_scaling_value == double(0.)) {
-				diagonal_scaling_value = double(1.);
-			}
-
-			Assert(
-				(diagonal_scaling_value != double(0.)),
-				dealii::ExcInternalError()
-			);
+//			double diagonal_scaling_value{0.};
+//
+//			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+//				if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
+//					diagonal_scaling_value = A->el(i,i);
+//				}
+//			}
+//
+//			if (diagonal_scaling_value == double(0.)) {
+//				diagonal_scaling_value = double(1.);
+//			}
+//
+//			Assert(
+//				(diagonal_scaling_value != double(0.)),
+//				dealii::ExcInternalError()
+//			);
+			double diagonal_scaling_value{1.};
 
 			////////////////////////////////////////////////////////////////////
 			// apply boundary values:
@@ -2720,9 +2735,9 @@ dual_solve_slab_problem(
 
 	DTM::pout << "dwr-instatfluid: setup direct lss and solve...";
 
-	dealii::SparseDirectUMFPACK iA;
-	iA.initialize(*dual.L);
-	iA.vmult(*z->x[0], *dual.b);
+	if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_n == parameter_set->time.fluid.T)
+		dual.iA.initialize(*dual.L);
+	dual.iA.vmult(*z->x[0], *dual.b);
 
 	DTM::pout << " (done)" << std::endl;
 
@@ -2922,7 +2937,20 @@ dual_do_backward_TMS(
 		}
 
 		// assemble slab problem
-		dual_assemble_system(slab, u->x[0]);
+
+		// NOTE: for Stokes without adaptive refinement the dual system matrix needs only to be inverted on the last slab
+		if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_n == parameter_set->time.fluid.T)
+		{
+			dual_assemble_system(slab, u->x[0]);
+		}
+		else
+		{
+			// dual system matrix doesn't need to be assembled, since it hasn't changed
+			// hence also dual.iA stays the same
+			dual.L = std::make_shared< dealii::SparseMatrix<double> > ();
+			dual.L->reinit(*slab->spacetime.dual.sp);
+			*dual.L = 0;
+		}
 		dual_assemble_rhs(slab);
 
 		// solve slab problem (i.e. apply boundary values and solve for z0)

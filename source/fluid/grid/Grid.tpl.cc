@@ -1132,11 +1132,38 @@ refine_slab_in_time(
 			if ( !(parameter_set->
 				fe.low.convection.time_type_support_points
 				.compare("Gauss")) ) {
-				
+
 				fe_quad_time_convection =
 				std::make_shared< dealii::QGauss<1> > (
 					(parameter_set->fe.low.convection.r + 1)
 				);
+
+					DTM::pout
+						<< "FE time: (low) convection b: "
+						<< "created QGauss<1> quadrature"
+						<< std::endl;
+			} else if ( !(parameter_set->
+					fe.low.convection.time_type_support_points
+					.compare("Gauss-Lobatto")) ){
+
+				if (parameter_set->fe.low.convection.r < 1){
+					fe_quad_time_convection =
+							std::make_shared< QRightBox<1> > ();
+						DTM::pout
+							<< "FE time: (low) convection b: "
+							<< "created QRightBox quadrature"
+							<< std::endl;
+				} else {
+					fe_quad_time_convection =
+							std::make_shared< dealii::QGaussLobatto<1> > (
+									(parameter_set->fe.low.convection.r + 1)
+							);
+
+					DTM::pout
+					<< "FE time: (low) convection b: "
+					<< "created QGaussLobatto<1> quadrature"
+					<< std::endl;
+				}
 			}
 		}
 		
@@ -1188,6 +1215,33 @@ refine_slab_in_time(
 				std::make_shared< dealii::QGauss<1> > (
 					(parameter_set->fe.high.convection.r + 1)
 				);
+
+					DTM::pout
+						<< "FE time: (high) convection b: "
+						<< "created QGauss<1> quadrature"
+						<< std::endl;
+			} else if ( !(parameter_set->
+					fe.high.convection.time_type_support_points
+					.compare("Gauss-Lobatto")) ){
+
+				if (parameter_set->fe.high.convection.r < 1){
+					fe_quad_time_high_convection =
+							std::make_shared< QRightBox<1> > ();
+						DTM::pout
+							<< "FE time: (high) convection b: "
+							<< "created QRightBox quadrature"
+							<< std::endl;
+				} else {
+					fe_quad_time_high_convection =
+							std::make_shared< dealii::QGaussLobatto<1> > (
+									(parameter_set->fe.high.convection.r + 1)
+							);
+
+					DTM::pout
+					<< "FE time: (high) convection b: "
+					<< "created QGaussLobatto<1> quadrature"
+					<< std::endl;
+				}
 			}
 		}
 
