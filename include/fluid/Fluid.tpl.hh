@@ -219,6 +219,11 @@ protected:
 		const typename DTM::types::storage_data_vectors<1>::iterator &x,
 		const typename DTM::types::storage_data_vectors<1>::iterator &xm
 	);
+
+	virtual void primal_subtract_pressure_mean(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::Vector<double> > x
+	);
 	
 	virtual void primal_do_forward_TMS(
 			const unsigned int dwr_loop,

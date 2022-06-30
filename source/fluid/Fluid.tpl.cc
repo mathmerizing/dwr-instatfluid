@@ -90,9 +90,13 @@ using ProjectionRHSAssembler = projectionrhs::spacetime::Operator::Assembler<dim
 
 
 // DEAL.II includes
+#include <deal.II/base/types.h>
+
 #include <deal.II/fe/component_mask.h>
 #include <deal.II/fe/fe_tools.h>
 #include <deal.II/fe/mapping_q.h>
+
+#include <deal.II/dofs/dof_tools.h>
 
 #include <deal.II/grid/grid_refinement.h>
 
@@ -1690,7 +1694,90 @@ primal_solve_slab_problem(
     }
 }
 
+template<int dim>
+void
+Fluid<dim>::
+primal_subtract_pressure_mean(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double> > x
+) {
+	std::vector< dealii::types::global_dof_index > dofs_per_component(
+			slab->space.primal.fe_info->dof->get_fe_collection().n_components(), 0
+	);
 
+
+	dofs_per_component = dealii::DoFTools::count_dofs_per_fe_component(
+			*slab->space.primal.fe_info->dof,
+			true
+	);
+
+	// set specific values of dof counts
+	dealii::types::global_dof_index N_b; // convection
+
+	// dof count convection: vector-valued primitive FE
+	N_b = 0;
+	for (unsigned int d{0}; d < dim; ++d) {
+		N_b += dofs_per_component[0*dim+d];
+	}
+
+	dealii::FEValues<1> fe_values_time(
+			*slab->time.primal.fe_info->mapping,
+			*slab->time.primal.fe_info->fe,
+			dealii::QGauss<1>(parameter_set->fe.primal.convection.r + 1),
+			dealii::update_quadrature_points
+	);
+
+	std::vector< dealii::types::global_dof_index > local_dof_indices(
+			slab->time.primal.fe_info->fe->dofs_per_cell
+	);
+
+	dealii::types::global_dof_index n_dofs_space =
+			slab->space.primal.fe_info->dof->n_dofs();
+
+	auto cell_time = slab->time.primal.fe_info->dof->begin_active();
+	auto endc_time = slab->time.primal.fe_info->dof->end();
+	for ( ; cell_time != endc_time ; ++cell_time) {
+		fe_values_time.reinit(cell_time);
+
+		cell_time ->get_dof_indices(local_dof_indices);
+
+		for ( unsigned int local_time_dof{0} ;
+				local_time_dof < fe_values_time.n_quadrature_points;
+				++local_time_dof
+		){
+			//extract current qp solution
+			dealii::Vector<double> uk;
+			uk.reinit(n_dofs_space);
+			//					uk.clear();
+			for (dealii::types::global_dof_index i{0} ; i < n_dofs_space ; i++)
+			{
+				dealii::types::global_dof_index ii =
+						n_dofs_space*(local_dof_indices[local_time_dof])+i;
+
+				uk[i] = x->operator()(ii);
+			}
+
+			const double mean_pressure = dealii::VectorTools::compute_mean_value(
+					*slab->space.primal.fe_info->dof,
+					dealii::QGauss<dim> (parameter_set->fe.primal.convection.p+2),
+					uk,
+					dim
+			);
+
+//			std::cout << "mean pressure correction: " << mean_pressure << std::endl;
+			for ( dealii::types::global_dof_index i{N_b} ; i < n_dofs_space ; i++)
+			{
+				dealii::types::global_dof_index ii =
+						n_dofs_space*(local_dof_indices[local_time_dof])+i;
+
+
+				x->operator()(ii) -= mean_pressure;
+			}
+
+		}
+	}
+
+}
 template<int dim>
 void
 Fluid<dim>::
