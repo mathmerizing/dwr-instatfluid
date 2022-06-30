@@ -255,6 +255,7 @@ ErrorEstimator<dim>::
 estimate_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_vectors<1>::iterator &u,
+	const typename DTM::types::storage_data_vectors<1>::iterator &um,
 	const typename DTM::types::storage_data_vectors<1>::iterator &z,
 
 	const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
@@ -477,6 +478,9 @@ estimate_on_slab(
 				*slab->space.primal.fe_info->constraints,
 				*primal_um_on_tm
 			);
+
+			// primal_um_on_tm has actually already been stored with a divergence free projection in um
+			primal_um_on_tm->equ(1., *um->x[0]);
 		}
 	}
 

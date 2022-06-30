@@ -122,6 +122,8 @@ protected:
 	
 	virtual void init_newton_parameters();
 
+	bool use_gradient_projection = false;
+
 	////////////////////////////////////////////////////////////////////////////
 	// primal problem:
 	//
@@ -132,10 +134,15 @@ protected:
 		struct {
 			/// primal solution dof list
 			std::shared_ptr< DTM::types::storage_data_vectors<1> > u;
+			/// primal solution dof list at beginning of slab
+			std::shared_ptr< DTM::types::storage_data_vectors<1> > um;
 		} storage;
 		
 		/// temporary storage for primal solution u at \f$ t_m \f$
 		std::shared_ptr< dealii::Vector<double> > um;
+
+		/// temporary storage for divergence free projection of primal solution u at \f$ t_m \f$
+		std::shared_ptr< dealii::Vector<double> > um_projected;
 
 		/// temporary storage for primal solution u at \f$ t_n \f$
 		std::shared_ptr< dealii::Vector<double> > un;
@@ -151,6 +158,10 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > b;
 //		std::shared_ptr< dealii::Vector<double> > f;
 		
+		// Matrix and rhs for divergence-free projection
+		std::shared_ptr< dealii::SparseMatrix<double> > projection_matrix;
+		std::shared_ptr< dealii::Vector<double> > projection_rhs;
+
 		dealii::SparseDirectUMFPACK iA;
 
 		// Data Output
@@ -165,7 +176,8 @@ protected:
 	virtual void primal_reinit_storage();
 	virtual void primal_reinit_storage_on_slab(
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-			const typename DTM::types::storage_data_vectors<1>::iterator &x
+			const typename DTM::types::storage_data_vectors<1>::iterator &x,
+			const typename DTM::types::storage_data_vectors<1>::iterator &xm
 	);
 	
 	virtual void primal_assemble_system(
@@ -174,7 +186,9 @@ protected:
 	);
 	
  	virtual void primal_assemble_const_rhs(
- 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+ 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		const typename DTM::types::storage_data_vectors<1>::iterator &xm,
+		std::map<dealii::types::global_dof_index, double> &boundary_values
  	);
 
  	virtual void primal_assemble_and_construct_Newton_rhs(
@@ -202,7 +216,8 @@ protected:
 
 	virtual void primal_solve_slab_problem(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &x
+		const typename DTM::types::storage_data_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_vectors<1>::iterator &xm
 	);
 	
 	virtual void primal_do_forward_TMS(

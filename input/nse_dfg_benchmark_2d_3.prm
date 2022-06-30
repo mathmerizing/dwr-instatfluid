@@ -70,13 +70,13 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 6
+    set global refinement = 1 #6
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.0015625
+    set time step size = 0.4 #0.0015625
     set global refinement = 0
 end
 

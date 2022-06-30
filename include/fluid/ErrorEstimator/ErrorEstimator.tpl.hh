@@ -261,6 +261,7 @@ public:
 	virtual void estimate_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const typename DTM::types::storage_data_vectors<1>::iterator &u,
+		const typename DTM::types::storage_data_vectors<1>::iterator &um,
 		const typename DTM::types::storage_data_vectors<1>::iterator &z,
 
 		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
