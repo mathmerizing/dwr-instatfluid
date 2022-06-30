@@ -258,6 +258,8 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > b;
 		std::shared_ptr< dealii::Vector<double> > Je;
 
+		dealii::SparseDirectUMFPACK iA;
+
 		// Data Output
 		std::shared_ptr< fluid::DataPostprocessor<dim> > data_postprocessor;
 		std::shared_ptr< DTM::DataOutput<dim> > data_output;
