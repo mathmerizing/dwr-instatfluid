@@ -1,10 +1,7 @@
 /**
- * @file Grids.hh
+ * @file Grid_Cavity_2D.inst.in
  * @author Julian Roth (JR)
  * @author Uwe Koecher (UK)
- * @author Jan Philipp Thiele (JPT)
- * 
- * @Date 2022-01-14, Fluid, JPT
  * @date 2021-09-27, JR
  * @date 2019-11-11, UK
  */
@@ -26,14 +23,15 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#ifndef __fluid_Grids_hh
-#define __fluid_Grids_hh
+#ifndef __Grid_Cavity_2D_inst_in
+#define __Grid_Cavity_2D_inst_in
 
-#include <fluid/grid/Grid.tpl.hh>
+namespace fluid {
+namespace grid {
 
-#include <fluid/grid/Grid_Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow.tpl.hh>
-#include <fluid/grid/Grid_Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow_2.tpl.hh>
-#include <fluid/grid/Grid_Schaefer_Turek_2D.tpl.hh>
-#include <fluid/grid/Grid_Cavity_2D.tpl.hh>
+template class Grid_Cavity_2D<2>;
+template class Grid_Cavity_2D<3>;
+
+}} // namespaces
 
 #endif

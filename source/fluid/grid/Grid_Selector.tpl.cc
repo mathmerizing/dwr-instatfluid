@@ -84,7 +84,7 @@ create_grid(
 	DTM::pout << std::endl;
 	
 	DTM::pout << "* generating mesh" << std::endl;
-	
+
 	////////////////////////////////////////////////////////////////////////////
 	//
 	if ( !Mesh_Boundary_Class.compare("Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow") ) {
@@ -96,13 +96,13 @@ create_grid(
 				"please check your input file data."
 			)
 		);
-		
+
 		grid = std::make_shared<
 		fluid::grid::Grid_Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow<dim> > (
 			parameter_set,
 			std::stod(options.at(0)) // y_out coordinate
 		);
-		
+
 		DTM::pout
 			<< "fluid::grid selector: created "
 			<< "Grid_Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow"
@@ -112,7 +112,7 @@ create_grid(
 		
 		return;
 	}
-	
+
 	////////////////////////////////////////////////////////////////////////////
 	//
 	if ( !Mesh_Boundary_Class.compare("Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow_2") ) {
@@ -139,7 +139,7 @@ create_grid(
 			<< "\tx_in  = " << std::stod(options.at(0)) << " , " << std::endl
 			<< "\tx_out = " << std::stod(options.at(1)) << " . " << std::endl
 			<< std::endl;
-		
+
 		return;
 	}
 	
@@ -154,11 +154,11 @@ create_grid(
 				"please check your input file data."
 			)
 		);
-		
+
 		grid = std::make_shared< fluid::grid::Grid_Schaefer_Turek_2D<dim> > (
 			parameter_set
 		);
-		
+
 		DTM::pout
 			<< "fluid::grid selector: created "
 			<< "Grid_Schaefer_Turek_2D"
@@ -166,7 +166,31 @@ create_grid(
 
 		return;
 	}
-	
+
+	////////////////////////////////////////////////////////////////////////////
+	//
+	if ( !Mesh_Boundary_Class.compare("Cavity_2D") ) {
+		AssertThrow(
+				options.size() == 0,
+				dealii::ExcMessage(
+						"Cavity_2D "
+						"options invalid, "
+						"please check your input file data."
+				)
+		);
+
+		grid = std::make_shared< fluid::grid::Grid_Cavity_2D<dim> > (
+				parameter_set
+		);
+
+		DTM::pout
+		<< "fluid::grid selector: created "
+		<< "Grid_Cavity_2D"
+		<< std::endl;
+
+		return;
+	}
+
 	////////////////////////////////////////////////////////////////////////////
 	//
 	AssertThrow(

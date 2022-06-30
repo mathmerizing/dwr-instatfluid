@@ -1,0 +1,183 @@
+# Problem: time-dependent Fluid solver for the Navier-Stokes 2D-3 DFG benchmark problem
+# link with description: http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html
+# TIME-DEPENDENT
+
+# Overall space dimension:
+set dim = 2 
+set problem = Navier-Stokes #  Stokes #   
+
+subsection Fluid Problem Specification
+    # Finite Elements in space-time
+    
+    # Use symmetric stress tensor?
+    set symmetric stress = false
+    
+	# primal problem: convection-pressure : [b; p]^T
+	set primal order = low # options: low, high
+	
+	# dual problem: convection-pressure : [z_b; z_p]^T
+	set dual order = high # options: low, high
+        
+    # LOW order problem
+    # convection
+    set low convection space type = cG
+    set low convection p = 2
+    set low convection space type support points = Gauss-Lobatto
+    
+    set low convection time type = dG
+    set low convection r = 0#1# 
+    set low convection time type support points = Gauss-Lobatto
+
+    # pressure
+    set low pressure space type = cG
+    set low pressure p = 1
+    set low pressure space type support points = Gauss-Lobatto
+    
+    set low pressure time type = dG
+    set low pressure r = 0#1#
+    set low pressure time type support points = Gauss-Lobatto
+    
+    # HIGH order problem
+    # convection
+    set high convection space type = cG
+    set high convection p = 4
+    set high convection space type support points = Gauss-Lobatto
+    
+    set high convection time type = dG
+    set high convection r = 1#2
+    set high convection time type support points = Gauss
+
+    # pressure
+    set high pressure space type = cG
+    set high pressure p = 2
+    set high pressure space type support points = Gauss-Lobatto
+    
+    set high pressure time type = dG
+    set high pressure r = 1#2
+    set high pressure time type support points = Gauss
+end
+
+subsection Mesh Specification
+    # triangulation description
+    set TriaGenerator = hyper_cube
+    set TriaGenerator Options = "0 1"
+end
+
+subsection Fluid Mesh Specification    
+    # boundary description
+    set Grid Class = Cavity_2D
+    set Grid Class Options = ""
+    
+    ############################################################################
+    # Global refinement of the initial mesh
+    set global refinement = 5 #2 #!!! USE !!!:3 # TODO: >= 2, otherwise Newton diverges
+end
+
+subsection Fluid Time Integration
+    set initial time   = 0.0 #0.50
+    set final time     = 1.0 #1.50
+    set time step size = 0.1 #1.0 #0.025 #!!! USE !!!: 0.05 #0.00625 #0.05 #1.00
+    set global refinement = 0
+end
+
+subsection Newton
+    set max steps = 60
+    set lower bound = 1.0e-10
+    set rebuild parameter = 0.1
+    set line search steps = 10
+    set line search damping = 0.6
+end
+
+subsection DWR
+	set refine and coarsen spacetime strategy = adaptive #global_space #adaptive #global #_time
+	
+    set solver control in use = true
+    set solver control reduction mode = true
+    set solver control max iterations = 1 #3 #5 #4 #2 #3
+    set replace linearization points = true
+    set replace weights = true
+    
+    ############################
+    # for ADAPTIVE refinement: #
+    ############################
+    # space strategy: global, fixed_number, fixed_fraction or RichterWick
+    set refine and coarsen space strategy = RichterWick #fixed_number
+    set refine and coarsen space top fraction1 = 0.3
+    set refine and coarsen space top fraction2 = 0.3
+    set refine and coarsen space bottom fraction = 0.0
+    set refine and coarsen space max growth factor n_active_cells = 4
+    set refine and coarsen space riwi alpha = 1.1
+    
+    # time strategy: global, fixed_number or fixed_fraction
+    set refine and coarsen time strategy = fixed_number 
+    set refine and coarsen time top fraction = 0.75
+end
+
+subsection Parameter Specification
+    ############################################################################
+    # viscosity function nu/mu/eta
+    set viscosity function = ConstantFunction
+    set viscosity options  = "0.0025"
+    
+    # Force f
+    set fluid force function = ZeroTensorFunction
+    set fluid force options  = ""
+    set fluid force assembler quadrature auto mode = false
+    set fluid force assembler quadrature points = 0
+    
+    ############################################################################
+    # Initial value function
+    set convection initial value function = ZeroTensorFunction
+    set convection initial value options  = ""
+    
+    set pressure initial value function = ZeroTensorFunction
+    set pressure initial value options  = ""
+    
+    ############################################################################
+    # Boundary value function
+    set convection dirichlet boundary function = ConstantTensorFunction
+    #                                             u v w
+    set convection dirichlet boundary options  = "0 1 0"
+    
+    # TODO: change something here for the do-nothing condition ?!
+    set convection neumann boundary function = ZeroTensorFunction
+    set convection neumann boundary options  = ""
+    set convection neumann assembler quadrature auto mode = false
+    set convection neumann assembler quadrature points = 0
+end
+
+subsection Output Quantities
+    ############################################################################
+    # primal solution output control
+    set primal data output dwr loop = all         # use none, all, last or number
+    
+    set primal data output trigger type = I_n   # I_n mode: one output per I_n
+#    set primal data output trigger type = fixed # fixed mode: fixed output trigger time
+    set primal data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
+    
+    set primal data output patches auto mode = false#true # use < primal p > data output patches (auto mode)
+    set primal data output patches           = 1    # use this (no auto mode)
+    
+    ############################################################################
+    # dual solution output control
+    set dual data output dwr loop = all         # use none, all, last or number
+    
+    set dual data output trigger type = I_n   # I_n mode: one output per I_n
+#    set dual data output trigger type = fixed # fixed mode: fixed output trigger time
+    set dual data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
+    
+    set dual data output patches auto mode = true # use < dual p > data output patches (auto mode)
+    set dual data output patches           = 1    # use this (no auto mode)
+    
+    ############################################################################
+    # error estimator solution output control
+    set error estimator data output dwr loop = all         # use none, all, last or number
+    
+    set error estimator data output trigger type = I_n   # I_n mode: one output per I_n
+#    set error estimator data output trigger type = fixed # fixed mode: fixed output trigger time
+    set error estimator data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
+    
+    set error estimator data output patches auto mode = true # use 1 data output patch (auto mode)
+    set error estimator data output patches           = 1    # use this (no auto mode)
+end
+
