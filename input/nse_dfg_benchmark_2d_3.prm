@@ -4,7 +4,7 @@
 
 # Overall space dimension:
 set dim = 2 
-set problem = Stokes #Navier-Stokes
+set problem = Stokes # Navier-Stokes # 
 
 subsection Fluid Problem Specification
     # Finite Elements in space-time
@@ -70,13 +70,13 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 6
+    set global refinement = 0 #6
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.0015625
+    set time step size = 0.4 #0.0015625
     set global refinement = 0
 end
 
@@ -89,8 +89,8 @@ subsection Newton
 end
 
 subsection DWR
-	set refine and coarsen spacetime strategy = global #global_space #adaptive #global #_time
-	
+        set refine and coarsen spacetime strategy = global #adaptive # global_space #global #_time
+        
     set solver control in use = true
     set solver control reduction mode = true
     set solver control max iterations = 1
@@ -149,7 +149,7 @@ end
 subsection Output Quantities
     ############################################################################
     # primal solution output control
-    set primal data output dwr loop = none #all         # use none, all, last or number
+    set primal data output dwr loop = all #all         # use none, all, last or number
     
     set primal data output trigger type = I_n   # I_n mode: one output per I_n
 #    set primal data output trigger type = fixed # fixed mode: fixed output trigger time

@@ -1274,18 +1274,27 @@ primal_solve_slab_problem(
 			// NOTE: for Stokes without adaptive refinement the system matrix needs only to be inverted on the first slab
 			if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_m == parameter_set->time.fluid.t0)
 			{
+				std::cout << "primal_assemble_system" << std::endl;
 				primal_assemble_system(slab, u->x[0]);
 			}
 			else
 			{
 				// system matrix doesn't need to be assembled, since it hasn't changed
 				// hence also primal.iA stays the same
+				std::cout << "primal.L = 0" << std::endl;
 				primal.L = std::make_shared< dealii::SparseMatrix<double> > ();
 				primal.L->reinit(*slab->spacetime.primal.sp);
 				*primal.L = 0;
 			}
+			std::ofstream matrix_out("matrix.txt");
+			primal.L->print(matrix_out);
+			matrix_out.close();
 
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
+
+			std::ofstream matrix_out2("matrix_with_BC.txt");
+			primal.L->print(matrix_out2);
+			matrix_out2.close();
 
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any
@@ -1305,6 +1314,16 @@ primal_solve_slab_problem(
 		slab->spacetime.primal.constraints->distribute(
 			*primal.du
 		);
+
+		std::ofstream rhs_out("rhs.txt");
+		primal.b->print(rhs_out);
+		rhs_out.close();
+
+		std::ofstream du_out("du.txt");
+		primal.du->print(du_out);
+		du_out.close();
+
+		exit(7);
 
 		for (line_search_step = 0; line_search_step < newton.line_search_steps; line_search_step++) {
 			u->x[0]->add(1.0,*primal.du);
