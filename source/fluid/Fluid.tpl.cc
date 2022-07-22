@@ -980,6 +980,12 @@ primal_calculate_boundary_values(
 			} // no slip
 		}
 	} // for each (boundary) colour
+
+//	std::ofstream file("boundary_idx.txt");
+//	for (auto element : boundary_values)
+//		file << element.first << "," << element.second << "\n";
+//	file.close();
+//	exit(8);
 }
 
 template<int dim>
@@ -1141,43 +1147,43 @@ primal_apply_bc(
 				diagonal_scaling_value * boundary_value.second;
 		}
 
+		// TODO: comment out again the following lines
+				////////////////////////////////////////////////////////////////////
+				// eliminate constrained column entries
+				//
+				// NOTE: this is quite expensive, but helps iterative lss
+				//       since the boundary value entries are shifted to the
+				//       right hand side.
+				//
+				// NOTE: there is no symmetry assumption on the sparsity pattern,
+				//       which is necessary for space-time operators
+				//
+				for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+					// if the row i of the operator A is not constrained,
+					// check if constrained columns need to be eliminated
+					if (boundary_values.find(i) == boundary_values.end()) {
+						// row i of A is not constrained
+						auto el_in_row_i{A->begin(i)};
+						auto end_el_in_row_i{A->end(i)};
 
-		// 			////////////////////////////////////////////////////////////////////
-		// 			// eliminate constrained column entries
-		// 			//
-		// 			// NOTE: this is quite expensive, but helps iterative lss
-		// 			//       since the boundary value entries are shifted to the
-		// 			//       right hand side.
-		// 			//
-		// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
-		// 			//       which is necessary for space-time operators
-		// 			//
-		// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-		// 				// if the row i of the operator A is not constrained,
-		// 				// check if constrained columns need to be eliminated
-		// 				if (boundary_values.find(i) == boundary_values.end()) {
-		// 					// row i of A is not constrained
-		// 					auto el_in_row_i{A->begin(i)};
-		// 					auto end_el_in_row_i{A->end(i)};
-		//
-		// 					// check if a_ij needs to be eliminated
-		// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-		// 						// get iterator of a_ij
-		// 						auto boundary_value =
-		// 							boundary_values.find(el_in_row_i->column());
-		//
-		// 						// if a_ij is constrained
-		// 						if (boundary_value != boundary_values.end()) {
-		// 							// shift constraint to rhs
-		// 							(*b)[i] -=
-		// 								el_in_row_i->value()*boundary_value->second;
-		//
-		// 							// eliminate a_ij
-		// 							el_in_row_i->value() = 0.;
-		// 						}
-		// 					}
-		// 				}
-		// 			}
+						// check if a_ij needs to be eliminated
+						for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
+							// get iterator of a_ij
+							auto boundary_value =
+								boundary_values.find(el_in_row_i->column());
+
+							// if a_ij is constrained
+							if (boundary_value != boundary_values.end()) {
+								// shift constraint to rhs
+								(*b)[i] -=
+									el_in_row_i->value()*boundary_value->second;
+
+								// eliminate a_ij
+								el_in_row_i->value() = 0.;
+							}
+						}
+					}
+				}
 	}
 }
 
@@ -1235,6 +1241,10 @@ primal_solve_slab_problem(
     slab->spacetime.primal.constraints->distribute(
 		*u->x[0]
 	);
+
+    std::ofstream initial_guess_out("initial_guess.txt");
+	u->x[0]->print(initial_guess_out);
+	initial_guess_out.close();
 
 	// assemble slab problem const rhs
 	primal_assemble_const_rhs(slab);
@@ -1323,8 +1333,6 @@ primal_solve_slab_problem(
 		primal.du->print(du_out);
 		du_out.close();
 
-		exit(7);
-
 		for (line_search_step = 0; line_search_step < newton.line_search_steps; line_search_step++) {
 			u->x[0]->add(1.0,*primal.du);
 
@@ -1345,6 +1353,12 @@ primal_solve_slab_problem(
 		DTM::pout << std::setprecision(5) << newton_step << "\t"
 				  << std::scientific << newton_residual << "\t"
 				  << std::scientific << newton_residual/old_newton_residual << "\t";
+
+		std::ofstream first_iterate_out("first_iterate.txt");
+		u->x[0]->print(first_iterate_out);
+		first_iterate_out.close();
+
+		//exit(7);
 
 		if (newton_residual/old_newton_residual > newton.rebuild)
 			DTM::pout << "r\t";

@@ -70,14 +70,14 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 0 #6
+    set global refinement = 1 #0 #6
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
     set time step size = 0.4 #0.0015625
-    set global refinement = 0
+    set global refinement = 1 #0
 end
 
 subsection Newton
@@ -160,7 +160,7 @@ subsection Output Quantities
     
     ############################################################################
     # dual solution output control
-    set dual data output dwr loop = none #all         # use none, all, last or number
+    set dual data output dwr loop = all         # use none, all, last or number
     
     set dual data output trigger type = I_n   # I_n mode: one output per I_n
 #    set dual data output trigger type = fixed # fixed mode: fixed output trigger time
