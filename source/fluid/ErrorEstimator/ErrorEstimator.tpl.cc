@@ -292,6 +292,22 @@ estimate_on_slab(
 	//     z_kh_rho_h = z_kh^(1,1)
 	//     NOTE: z_kh^(2,2), z_kh^(1,2) and z_kh^(1,1) are being computed from interpolation or extrapolation of z_kh
 
+	if (slab == std::prev(grid->slabs.end()))
+	{
+		// clear all debug logs for the temporal reconstruction
+		std::ofstream tmp_out;
+		for (auto name : {"z_vx.log", "z_vy.log", "z_p.log", "z_vx_k.log", "z_vy_k.log", "z_p_k.log", "z_vx+.log", "z_vy+.log", "z_p+.log"})
+		{
+			tmp_out.open(name);
+			tmp_out.close();
+		}
+	}
+
+	///////////////////////////////////////////////////
+	// DEBUGGING temporal reconstruction
+	//
+	// point to test temporal reconstruction:
+	dealii::Point<dim> x_star(0.1,0.2);
 
 	primal.um_on_tn = std::make_shared< dealii::Vector<double> >();
 
@@ -347,7 +363,7 @@ estimate_on_slab(
 
 	Assert(slab->space.high.fe_info.use_count(), dealii::ExcNotInitialized());
 	// quadratures for integration in space
-	dealii::QGaussLobatto<dim> quad_cell(
+	dealii::QGauss<dim> quad_cell(
 		std::max(
 			std::max(
 				slab->space.high.fe_info->fe->base_element(0).base_element(0).tensor_degree(),
@@ -357,10 +373,48 @@ estimate_on_slab(
 		) + 3 // TODO: higher ?!
 	);
 
-	// dof vector u on slab for back interpolation in time (high -> low -> high)
-	auto high_back_interpolated_time_u = std::make_shared< dealii::Vector<double> > ();
-	if ( !primal_order.compare("high") ) // u is high order
+	// prepare fe, dof and corresponding low solutions u and/or z for extrapolation in time on slab
+
+	// create dG FE with r+2 uniformly distributed support points [0, 1/(r+1), 2/(r+1),..., 1]
+	std::shared_ptr< dealii::FiniteElement<1> > low_fe_time_tm_tdof;
 	{
+		dealii::QIterated<1> quad_time(dealii::QTrapez<1>(), slab->time.low.fe_info->fe->tensor_degree()+1); // need to use QTrapezoid for deal.II 9.3.0
+
+		low_fe_time_tm_tdof =
+		std::make_shared< dealii::FE_DGQArbitraryNodes<1> > (
+			quad_time
+		);
+	}
+
+	// NOTE: dofs on the patches are being distributed by hand
+//	// dof tm
+//	auto low_dof_time_tm_tdof = std::make_shared< dealii::DoFHandler<1> > (
+//		*slab->time.tria
+//	);
+//	low_dof_time_tm_tdof->distribute_dofs(*low_fe_time_tm_tdof);
+
+
+//	// prepare vector local dof ind. tm
+//	std::vector< dealii::types::global_dof_index >
+//	local_dof_indices_tm_tdof_time(
+//		low_fe_time_tm_tdof->dofs_per_cell // == dofs_per_patch
+//	);
+
+	auto low_u_kh_tm_tdof = std::make_shared< dealii::Vector<double> > ();
+	// dof vector u on slab for back interpolation in time (dual -> primal -> dual)
+	auto high_back_interpolated_time_u = std::make_shared< dealii::Vector<double> > ();
+	if ( !primal_order.compare("low") )
+	{
+		// extended dof vector u_kh on slab
+		low_u_kh_tm_tdof->reinit(
+			slab->space.low.fe_info->dof->n_dofs()
+			* low_fe_time_tm_tdof->dofs_per_cell
+			* 1 // currently only 1 time cell patch per slab
+		);
+	}
+	else // u is high order
+	{
+		// TODO: Is this correct? -> I think it might be.
 		// computation of u_kh^(1,2) from u_kh^(2,2)
 		// dof vector u on slab for back interpolation in time (high -> low -> high)
 		get_back_interpolated_time_slab_w(
@@ -371,6 +425,7 @@ estimate_on_slab(
 		);
 	}
 
+	auto low_z_kh_tm_tdof = std::make_shared< dealii::Vector<double> > ();
 	// dof vector z on slab for back interpolation in time (high -> low -> high)
 	auto high_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
 	if ( !dual_order.compare("high") ) // z is high order
@@ -381,6 +436,15 @@ estimate_on_slab(
 			slab->space.high.fe_info->dof,
 			z->x[0],
 			high_back_interpolated_time_z
+		);
+	}
+	else // z is low order
+	{
+		// extended dof vector z_kh = z_kh^(1,1) on slab
+		low_z_kh_tm_tdof->reinit(
+			slab->space.low.fe_info->dof->n_dofs()
+			* low_fe_time_tm_tdof->dofs_per_cell
+			* 1 // currently only 1 time cell patch per slab
 		);
 	}
 
@@ -398,10 +462,24 @@ estimate_on_slab(
 	high_u_k_m_on_tm = std::make_shared< dealii::Vector<double> > ();
 	high_u_k_m_on_tm->reinit( slab->space.high.fe_info->dof->n_dofs() );
 
+	// get z(t_m^-) if dual is of low order, needed for extrapolation in time
+	auto dual_zm_on_tm = std::make_shared< dealii::Vector<double> > ();
+	auto dual_zm_on_tn = std::make_shared< dealii::Vector<double> > ();
+	if (!dual_order.compare("low")) // dual == low
+		dual_zm_on_tm->reinit( slab->space.dual.fe_info->dof->n_dofs() );
+
 	if (slab == grid->slabs.begin()) {
 		// slab n == 1: interpolate initial value function u_0 to high solution space
 		Assert(primal_um_on_tm.use_count(), dealii::ExcNotInitialized());
 		Assert(primal_um_on_tm->size(), dealii::ExcNotInitialized());
+		*primal_um_on_tm = 0.;
+
+		if (!dual_order.compare("low")) // dual == low
+		{
+			Assert(dual_zm_on_tm.use_count(), dealii::ExcNotInitialized());
+			Assert(dual_zm_on_tm->size(), dealii::ExcNotInitialized());
+			*dual_zm_on_tm = 0.;
+		}
 
 		// our case: u_0 = 0
 //			function.u_0->set_time(slab->t_m);
@@ -415,13 +493,21 @@ estimate_on_slab(
 		// call hanging nodes to make the result continuous again
 		// (Note: after the first dwr-loop the initial grid could have hanging nodes)
 		slab->space.primal.fe_info->constraints->distribute(*primal_um_on_tm);
+		if (!dual_order.compare("low")) // dual == low
+			slab->space.dual.fe_info->constraints->distribute(*dual_zm_on_tm);
 	}
 	else {
 		// slab n > 1
 		Assert(primal.um_on_tn.use_count(), dealii::ExcNotInitialized());
+		if (!dual_order.compare("low")) // dual == low
+			Assert(dual_zm_on_tn.use_count(), dealii::ExcNotInitialized());
 
 		if (std::prev(slab)->space.primal.fe_info->dof->n_dofs() != primal.um_on_tn->size())
 			primal.um_on_tn->reinit( std::prev(slab)->space.primal.fe_info->dof->n_dofs() );
+
+		if (!dual_order.compare("low")) // dual == low
+			if (std::prev(slab)->space.dual.fe_info->dof->n_dofs() != dual_zm_on_tn->size())
+				dual_zm_on_tn->reinit( std::prev(slab)->space.dual.fe_info->dof->n_dofs() );
 
 		*primal.um_on_tn = 0;
 		{
@@ -481,6 +567,66 @@ estimate_on_slab(
 
 			// primal_um_on_tm has actually already been stored with a divergence free projection in um
 			primal_um_on_tm->equ(1., *um->x[0]);
+		}
+
+		if (!dual_order.compare("low")) // dual == low
+		{
+			*dual_zm_on_tn = 0;
+
+			dealii::FEValues<1> fe_face_values_time(
+				*std::prev(slab)->time.dual.fe_info->mapping,
+				*std::prev(slab)->time.dual.fe_info->fe,
+				dealii::QGaussLobatto<1>(2),
+				dealii::update_values
+			);
+
+			{
+				// dual_cell_time is the last time cell from the previous slab
+				auto dual_cell_time = std::prev(slab)->time.dual.fe_info->dof->begin_active();
+				auto endc_time = std::prev(slab)->time.dual.fe_info->dof->end();
+				auto last_time = std::prev(slab)->time.dual.fe_info->dof->begin_active();
+				++dual_cell_time;
+				for ( ; dual_cell_time != endc_time; ++dual_cell_time) {
+					last_time = dual_cell_time;
+				}
+				dual_cell_time = last_time;
+
+				fe_face_values_time.reinit(dual_cell_time);
+
+				// evaluate solution for t_n of time cell
+				for (unsigned int jj{0};
+					jj < std::prev(slab)->time.dual.fe_info->fe->dofs_per_cell; ++jj)
+				for (dealii::types::global_dof_index i{0};
+					i < std::prev(slab)->space.dual.fe_info->dof->n_dofs(); ++i) {
+					(*dual_zm_on_tn)[i] += (*std::prev(z)->x[0])[
+						i
+						// time offset
+						+ std::prev(slab)->space.dual.fe_info->dof->n_dofs() *
+							(dual_cell_time->index() * std::prev(slab)->time.dual.fe_info->fe->dofs_per_cell)
+						// local in time dof
+						+ std::prev(slab)->space.dual.fe_info->dof->n_dofs() * jj
+					] * fe_face_values_time.shape_value(jj,1);
+				}
+			}
+
+			//   get z(t_m^-) from:   Omega_h^dual x Q_{n-1} (t_{n-1})
+			//   (1) interpolated to: Omega_h^dual x Q_{n} (t_m) => dual_zm_on_tm
+
+			// (1) interpolate_to_different_mesh (in dual):
+			//     - needs the same fe: dof1.get_fe() = dof2.get_fe()
+			//     - allow different triangulations: dof1.get_tria() != dof2.get_tria()
+
+			dealii::VectorTools::interpolate_to_different_mesh(
+				// solution on Q_{n-1}:
+				*std::prev(slab)->space.dual.fe_info->dof,
+				*dual_zm_on_tn,
+				// solution on Q_n:
+				*slab->space.dual.fe_info->dof,
+				*slab->space.dual.fe_info->constraints,
+				*dual_zm_on_tm
+			);
+
+			// NOTE: on could also use a divergence free projection here on zm
 		}
 	}
 
@@ -544,7 +690,156 @@ estimate_on_slab(
 
 	auto low_cell_time = slab->time.low.fe_info->dof->begin_active();
 
-	for ( ; cell_time != endc_time; ++cell_time, ++low_cell_time) {
+	//////////////////////////////////////////////////////////////////
+	// dual == low order: prepare higher order interpolation in time
+	//
+	if (!dual_order.compare("low")) // dual == low
+	{
+		/////////////////////////////////////////
+		// low_z_kh_tm_tdof
+		//
+		Assert(low_z_kh_tm_tdof.use_count(), dealii::ExcNotInitialized());
+		Assert(low_z_kh_tm_tdof->size(), dealii::ExcNotInitialized());
+		Assert(
+			low_z_kh_tm_tdof->size() ==
+			(slab->space.low.fe_info->dof->n_dofs()
+			* low_fe_time_tm_tdof->dofs_per_cell
+			* 1),
+			dealii::ExcNotInitialized()
+		);
+
+		// jj=0 <-> t_m
+		if (slab == grid->slabs.begin())
+		{
+			// z(t_0^-) := z(t_0^+)
+			for (dealii::types::global_dof_index i{0};
+				i < slab->space.low.fe_info->dof->n_dofs(); ++i) {
+				(*low_z_kh_tm_tdof)[i] = (*z->x[0])[i];
+			}
+		}
+		else
+		{
+			for (dealii::types::global_dof_index i{0};
+				i < slab->space.low.fe_info->dof->n_dofs(); ++i) {
+				(*low_z_kh_tm_tdof)[
+					i
+					// time offset
+					+ slab->space.low.fe_info->dof->n_dofs()
+					* 0
+				] = (*dual_zm_on_tm)[i];
+			}
+		}
+
+		// jj=1... original dof in time solutions
+		for (unsigned int jj{1}; jj < slab->time.low.fe_info->fe->tensor_degree()+2; ++jj) {
+		for (dealii::types::global_dof_index i{0};
+			i < slab->space.low.fe_info->dof->n_dofs(); ++i) {
+			(*low_z_kh_tm_tdof)[
+				i
+				// time offset
+				+ slab->space.low.fe_info->dof->n_dofs()
+				* jj
+			] = (*z->x[0])[
+				i
+				// time offset
+				+ slab->space.low.fe_info->dof->n_dofs() *
+				(jj * (slab->time.low.fe_info->fe->tensor_degree()+1) -1)
+			];
+		}}
+	}
+
+	///////////////////////////////////////////////////////
+	// for debugging output interpolated solution on slab
+	//
+	if (!dual_order.compare("low")) // dual == low
+	{
+		// get slab number
+		int slab_number = 0;
+		auto tmp_slab = grid->slabs.begin();
+		while (slab != tmp_slab)
+		{
+			slab_number++;
+			tmp_slab++;
+		}
+//		std::cout << "slab_number = " << slab_number << std::endl;
+
+		unsigned int _r = slab->time.low.fe_info->fe->tensor_degree();
+		for (unsigned int jj{0}; jj < _r+2; ++jj)
+		{
+			std::vector<std::string> solution_names;
+			solution_names.push_back("x_velo");
+			solution_names.push_back("y_velo");
+			solution_names.push_back("p_fluid");
+
+			std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
+				data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
+
+			dealii::DataOut<dim> data_out;
+			data_out.attach_dof_handler(*slab->space.low.fe_info->dof);
+
+			auto _solution = std::make_shared< dealii::Vector<double> > ();
+			_solution->reinit(slab->space.low.fe_info->dof->n_dofs());
+
+			for (dealii::types::global_dof_index i{0};
+				i < slab->space.low.fe_info->dof->n_dofs(); ++i) {
+				(*_solution)[i] =
+				(*low_z_kh_tm_tdof)[
+					i
+					// time offset
+					+ slab->space.low.fe_info->dof->n_dofs()
+					* jj
+				];
+			}
+
+			data_out.add_data_vector(*_solution, solution_names,
+									 dealii::DataOut<dim>::type_dof_data,
+									 data_component_interpretation);
+
+			data_out.build_patches();
+			data_out.set_flags(
+					dealii::DataOutBase::VtkFlags(
+							slab->t_m + jj/(_r+1.) * (slab->t_n - slab->t_m) + (jj == 0) * 1e-5,
+							slab_number * (_r+2) + jj
+					)
+			);
+
+			// save VTK files
+			const std::string filename =
+				"interpolated_solution-" + dealii::Utilities::int_to_string(slab_number * (_r+2) + jj, 6) + ".vtk";
+			std::ofstream output(filename);
+			data_out.write_vtk(output);
+
+			// Output support points evaluated at x*
+			dealii::Vector<double> point_value(dim + 1);
+
+			dealii::VectorTools::point_value(
+				*slab->space.low.fe_info->dof,
+				*_solution,
+				x_star, // evaluation point
+				point_value
+			);
+
+			std::ofstream z_vx_out;
+			z_vx_out.open("z_vx+.log", std::ios_base::app);
+			z_vx_out << slab->t_m + jj/(_r+1.) * (slab->t_n - slab->t_m) << "," << point_value[0] << std::endl;
+			z_vx_out.close();
+
+			std::ofstream z_vy_out;
+			z_vy_out.open("z_vy+.log", std::ios_base::app);
+			z_vy_out << slab->t_m + jj/(_r+1.) * (slab->t_n - slab->t_m) << "," << point_value[1] << std::endl;
+			z_vy_out.close();
+
+			std::ofstream z_p_out;
+			z_p_out.open("z_p+.log", std::ios_base::app);
+			z_p_out << slab->t_m + jj/(_r+1.) * (slab->t_n - slab->t_m) << "," << point_value[2] << std::endl;
+			z_p_out.close();
+		}
+
+	}
+
+
+	for ( ; cell_time != endc_time; ++cell_time,
+		++low_cell_time) { //, ++low_cell_time_tm_tdof, ++low_cell_time_tn_tdof) {
 		cell_time_index = cell_time->index();
 
 		dealii::DoFHandler<1>::active_cell_iterator primal_cell_time;
@@ -752,8 +1047,77 @@ estimate_on_slab(
 
 		if (!dual_order.compare("low")) // dual == low
 		{
-			// need higher order interpolation for this
-			AssertThrow(false, dealii::ExcNotImplemented());
+			// z_kh^(1,1)(t_m^+):
+			low_z_kh_p_on_tm = dual_zp_on_tm;
+
+			// z_kh = z_kh^(1,1)(t_m^+):
+			// interpolate (space): low -> high
+			interpolate_space(
+					slab,
+					dual_zp_on_tm,
+					high_z_kh_p_on_tm
+			);
+
+			if (replace_weights)
+			{
+				// z_k^[rho_k] = z_kh^(1,1)(t_m^+):
+				high_z_k_rho_k_p_on_tm = high_z_kh_p_on_tm;
+
+				// z_k^[rho_h] = z_kh^(1,2)(t_m^+) = extrapolate_space(z_kh^(1,1)(t_m^+)):
+				patchwise_high_order_interpolate_space(
+					slab,
+					dual_zp_on_tm,
+					high_z_k_rho_h_p_on_tm
+				);
+
+				// z = z_kh^(2,1)(t_m^+) = extrapolate_time(z_kh^(1,1)(t_m^+)):
+				std::shared_ptr< dealii::Vector<double> > low_z_p_on_tm;
+				// extrapolate in negative time direction
+				get_patchwise_higher_order_time_w_t(
+					slab->space.dual.fe_info->dof,
+					low_z_kh_tm_tdof, // low_z_kh_tn_tdof,
+					slab->t_m,
+					slab->t_n,
+					fe_face_values_time.quadrature_point(0)[0],
+					low_z_p_on_tm
+				);
+				// interpolate (space): low -> high
+				interpolate_space(
+						slab,
+						low_z_p_on_tm,
+						high_z_p_on_tm
+				);
+			}
+			else
+			{
+				// z_k^[rho_h] = z_kh^(1,2)(t_m^+):
+				patchwise_high_order_interpolate_space(
+					slab,
+					dual_zp_on_tm,
+					high_z_k_rho_h_p_on_tm
+				);
+
+				// z_k^[rho_k] = z_k^[rho_h]:
+				high_z_k_rho_k_p_on_tm = high_z_k_rho_h_p_on_tm;
+
+				// z = z_kh^(2,2)(t_m^+) = extrapolate_space(extrapolate_time(z_kh^(1,1)(t_m^+))):
+				std::shared_ptr< dealii::Vector<double> > low_z_h_p_on_tm;
+				// extrapolate in negative time direction
+				get_patchwise_higher_order_time_w_t(
+					slab->space.dual.fe_info->dof,
+					low_z_kh_tm_tdof, // low_z_kh_tn_tdof,
+					slab->t_m,
+					slab->t_n,
+					fe_face_values_time.quadrature_point(0)[0],
+					low_z_h_p_on_tm
+				);
+				// extrapolate (space): low -> high
+				patchwise_high_order_interpolate_space(
+					slab,
+					low_z_h_p_on_tm,
+					high_z_p_on_tm
+				);
+			}
 		}
 		else // dual == high
 		{
@@ -852,7 +1216,7 @@ estimate_on_slab(
 			*slab->time.high.fe_info->mapping,
 			*slab->time.high.fe_info->fe,
 			dealii::QGauss<1> (
-				slab->time.high.fe_info->fe->tensor_degree()+5 // +1
+				slab->time.high.fe_info->fe->tensor_degree()+7 // +1
 			),
 			dealii::update_quadrature_points |
 			dealii::update_JxW_values
@@ -882,8 +1246,77 @@ estimate_on_slab(
 
 			if (!dual_order.compare("low")) // dual == low
 			{
-				// need higher order interpolation for this
-				AssertThrow(false, dealii::ExcNotImplemented());
+				// z_kh^(1,1)(t_q):
+				low_z_kh_on_tq = dual_z_on_tq;
+
+				// z_kh = z_kh^(1,1)(t_q):
+				// interpolate (space): low -> high
+				interpolate_space(
+						slab,
+						dual_z_on_tq,
+						high_z_kh_on_tq
+				);
+
+				if (replace_weights)
+				{
+					// z_k^[rho_k] = z_kh^(1,1)(t_q):
+					high_z_k_rho_k_on_tq = high_z_kh_on_tq;
+
+					// z_k^[rho_h] = z_kh^(1,2)(t_q) = extrapolate_space(z_kh^(1,1)(t_q)):
+					patchwise_high_order_interpolate_space(
+						slab,
+						dual_z_on_tq,
+						high_z_k_rho_h_on_tq
+					);
+
+					// z = z_kh^(2,1)(t_q) = extrapolate_time(z_kh^(1,1)(t_q)):
+					std::shared_ptr< dealii::Vector<double> > low_z_on_tq;
+					// extrapolate in negative time direction
+					get_patchwise_higher_order_time_w_t(
+						slab->space.dual.fe_info->dof,
+						low_z_kh_tm_tdof, // low_z_kh_tn_tdof,
+						slab->t_m,
+						slab->t_n,
+						fe_values_time.quadrature_point(qt)[0],
+						low_z_on_tq
+					);
+					// interpolate (space): low -> high
+					interpolate_space(
+							slab,
+							low_z_on_tq,
+							high_z_on_tq
+					);
+				}
+				else
+				{
+					// z_k^[rho_h] = z_kh^(1,2)(t_q):
+					patchwise_high_order_interpolate_space(
+						slab,
+						dual_z_on_tq,
+						high_z_k_rho_h_on_tq
+					);
+
+					// z_k^[rho_k] = z_k^[rho_h]:
+					high_z_k_rho_k_on_tq = high_z_k_rho_h_on_tq;
+
+					// z = z_kh^(2,2)(t_q) = extrapolate_space(extrapolate_time(z_kh^(1,1)(t_q))):
+					std::shared_ptr< dealii::Vector<double> > low_z_h_on_tq;
+					// extrapolate in negative time direction
+					get_patchwise_higher_order_time_w_t(
+						slab->space.dual.fe_info->dof,
+						low_z_kh_tm_tdof, // low_z_kh_tn_tdof,
+						slab->t_m,
+						slab->t_n,
+						fe_values_time.quadrature_point(qt)[0],
+						low_z_h_on_tq
+					);
+					// extrapolate (space): low -> high
+					patchwise_high_order_interpolate_space(
+						slab,
+						low_z_h_on_tq,
+						high_z_on_tq
+					);
+				}
 			}
 			else // dual == high
 			{
@@ -1062,6 +1495,57 @@ estimate_on_slab(
 					);
 				}
 			}
+
+			////////////////////////////////////////////////////////////////
+			// DEBUGGING temporal reconstruction
+			//
+			dealii::Vector<double> point_value(dim + 1);
+
+			//high_z_on_tq
+			dealii::VectorTools::point_value(
+				*slab->space.high.fe_info->dof,
+				*high_z_on_tq, // input dof vector at t_q
+				x_star, // evaluation point
+				point_value
+			);
+
+			std::ofstream z_vx_out;
+			z_vx_out.open("z_vx.log", std::ios_base::app);
+			z_vx_out << fe_values_time.quadrature_point(qt)[0] << "," << point_value[0] << std::endl;
+			z_vx_out.close();
+
+			std::ofstream z_vy_out;
+			z_vy_out.open("z_vy.log", std::ios_base::app);
+			z_vy_out << fe_values_time.quadrature_point(qt)[0] << "," << point_value[1] << std::endl;
+			z_vy_out.close();
+
+			std::ofstream z_p_out;
+			z_p_out.open("z_p.log", std::ios_base::app);
+			z_p_out << fe_values_time.quadrature_point(qt)[0] << "," << point_value[2] << std::endl;
+			z_p_out.close();
+
+			//high_z_k_rho_k_on_tq
+			dealii::VectorTools::point_value(
+				*slab->space.high.fe_info->dof,
+				*high_z_k_rho_k_on_tq, // input dof vector at t_q
+				x_star, // evaluation point
+				point_value
+			);
+
+			std::ofstream z_vx_k_out;
+			z_vx_k_out.open("z_vx_k.log", std::ios_base::app);
+			z_vx_k_out << fe_values_time.quadrature_point(qt)[0] << "," << point_value[0] << std::endl;
+			z_vx_k_out.close();
+
+			std::ofstream z_vy_k_out;
+			z_vy_k_out.open("z_vy_k.log", std::ios_base::app);
+			z_vy_k_out << fe_values_time.quadrature_point(qt)[0] << "," << point_value[1] << std::endl;
+			z_vy_k_out.close();
+
+			std::ofstream z_p_k_out;
+			z_p_k_out.open("z_p_k.log", std::ios_base::app);
+			z_p_k_out << fe_values_time.quadrature_point(qt)[0] << "," << point_value[2] << std::endl;
+			z_p_k_out.close();
 
 			////////////////////////////////////////////////////////////////
 			// integrate in space on t_q:
@@ -1438,6 +1922,152 @@ patchwise_high_order_interpolate_space(
 template<int dim>
 void
 ErrorEstimator<dim>::
+get_patchwise_higher_order_time_w_t(
+	std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
+	std::shared_ptr< dealii::Vector<double> > w2,
+	const double &a, // slab start point
+	const double &b, // slab   end point
+	const double &t,
+	std::shared_ptr< dealii::Vector<double> > &higher_order_time_w_t
+) {
+	// higher order reconstruction in time is currently only being implemented from dG(1) to dG(2)
+
+	//////////////////////////////
+	// reinit all vectors
+	//
+
+	// p0 := p(a) := p(t_m)
+	auto p0 = std::make_shared< dealii::Vector<double> > ();
+	p0->reinit(space_dof->n_dofs());
+
+	// p1 := p(0.5*(a+b)) := p(0.5*(t_m+t_n))
+	auto p1 = std::make_shared< dealii::Vector<double> > ();
+	p1->reinit(space_dof->n_dofs());
+
+	// p2 := p(b) := p(t_n)
+	auto p2 = std::make_shared< dealii::Vector<double> > ();
+	p2->reinit(space_dof->n_dofs());
+
+	higher_order_time_w_t = std::make_shared< dealii::Vector<double> > ();
+	higher_order_time_w_t->reinit(
+		space_dof->n_dofs()
+	);
+
+	//////////////////////////////
+	// fill p0, p1 and p2
+	//
+	for (dealii::types::global_dof_index i{0}; i < space_dof->n_dofs(); ++i) {
+		(*p0)[i] += (*w2)[i + space_dof->n_dofs() * 0];
+		(*p1)[i] += (*w2)[i + space_dof->n_dofs() * 1];
+		(*p2)[i] += (*w2)[i + space_dof->n_dofs() * 2];
+	}
+
+	///////////////////////////////////////////////////////////////////////
+	// the quadratic interpolant is given by the transformation of
+	// p(x) = p0 + [-3p0+4p1-p2]x + [2p0-4p1+2p2]x^2 from x in [0,1]
+	// to t in [a,b], i.e. we need to evaluate p(x) with x = (t-a)/(b-a)
+	double x = (t-a)/(b-a);
+
+	#ifdef DEBUG
+	{
+		Assert(
+			(x >= 0.),
+			dealii::ExcInvalidState()
+		);
+
+		Assert(
+			(x <= 1.),
+			dealii::ExcInvalidState()
+		);
+	}
+	#endif
+
+	*higher_order_time_w_t = 0.;
+	higher_order_time_w_t->add(1.-3.*x+2.*x*x, *p0);
+	higher_order_time_w_t->add(0.+4.*x-4.*x*x, *p1);
+	higher_order_time_w_t->add(0.-1.*x+2.*x*x, *p2);
+//	std::cout << "higher_order_time_w_t->linfty_norm() = " << higher_order_time_w_t->linfty_norm() << std::endl;
+
+	///////////////////////////////////
+	// tests for debugging
+	//
+	// double check whether we actually get p0, p1 and p2 at the quadrature points
+
+//	double tol = 1e-14;
+//
+//	// p0
+//	auto test_p0 = std::make_shared< dealii::Vector<double> > ();
+//	test_p0->reinit(space_dof->n_dofs());
+//
+//	x = (a-a)/(b-a);
+//
+//	*test_p0 = 0.;
+//	test_p0->add(1.-3.*x+2.*x*x, *p0);
+//	test_p0->add(0.+4.*x-4.*x*x, *p1);
+//	test_p0->add(0.-1.*x+2.*x*x, *p2);
+//
+//	test_p0->add(-1., *p0);
+//	std::cout << "x = " << x << "; (test_p0 == p0) = " << (test_p0->linfty_norm() < tol ? "true" : "false") << std::endl;
+//	if (test_p0->linfty_norm() > tol)
+//	{
+//		std::cout << "norm = " << test_p0->linfty_norm() << std::endl;
+//		exit(4);
+//	}
+//
+//	// p1
+//	auto test_p1 = std::make_shared< dealii::Vector<double> > ();
+//	test_p1->reinit(space_dof->n_dofs());
+//
+//	x = (0.5*(a+b)-a)/(b-a);
+//
+//	*test_p1 = 0.;
+//
+//	double _c = 2.;
+//	_c = -3. + _c*x;
+//	_c = 1. + _c*x;
+//	test_p1->add(_c, *p0);
+//	double _d = -4.;
+//	_d = 4. + _d*x;
+//	_d *= x;
+//	test_p1->add(_d, *p1);
+//	double _e = 2.;
+//	_e = -1 + _e*x;
+//	_e *= x;
+//	test_p1->add(_e, *p2);
+//
+//	test_p1->add(-1., *p1);
+//	std::cout << "x = " << x << "; (test_p1 == p1) = " << (test_p1->linfty_norm() < tol ? "true" : "false") << std::endl;
+//	if (test_p1->linfty_norm() > tol)
+//	{
+//		std::cout << "norm = " << test_p1->linfty_norm() << std::endl;
+//		std::cout << "relative error = " << test_p1->linfty_norm() / p1->linfty_norm() << std::endl;
+//		exit(5);
+//	}
+//
+//	// p2
+//	auto test_p2 = std::make_shared< dealii::Vector<double> > ();
+//	test_p2->reinit(space_dof->n_dofs());
+//
+//	x = (b-a)/(b-a);
+//
+//	*test_p2 = 0.;
+//	test_p2->add(1.-3.*x+2.*x*x, *p0);
+//	test_p2->add(0.+4.*x-4.*x*x, *p1);
+//	test_p2->add(0.-1.*x+2.*x*x, *p2);
+//
+//	test_p2->add(-1., *p2);
+//	std::cout << "x = " << x << "; (test_p2 == p2) = " << (test_p2->linfty_norm() < tol ? "true" : "false") << std::endl;
+//	if (test_p2->linfty_norm() > tol)
+//	{
+//		std::cout << "norm = " << test_p2->linfty_norm() << std::endl;
+//		exit(6);
+//	}
+}
+
+
+template<int dim>
+void
+ErrorEstimator<dim>::
 back_interpolate_space(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	std::shared_ptr< dealii::Vector<double> > w,
@@ -1529,11 +2159,11 @@ get_back_interpolated_time_slab_w(
 
 	// init quadratures in time for interpolations in time
 	// NOTE: we need here the original support points of the low/high fe
-	dealii::QGauss<1> low_quad_time(
+	dealii::QGaussLobatto<1> low_quad_time( // TODO: here one should switch between QGauss and QGaussLobatto depending on temporal quadrature
 		slab->time.low.fe_info->fe->dofs_per_cell
 	);
 
-	dealii::QGauss<1> high_quad_time(
+	dealii::QGaussLobatto<1> high_quad_time( // TODO: here one should switch between QGauss and QGaussLobatto depending on temporal quadrature
 		slab->time.high.fe_info->fe->dofs_per_cell
 	);
 

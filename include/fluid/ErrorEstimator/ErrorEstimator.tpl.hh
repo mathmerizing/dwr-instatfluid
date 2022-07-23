@@ -53,6 +53,8 @@
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/tensor_function.h>
 
+#include <deal.II/numerics/data_out.h>
+
 #include <deal.II/fe/fe.h>
 #include <deal.II/fe/fe_values.h>
 
@@ -314,6 +316,16 @@ protected:
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		std::shared_ptr< dealii::Vector<double> > w,
 		std::shared_ptr< dealii::Vector<double> > &higher_order_space_w
+	);
+
+	/// higher order reconstructed solution w(t) in time, where w is either the primal solution u or the dual solution z
+	virtual void get_patchwise_higher_order_time_w_t(
+		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
+		std::shared_ptr< dealii::Vector<double> > w2,
+		const double &a, // slab start point
+		const double &b, // slab   end point
+		const double &t,
+		std::shared_ptr< dealii::Vector<double> > &higher_order_time_w_t
 	);
 
 	/// restrict vector w from high spatial space to low spatial space and then interpolate back to high spatial space
