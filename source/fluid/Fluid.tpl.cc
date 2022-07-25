@@ -2325,14 +2325,35 @@ primal_do_data_output_on_slab_Qn_mode(
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 	
 	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
+		// choose temporal quadrature
+		std::shared_ptr< dealii::Quadrature<1> > time_support_points;
+		{
+			if ( !(parameter_set->
+				fe.low.convection.time_type_support_points
+				.compare("Gauss")) ) {
+
+				time_support_points =
+				std::make_shared< dealii::QGauss<1> > (
+					(parameter_set->fe.primal.convection.r + 1)
+				);
+			}
+
+			if ( !(parameter_set->
+				fe.low.convection.time_type_support_points
+				.compare("Gauss-Lobatto")) ) {
+
+				time_support_points =
+				std::make_shared< dealii::QGaussLobatto<1> > (
+					(parameter_set->fe.primal.convection.r + 1)
+				);
+			}
+		}
+
 		// create fe values
 		dealii::FEValues<1> fe_values_time(
 			*slab->time.primal.fe_info->mapping,
 			*slab->time.primal.fe_info->fe,
-			dealii::QGauss<1>(slab->time.primal.fe_info->fe->tensor_degree()+1), // here
+			*time_support_points,
 			dealii::update_values |
 			dealii::update_quadrature_points
 		);
@@ -2379,7 +2400,7 @@ primal_do_data_output_on_slab_Qn_mode(
 					filename.str(),
 					u_trigger,
 					primal.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
+					fe_values_time.quadrature_point(qt)[0] + (qt == 0) * 1e-5 // t_trigger, slightly shifted for left time cell end point to avoid ParaView errors caused by 2 outputs at same time point
 				);
 
 //				// TODO: delete vtk output
@@ -2775,9 +2796,33 @@ dual_solve_slab_problem(
 			// create boundary_values as
 			// std::map<dealii::types::global_dof_index, double>
 			{
-				const dealii::QGauss<1> support_points(
-					slab->time.dual.fe_info->fe->tensor_degree()+1
-				);
+				// choose temporal quadrature
+				std::shared_ptr< dealii::Quadrature<1> > time_support_points;
+				{
+					if ( !(parameter_set->
+						fe.low.convection.time_type_support_points
+						.compare("Gauss")) ) {
+
+						time_support_points =
+						std::make_shared< dealii::QGauss<1> > (
+							(parameter_set->fe.dual.convection.r + 1)
+						);
+					}
+
+					if ( !(parameter_set->
+						fe.low.convection.time_type_support_points
+						.compare("Gauss-Lobatto")) ) {
+
+						time_support_points =
+						std::make_shared< dealii::QGaussLobatto<1> > (
+							(parameter_set->fe.dual.convection.r + 1)
+						);
+					}
+				}
+
+//				const dealii::QGauss<1> support_points(
+//					slab->time.dual.fe_info->fe->tensor_degree()+1
+//				);
 
 				auto cell_time = slab->time.dual.fe_info->dof->begin_active();
 				auto endc_time = slab->time.dual.fe_info->dof->end();
@@ -2785,14 +2830,14 @@ dual_solve_slab_problem(
 				dealii::FEValues<1> time_fe_values(
 					*slab->time.dual.fe_info->mapping,
 					*slab->time.dual.fe_info->fe,
-					support_points,
+					*time_support_points,
 					dealii::update_quadrature_points
 				);
 
 				for ( ; cell_time != endc_time; ++cell_time) {
 					time_fe_values.reinit(cell_time);
 
-					for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
+					for (unsigned int qt{0}; qt < time_support_points->size(); ++qt) {
 						std::map<dealii::types::global_dof_index,double>
 							boundary_values_qt;
 
@@ -2866,9 +2911,33 @@ dual_solve_slab_problem(
 			// create boundary_values as
 			// std::map<dealii::types::global_dof_index, double>
 			{
-				const dealii::QGauss<1> support_points(
-					slab->time.dual.fe_info->fe->tensor_degree()+1
-				);
+				// choose temporal quadrature
+				std::shared_ptr< dealii::Quadrature<1> > time_support_points;
+				{
+					if ( !(parameter_set->
+						fe.low.convection.time_type_support_points
+						.compare("Gauss")) ) {
+
+						time_support_points =
+						std::make_shared< dealii::QGauss<1> > (
+							(parameter_set->fe.dual.convection.r + 1)
+						);
+					}
+
+					if ( !(parameter_set->
+						fe.low.convection.time_type_support_points
+						.compare("Gauss-Lobatto")) ) {
+
+						time_support_points =
+						std::make_shared< dealii::QGaussLobatto<1> > (
+							(parameter_set->fe.dual.convection.r + 1)
+						);
+					}
+				}
+
+//				const dealii::QGauss<1> support_points(
+//					slab->time.dual.fe_info->fe->tensor_degree()+1
+//				);
 
 				auto cell_time = slab->time.dual.fe_info->dof->begin_active();
 				auto endc_time = slab->time.dual.fe_info->dof->end();
@@ -2876,14 +2945,14 @@ dual_solve_slab_problem(
 				dealii::FEValues<1> time_fe_values(
 					*slab->time.dual.fe_info->mapping,
 					*slab->time.dual.fe_info->fe,
-					support_points,
+					*time_support_points,
 					dealii::update_quadrature_points
 				);
 
 				for ( ; cell_time != endc_time; ++cell_time) {
 					time_fe_values.reinit(cell_time);
 
-					for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
+					for (unsigned int qt{0}; qt < time_support_points->size(); ++qt) {
 						std::map<dealii::types::global_dof_index,double>
 							boundary_values_qt;
 
@@ -3739,14 +3808,35 @@ dual_do_data_output_on_slab_Qn_mode(
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 
 	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
+		// choose temporal quadrature
+		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time;
+		{
+			if ( !(parameter_set->
+				fe.low.convection.time_type_support_points
+				.compare("Gauss")) ) {
+
+				fe_quad_time =
+				std::make_shared< dealii::QGauss<1> > (
+					(parameter_set->fe.dual.convection.r + 1)
+				);
+			}
+
+			if ( !(parameter_set->
+				fe.low.convection.time_type_support_points
+				.compare("Gauss-Lobatto")) ) {
+
+				fe_quad_time =
+				std::make_shared< dealii::QGaussLobatto<1> > (
+					(parameter_set->fe.dual.convection.r + 1)
+				);
+			}
+		}
+
 		// create fe values
 		dealii::FEValues<1> fe_values_time(
 			*slab->time.dual.fe_info->mapping,
 			*slab->time.dual.fe_info->fe,
-			dealii::QGauss<1>(slab->time.dual.fe_info->fe->tensor_degree()+1), // here
+			*fe_quad_time,
 			dealii::update_values |
 			dealii::update_quadrature_points
 		);
@@ -3786,14 +3876,14 @@ dual_do_data_output_on_slab_Qn_mode(
 
 // 				std::cout
 // 					<< "output generated for t = "
-// 					<< fe_values_time.quadrature_point(qt)[0]
+// 					<< fe_values_time.quadrature_point(qt)[0] + (qt == 0) * 1e-5
 // 					<< std::endl;
 
 				dual.data_output->write_data(
 					filename.str(),
 					z_trigger,
-					primal.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
+					dual.data_postprocessor,
+					fe_values_time.quadrature_point(qt)[0] + (qt == 0) * 1e-5 // t_trigger
 				);
 			}
 		}
@@ -3993,7 +4083,7 @@ compute_functional_values(
 			.compare("Gauss")) ) {
 			quad_time =
 			std::make_shared< dealii::QGauss<1> > (
-				(parameter_set->fe.low.convection.r + 1)
+				(parameter_set->fe.primal.convection.r + 1)
 			);
 		} else if ( !(parameter_set->
 				fe.low.convection.time_type_support_points
@@ -4485,7 +4575,7 @@ refine_and_coarsen_space_time_grid(
 				dealii::ExcInternalError()
 			);
 
-			eta_h_global += parameter_set->time.fluid.T/(N*slab->tau_n())*
+			eta_h_global += 2*parameter_set->time.fluid.T/(N*slab->tau_n())* // for equal low order the time step size equals slab->tau_n()/2
 				std::accumulate(
 						eta_it->x[0]->begin(),
 						eta_it->x[0]->end(),
@@ -5115,14 +5205,12 @@ eta_space_do_data_output_on_slab_Qn_mode(
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 
 	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
+
 		// create fe values
 		dealii::FEValues<1> fe_values_time(
 			*slab->time.pu.fe_info->mapping,
 			*slab->time.pu.fe_info->fe,
-			dealii::QGauss<1>(slab->time.pu.fe_info->fe->tensor_degree()+1), // here
+			dealii::QGauss<1>(slab->time.pu.fe_info->fe->tensor_degree()+1), // PU = dG(0) in time -> QGauss(1)
 			dealii::update_values |
 			dealii::update_quadrature_points
 		);
@@ -5260,7 +5348,7 @@ eta_time_do_data_output_on_slab_Qn_mode(
 					filename.str(),
 					eta_trigger,
 					// error_estimator.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
+					fe_values_time.quadrature_point(qt)[0] + (qt == 0) * 1e-5 // t_trigger
 				);
 			}
 		}
