@@ -479,6 +479,36 @@ estimate_on_slab(
 			Assert(dual_zm_on_tm.use_count(), dealii::ExcNotInitialized());
 			Assert(dual_zm_on_tm->size(), dealii::ExcNotInitialized());
 			*dual_zm_on_tm = 0.;
+
+			// z_0^- := z_0^+
+			dealii::FEValues<1> fe_face_values_time(
+				*slab->time.dual.fe_info->mapping,
+				*slab->time.dual.fe_info->fe,
+				dealii::QGaussLobatto<1>(2),
+				dealii::update_values
+			);
+
+			{
+				// dual_cell_time is the first time cell from this slab
+				auto dual_cell_time = slab->time.dual.fe_info->dof->begin_active();
+
+				fe_face_values_time.reinit(dual_cell_time);
+
+				// evaluate solution for t_m of time cell
+				for (unsigned int jj{0};
+					jj < slab->time.dual.fe_info->fe->dofs_per_cell; ++jj)
+				for (dealii::types::global_dof_index i{0};
+					i < slab->space.dual.fe_info->dof->n_dofs(); ++i) {
+					(*dual_zm_on_tm)[i] += (*z->x[0])[
+						i
+						// time offset
+						+ slab->space.dual.fe_info->dof->n_dofs() *
+							(dual_cell_time->index() * slab->time.dual.fe_info->fe->dofs_per_cell)
+						// local in time dof
+						+ slab->space.dual.fe_info->dof->n_dofs() * jj
+					] * fe_face_values_time.shape_value(jj,0);
+				}
+			}
 		}
 
 		// our case: u_0 = 0
