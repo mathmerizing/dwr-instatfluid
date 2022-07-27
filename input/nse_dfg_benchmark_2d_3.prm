@@ -16,7 +16,7 @@ subsection Fluid Problem Specification
     set primal order = low # options: low, high
     
     # dual problem: convection-pressure : [z_b; z_p]^T
-    set dual order = low #high # options: low, high
+    set dual order = high-time #high # options: low, high, high-time
     
     # LOW order problem
     # convection
@@ -76,8 +76,8 @@ end
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.2 #0.0015625
-    set global refinement = 1
+    set time step size = 0.4 #0.0015625
+    set global refinement = 0
 end
 
 subsection Newton
@@ -93,7 +93,7 @@ subsection DWR
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 1
+    set solver control max iterations = 1#5
     set replace linearization points = true
     set replace weights = true
     

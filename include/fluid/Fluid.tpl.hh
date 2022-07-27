@@ -390,8 +390,8 @@ protected:
 			struct {
 				// from own computations on fine spatio-temporal meshes
 				struct {
-					double mean_drag = 0.4027165386203608; // mean drag from 0s to 8s for Stokes 2D-3
-					double mean_lift = 0.002576246687436928; // mean lift from 0s to 8s for Stokes 2D-3
+					double mean_drag = 0.40284197485629031; // 0.4027165386203608; // mean drag from 0s to 8s for Stokes 2D-3
+					double mean_lift = 0.0025766384433066358; // 0.002576246687436928; // mean lift from 0s to 8s for Stokes 2D-3
 				} Stokes;
 
 				// computed reference values for Navier-Stokes from featflow results online

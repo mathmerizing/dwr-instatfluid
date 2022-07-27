@@ -153,6 +153,36 @@ run() {
 	// check whether we are using the symmetric stress tensor
 	DTM::pout << "symmetric stress: " << (parameter_set->fe.symmetric_stress ? "true" : "false") << std::endl;
 
+	// check primal space discretisation
+	if ((parameter_set->fe.primal.convection.space_type.compare("cG") == 0) &&
+		(parameter_set->fe.primal.pressure.space_type.compare("cG") == 0) ) {
+		DTM::pout
+			<< "primal space discretisation convection-pressure:"
+			<< std::endl
+			<< "\t[ "
+			// convection
+			<< "cG("
+			<< parameter_set->fe.primal.convection.p
+			<< ")-Q_"
+			<< parameter_set->fe.primal.convection.space_type_support_points
+			<< ", "
+			// pressure
+			<< "cG("
+			<< parameter_set->fe.primal.pressure.p
+			<< ")-Q_"
+			<< parameter_set->fe.primal.pressure.space_type_support_points
+			<< " ]^T"
+			<< std::endl;
+	}
+	else {
+		AssertThrow(
+			false,
+			dealii::ExcMessage(
+				"primal space discretisation unknown"
+			)
+		);
+	}
+
 	// check primal time discretisation
 	if ((parameter_set->fe.primal.convection.time_type.compare("dG") == 0) &&
 		(parameter_set->fe.primal.pressure.time_type.compare("dG") == 0) ) {
@@ -183,6 +213,36 @@ run() {
 		);
 	}
 	
+	// check dual space discretisation
+	if ((parameter_set->fe.dual.convection.space_type.compare("cG") == 0) &&
+		(parameter_set->fe.dual.pressure.space_type.compare("cG") == 0) ) {
+		DTM::pout
+			<< "dual space discretisation convection-pressure:"
+			<< std::endl
+			<< "\t[ "
+			// convection
+			<< "cG("
+			<< parameter_set->fe.dual.convection.p
+			<< ")-Q_"
+			<< parameter_set->fe.dual.convection.space_type_support_points
+			<< ", "
+			// pressure
+			<< "cG("
+			<< parameter_set->fe.dual.pressure.p
+			<< ")-Q_"
+			<< parameter_set->fe.dual.pressure.space_type_support_points
+			<< " ]^T"
+			<< std::endl;
+	}
+	else {
+		AssertThrow(
+			false,
+			dealii::ExcMessage(
+				"dual space discretisation unknown"
+			)
+		);
+	}
+
 	// check dual time discretisation
 	if ((parameter_set->fe.dual.convection.time_type.compare("dG") == 0) &&
 		(parameter_set->fe.dual.pressure.time_type.compare("dG") == 0) ) {
@@ -245,7 +305,7 @@ run() {
 			AssertThrow(false, dealii::ExcMessage("primal_order needs to be 'low' or 'high'."));
 		}
 
-		// dual = low / high
+		// dual = low / high / high-time
 		if ( !parameter_set->fe.dual_order.compare("low") )
 		{
 			slab->space.dual.fe_info = slab->space.low.fe_info;
@@ -256,9 +316,14 @@ run() {
 			slab->space.dual.fe_info = slab->space.high.fe_info;
 			slab->time.dual.fe_info = slab->time.high.fe_info;
 		}
+		else if ( !parameter_set->fe.dual_order.compare("high-time") )
+		{
+			slab->space.dual.fe_info = slab->space.low.fe_info;
+			slab->time.dual.fe_info = slab->time.high.fe_info;
+		}
 		else
 		{
-			AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high'."));
+			AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high' or 'high-time'."));
 		}
 	} // end for-loop slab
 
@@ -3263,7 +3328,7 @@ dual_do_backward_TMS(
 				grid->initialize_low_grid_components_on_slab(slab);
 				grid->distribute_low_on_slab(slab);
 			}
-			else if ( !parameter_set->fe.dual_order.compare("high") )
+			else if ( !parameter_set->fe.dual_order.compare("high") || !parameter_set->fe.dual_order.compare("high-time") )
 			{
 				grid->initialize_high_grid_components_on_slab(slab);
 				grid->distribute_high_on_slab(slab);
@@ -3279,9 +3344,9 @@ dual_do_backward_TMS(
 				grid->initialize_high_grid_components_on_slab(slab);
 				grid->distribute_high_on_slab(slab);
 			}
-			else if ( !parameter_set->fe.dual_order.compare("high") )
+			else if ( !parameter_set->fe.dual_order.compare("high") || !parameter_set->fe.dual_order.compare("high-time") )
 			{
-				// (dual == high): init low for error estimator
+				// (dual == high or dual == high-time): init low for error estimator
 				grid->initialize_low_grid_components_on_slab(slab);
 				grid->distribute_low_on_slab(slab);
 			}
@@ -4575,7 +4640,7 @@ refine_and_coarsen_space_time_grid(
 				dealii::ExcInternalError()
 			);
 
-			eta_h_global += 2*parameter_set->time.fluid.T/(N*slab->tau_n())* // for equal low order the time step size equals slab->tau_n()/2
+			eta_h_global += parameter_set->time.fluid.T/(N*slab->tau_n())*
 				std::accumulate(
 						eta_it->x[0]->begin(),
 						eta_it->x[0]->end(),
