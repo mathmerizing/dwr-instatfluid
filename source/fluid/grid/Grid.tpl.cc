@@ -1324,9 +1324,14 @@ refine_slab_in_time(
 		std::prev(slab)->space.dual.fe_info = std::prev(slab)->space.high.fe_info;
 		std::prev(slab)->time.dual.fe_info = std::prev(slab)->time.high.fe_info;
 	}
+	else if ( !parameter_set->fe.dual_order.compare("high-time") )
+	{
+		std::prev(slab)->space.dual.fe_info = std::prev(slab)->space.low.fe_info;
+		std::prev(slab)->time.dual.fe_info = std::prev(slab)->time.high.fe_info;
+	}
 	else
 	{
-		AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high'."));
+		AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high' or 'high-time'."));
 	}
 }
 
