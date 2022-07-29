@@ -343,6 +343,13 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
 	);
 
+	/// take the entire solution on the space slab_w, patchwise interpolate up in space, restrict it back in time and then interpolate it back in time again
+	virtual void get_high_back_interpolated_time_slab_w(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::Vector<double> > slab_w,
+		std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
+	);
+
 	////////////////////////////////////////////////////////////////////////////
 	// assemble local functions:
 	//

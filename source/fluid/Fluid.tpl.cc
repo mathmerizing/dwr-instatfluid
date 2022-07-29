@@ -4550,7 +4550,11 @@ compute_effectivity_index() {
 	// sum up error estimator
 	double value_eta_k = 0.;
 	for (auto &element : *error_estimator.storage.eta_time)
+	{
 		value_eta_k += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
+		std::cout << std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.) << ",";
+	}
+	std::cout << std::endl;
 
 	double value_eta_h = 0.;
 	for (auto &element : *error_estimator.storage.eta_space)

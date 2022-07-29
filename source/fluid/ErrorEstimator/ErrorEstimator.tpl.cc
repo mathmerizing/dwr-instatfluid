@@ -472,13 +472,20 @@ estimate_on_slab(
 //	}
 
 	// semi-mixed order: interpolate z_kh back in time, e.g. from dG(2/2) to dG(1/1)
-	auto low_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
+//	auto low_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
+//	// computation of z_kh^(1,2) from z_kh^(2,2)
+//	get_back_interpolated_time_slab_w(
+//		slab,
+//		slab->space.low.fe_info->dof,
+//		z->x[0],
+//		low_back_interpolated_time_z
+//	);
+	auto high_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
 	// computation of z_kh^(1,2) from z_kh^(2,2)
-	get_back_interpolated_time_slab_w(
+	get_high_back_interpolated_time_slab_w(
 		slab,
-		slab->space.low.fe_info->dof,
 		z->x[0],
-		low_back_interpolated_time_z
+		high_back_interpolated_time_z
 	);
 
 	////////////////////////////////////////////////////////////////////////
@@ -1370,29 +1377,38 @@ estimate_on_slab(
 
 		//	z_rho_k = z_kh^(2,1) = z_kh         --> dual solution
 		// interpolate (space): low -> high
-		interpolate_space(
+		patchwise_high_order_interpolate_space( // interpolate_space(
 			slab,
 			dual_zp_on_tm,
 			high_z_p_on_tm
 		);
 
 		//	z_k_rho_k = z_kh^(1,1) = I_k(z_kh)  --> dual solution interpolated down (TIME)
-		std::shared_ptr< dealii::Vector<double> > low_z_k_rho_k_p_on_tm;
 		get_w_t(
 			slab->time.high.fe_info->fe,
 			slab->time.high.fe_info->mapping,
-			slab->space.low.fe_info->dof,
+			slab->space.high.fe_info->dof,
 			cell_time,
-			low_back_interpolated_time_z,
+			high_back_interpolated_time_z,
 			fe_face_values_time.quadrature_point(0)[0],
-			low_z_k_rho_k_p_on_tm
-		);
-		// interpolate (space): low -> high
-		interpolate_space(
-			slab,
-			low_z_k_rho_k_p_on_tm,
 			high_z_k_rho_k_p_on_tm
 		);
+//		std::shared_ptr< dealii::Vector<double> > low_z_k_rho_k_p_on_tm;
+//		get_w_t(
+//			slab->time.high.fe_info->fe,
+//			slab->time.high.fe_info->mapping,
+//			slab->space.low.fe_info->dof,
+//			cell_time,
+//			low_back_interpolated_time_z,
+//			fe_face_values_time.quadrature_point(0)[0],
+//			low_z_k_rho_k_p_on_tm
+//		);
+//		// interpolate (space): low -> high
+//		patchwise_high_order_interpolate_space( // interpolate_space(
+//			slab,
+//			low_z_k_rho_k_p_on_tm,
+//			high_z_k_rho_k_p_on_tm
+//		);
 
 		//	z_k_rho_h = z_kh^(2,2) = I_2h(z_kh) --> patchwise higher order reconstruction (SPACE) of the dual solution
 		patchwise_high_order_interpolate_space(
@@ -1402,7 +1418,12 @@ estimate_on_slab(
 		);
 
 		//	z_kh_rho_h = z_kh^(2,1) = z_kh      --> dual solution
-		high_z_kh_p_on_tm = high_z_p_on_tm;
+		// high_z_kh_p_on_tm = high_z_p_on_tm;
+		interpolate_space(
+			slab,
+			dual_zp_on_tm,
+			high_z_kh_p_on_tm
+		);
 
 		////////////////////////////////////////////////////////////////////
 		// integrate in space on t_m:
@@ -1807,29 +1828,38 @@ estimate_on_slab(
 
 			//	z_rho_k = z_kh^(2,1) = z_kh         --> dual solution
 			// interpolate (space): low -> high
-			interpolate_space(
+			patchwise_high_order_interpolate_space( // interpolate_space(
 				slab,
 				dual_z_on_tq,
 				high_z_on_tq
 			);
 
 			//	z_k_rho_k = z_kh^(1,1) = I_k(z_kh)  --> dual solution interpolated down (TIME)
-			std::shared_ptr< dealii::Vector<double> > low_z_k_rho_k_on_tq;
 			get_w_t(
 				slab->time.high.fe_info->fe,
 				slab->time.high.fe_info->mapping,
-				slab->space.low.fe_info->dof,
+				slab->space.high.fe_info->dof,
 				cell_time,
-				low_back_interpolated_time_z,
+				high_back_interpolated_time_z,
 				fe_values_time.quadrature_point(qt)[0],
-				low_z_k_rho_k_on_tq
+				high_z_k_rho_k_on_tq
 			);
-			// interpolate (space): low -> high
-			interpolate_space(
-					slab,
-					low_z_k_rho_k_on_tq,
-					high_z_k_rho_k_on_tq
-			);
+//			std::shared_ptr< dealii::Vector<double> > low_z_k_rho_k_on_tq;
+//			get_w_t(
+//				slab->time.high.fe_info->fe,
+//				slab->time.high.fe_info->mapping,
+//				slab->space.low.fe_info->dof,
+//				cell_time,
+//				low_back_interpolated_time_z,
+//				fe_values_time.quadrature_point(qt)[0],
+//				low_z_k_rho_k_on_tq
+//			);
+//			// interpolate (space): low -> high
+//			patchwise_high_order_interpolate_space( //interpolate_space(
+//					slab,
+//					low_z_k_rho_k_on_tq,
+//					high_z_k_rho_k_on_tq
+//			);
 
 			//	z_k_rho_h = z_kh^(2,2) = I_2h(z_kh) --> patchwise higher order reconstruction (SPACE) of the dual solution
 			patchwise_high_order_interpolate_space(
@@ -1839,7 +1869,12 @@ estimate_on_slab(
 			);
 
 			//	z_kh_rho_h = z_kh^(2,1) = z_kh      --> dual solution
-			high_z_kh_on_tq = high_z_on_tq;
+			// high_z_kh_on_tq = high_z_on_tq;
+			interpolate_space(
+				slab,
+				dual_z_on_tq,
+				high_z_kh_on_tq
+			);
 
 			////////////////////////////////////////////////////////////
 			// get the primal solution (and its time derivative) at t_q
@@ -2447,6 +2482,61 @@ back_interpolate_space(
 	);
 }
 
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_high_back_interpolated_time_slab_w(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double> > slab_w,
+	std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
+) {
+	// higher order reconstruction in space of slab_w
+	auto high_slab_w = std::make_shared< dealii::Vector<double> > ();
+	high_slab_w->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+		* slab->time.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w = 0.;
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	slab_w_tq->reinit(
+		slab->space.low.fe_info->dof->n_dofs()
+	);
+	*slab_w_tq = 0.;
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	high_slab_w_tq->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+			(*slab_w_tq)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+
+		// use higher order interpolation in space to go from slab_w_tq to high_slab_w_tq
+		patchwise_high_order_interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+
+	get_back_interpolated_time_slab_w(
+		slab,
+		slab->space.high.fe_info->dof,
+		high_slab_w,
+		back_interpolated_time_slab_w
+	);
+}
 
 template<int dim>
 void
@@ -2966,7 +3056,7 @@ assemble_error_on_cell(
 	}
 	
 	// initialize copydata
-    copydata.local_eta_h_vector = 0.;
+	copydata.local_eta_h_vector = 0.;
     copydata.local_eta_k_vector = 0.;
     // dof mapping pu: local to global
     std::vector< dealii::types::global_dof_index > tmp_local_dof_indices_pu(scratch.fe_values_pu.get_fe().dofs_per_cell);
