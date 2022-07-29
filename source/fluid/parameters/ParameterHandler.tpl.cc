@@ -66,6 +66,12 @@ ParameterHandler() {
 		);
 
 		declare_entry(
+			"divfree projection",
+			"none",
+			dealii::Patterns::Anything()
+		);
+
+		declare_entry(
 			"primal order",
 			"low",
 			dealii::Patterns::Anything()

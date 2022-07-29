@@ -122,7 +122,7 @@ protected:
 	
 	virtual void init_newton_parameters();
 
-	bool use_gradient_projection = false;
+	// bool use_gradient_projection = false;
 
 	////////////////////////////////////////////////////////////////////////////
 	// primal problem:

@@ -58,6 +58,10 @@ ParameterSet(
 			"symmetric stress"
 		);
 
+		fe.divfree_projection = handler->get(
+				"divfree projection"
+		);
+
 		fe.primal_order = handler->get(
 				"primal order"
 		);

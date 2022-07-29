@@ -59,6 +59,8 @@ struct ParameterSet {
 	struct {
 		bool symmetric_stress;
 
+		std::string divfree_projection;
+
 		struct FEDescription {
 			struct {
 				std::string space_type;
@@ -82,7 +84,7 @@ struct ParameterSet {
 		};
 
 		std::string primal_order; // low or high
-		std::string dual_order;   // low or high
+		std::string dual_order;   // low or high or high-time
 
 		struct FEDescription primal;
 		struct FEDescription dual;

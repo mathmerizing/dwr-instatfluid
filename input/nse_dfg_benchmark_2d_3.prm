@@ -12,6 +12,9 @@ subsection Fluid Problem Specification
     # Use symmetric stress tensor?
     set symmetric stress = false
     
+    # Use divergence-free projection when changing mesh?
+    set divfree projection = H1 # options: none, L2, H1
+    
     # primal problem: convection-pressure : [b; p]^T
     set primal order = low # options: low, high
     
@@ -76,7 +79,7 @@ end
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.4 #0.0015625
+    set time step size = 4.0 #0.4 #0.0015625
     set global refinement = 0
 end
 
@@ -93,7 +96,7 @@ subsection DWR
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 1#5
+    set solver control max iterations = 2#5
     set replace linearization points = true
     set replace weights = true
     
