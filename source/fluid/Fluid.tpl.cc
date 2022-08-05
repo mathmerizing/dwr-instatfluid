@@ -1596,43 +1596,42 @@ primal_apply_bc(
 				diagonal_scaling_value * boundary_value.second;
 		}
 
-
-		// 			////////////////////////////////////////////////////////////////////
-		// 			// eliminate constrained column entries
-		// 			//
-		// 			// NOTE: this is quite expensive, but helps iterative lss
-		// 			//       since the boundary value entries are shifted to the
-		// 			//       right hand side.
-		// 			//
-		// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
-		// 			//       which is necessary for space-time operators
-		// 			//
-		// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-		// 				// if the row i of the operator A is not constrained,
-		// 				// check if constrained columns need to be eliminated
-		// 				if (boundary_values.find(i) == boundary_values.end()) {
-		// 					// row i of A is not constrained
-		// 					auto el_in_row_i{A->begin(i)};
-		// 					auto end_el_in_row_i{A->end(i)};
-		//
-		// 					// check if a_ij needs to be eliminated
-		// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-		// 						// get iterator of a_ij
-		// 						auto boundary_value =
-		// 							boundary_values.find(el_in_row_i->column());
-		//
-		// 						// if a_ij is constrained
-		// 						if (boundary_value != boundary_values.end()) {
-		// 							// shift constraint to rhs
-		// 							(*b)[i] -=
-		// 								el_in_row_i->value()*boundary_value->second;
-		//
-		// 							// eliminate a_ij
-		// 							el_in_row_i->value() = 0.;
-		// 						}
-		// 					}
-		// 				}
-		// 			}
+//		 			////////////////////////////////////////////////////////////////////
+//		 			// eliminate constrained column entries
+//		 			//
+//		 			// NOTE: this is quite expensive, but helps iterative lss
+//		 			//       since the boundary value entries are shifted to the
+//		 			//       right hand side.
+//		 			//
+//		 			// NOTE: there is no symmetry assumption on the sparsity pattern,
+//		 			//       which is necessary for space-time operators
+//		 			//
+//		 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+//		 				// if the row i of the operator A is not constrained,
+//		 				// check if constrained columns need to be eliminated
+//		 				if (boundary_values.find(i) == boundary_values.end()) {
+//		 					// row i of A is not constrained
+//		 					auto el_in_row_i{A->begin(i)};
+//		 					auto end_el_in_row_i{A->end(i)};
+//
+//		 					// check if a_ij needs to be eliminated
+//		 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
+//		 						// get iterator of a_ij
+//		 						auto boundary_value =
+//		 							boundary_values.find(el_in_row_i->column());
+//
+//		 						// if a_ij is constrained
+//		 						if (boundary_value != boundary_values.end()) {
+//		 							// shift constraint to rhs
+//		 							(*b)[i] -=
+//		 								el_in_row_i->value()*boundary_value->second;
+//
+//		 							// eliminate a_ij
+//		 							el_in_row_i->value() = 0.;
+//		 						}
+//		 					}
+//		 				}
+//		 			}
 	}
 }
 
@@ -1742,6 +1741,11 @@ primal_solve_slab_problem(
 			}
 
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
+//			// printing out the system matrix
+//			std::ofstream out("matrix.txt", std::ios_base::out);
+//			primal.L->print(out);
+//			out.close();
+//			exit(9);
 
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any

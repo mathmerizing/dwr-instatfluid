@@ -488,6 +488,133 @@ estimate_on_slab(
 		high_back_interpolated_time_z
 	);
 
+//	///////////////////////////////////////////////////////////////////////////////
+//	// for debugging:
+//	//
+//	int slab_number = 0;
+//	auto tmp_slab = grid->slabs.begin();
+//	while (slab != tmp_slab)
+//	{
+//		slab_number++;
+//		tmp_slab++;
+//	}
+//
+//	// print out high_back_interpolated_time_z
+//	std::ostringstream zk_filename;
+//	zk_filename << "zk_fine_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//	std::ofstream zk_out(zk_filename.str().c_str(), std::ios_base::out);
+//	high_back_interpolated_time_z->print(zk_out,8,true,false);
+//
+//	// patchwise high order interpolate z in space and then print
+//	{
+//		auto high_slab_z = std::make_shared< dealii::Vector<double> > ();
+//		high_slab_z->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//			* slab->time.high.fe_info->dof->n_dofs()
+//		);
+//		*high_slab_z = 0.;
+//
+//		auto slab_z_tq  = std::make_shared< dealii::Vector<double> > ();
+//		slab_z_tq->reinit(
+//			slab->space.low.fe_info->dof->n_dofs()
+//		);
+//		*slab_z_tq = 0.;
+//
+//		auto high_slab_z_tq  = std::make_shared< dealii::Vector<double> > ();
+//		high_slab_z_tq->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//		);
+//		*high_slab_z_tq = 0.;
+//
+//		for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+//		{
+//			// get slab_w_tq
+//			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+//				(*slab_z_tq)[i] = (*z->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+//
+//			// use higher order interpolation in space to go from slab_w_tq to high_slab_w_tq
+//			patchwise_high_order_interpolate_space(
+//				slab,
+//				slab_z_tq,
+//				high_slab_z_tq
+//			);
+//
+//			// write high_slab_w_tq into high_slab_w
+//			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//				(*high_slab_z)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_z_tq)[i];
+//		}
+//
+//		std::ostringstream z_filename;
+//		z_filename << "z_fine_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//		std::ofstream z_out(z_filename.str().c_str(), std::ios_base::out);
+//		high_slab_z->print(z_out,8,true,false);
+//	}
+//
+//	// print out u->x[0] interpolated in space and back interpolated in time
+//	{
+//		auto high_slab_u = std::make_shared< dealii::Vector<double> > ();
+//		high_slab_u->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//			* slab->time.high.fe_info->dof->n_dofs()
+//		);
+//		*high_slab_u = 0.;
+//
+//		auto slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//		slab_u_tq->reinit(
+//			slab->space.low.fe_info->dof->n_dofs()
+//		);
+//		*slab_u_tq = 0.;
+//
+//		auto high_slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//		high_slab_u_tq->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//		);
+//		*high_slab_u_tq = 0.;
+//
+//		std::vector<double> time_qp;
+//		time_qp.push_back(slab->t_m);
+//		time_qp.push_back(0.5*(slab->t_m+slab->t_n));
+//		time_qp.push_back(slab->t_n);
+//
+//		unsigned int ii = 0;
+//		for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
+//		{
+//			// get slab_w_tq
+//			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+//				(*slab_u_tq)[i] = (*z->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+//
+//			get_w_t(
+//				slab->time.low.fe_info->fe,
+//				slab->time.low.fe_info->mapping,
+//				slab->space.low.fe_info->dof,
+//				slab->time.low.fe_info->dof->begin_active(),
+//				u->x[0],
+//				t_q,
+//				slab_u_tq
+//			);
+//
+//
+//			// use interpolation in space to go from slab_w_tq to high_slab_w_tq
+//			interpolate_space(
+//				slab,
+//				slab_u_tq,
+//				high_slab_u_tq
+//			);
+//
+//			// write high_slab_w_tq into high_slab_w
+//			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//				(*high_slab_u)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_u_tq)[i];
+//
+//			ii++;
+//		}
+//
+//		std::ostringstream uk_filename;
+//		uk_filename << "uk_fine_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
+//		high_slab_u->print(uk_out,8,true,false);
+//	}
+
+
 	////////////////////////////////////////////////////////////////////////
 	// left jump (between slabs prepare)
 	//
@@ -3333,7 +3460,7 @@ assemble_error_on_cell(
 
 			// (∂_t v_k, [z^v-z^v_k]χ_i)
 			copydata.local_eta_k_vector[scratch.j] -= (
-				(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
+				1. //(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
 				* scratch.value_dt_u_k_convection
 				* scratch.value_z_z_k_convection
 				* scratch.chi[scratch.j]
@@ -3342,7 +3469,7 @@ assemble_error_on_cell(
 
 			// (∂_t v_kh, [z^v_k-z^v_kh]χ_i)
 			copydata.local_eta_h_vector[scratch.j] -= (
-				(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
+				1. // (1 / cell_time_tau_n) // mapping I_n -> widehat(I)
 				* scratch.value_dt_u_kh_convection
 				* scratch.value_z_k_z_kh_convection
 				* scratch.chi[scratch.j]

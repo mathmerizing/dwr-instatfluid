@@ -502,7 +502,7 @@ void Assembler<dim>::local_assemble_cell(
 					copydata.vi_ui_matrix[n](
 						i + ii*space.fe->dofs_per_cell,
 						j + jj*space.fe->dofs_per_cell
-					) += 
+					) +=
 						// convection M_bb: w^+(x,t) * \partial_t b^+(x,t)
 						(  scratch.space_fe_values[convection].value(i,q)
 								* scratch.time_fe_values.shape_value(ii,qt) *
@@ -565,7 +565,8 @@ void Assembler<dim>::local_assemble_cell(
 				}
 			} // x_q
 		} // t_q
-		
+
+
  		// prepare [.]_t_m trace operator
  		scratch.time_fe_face_values.reinit(cell_time);
  		// assemble: face (w^+ * u^+)
