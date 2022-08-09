@@ -3415,6 +3415,7 @@ dual_do_backward_TMS(
 			// set the important variables for the error estimator
 			error_estimator.pu_dwr->init(
 				function.viscosity,
+				function.convection.dirichlet,
 				grid,
 				parameter_set->fe.symmetric_stress,
 				parameter_set->dwr.replace_linearization_points,

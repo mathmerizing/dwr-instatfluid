@@ -272,6 +272,7 @@ public:
 
 	void init(
 		std::shared_ptr< dealii::Function<dim> > _viscosity,
+		std::shared_ptr< dealii::TensorFunction<1,dim> > _convection_dirichlet,
 		std::shared_ptr< fluid::Grid<dim> > _grid,
 		bool use_symmetric_stress,
 		bool _replace_linearization_point,
@@ -396,6 +397,18 @@ protected:
 		const Assembly::CopyData::ErrorEstimates<dim> &copydata
 	);
 
+	virtual void high_calculate_boundary_values(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::map<dealii::types::global_dof_index, double> &boundary_values,
+		double time_point
+	);
+
+	virtual void apply_bc(
+		std::map<dealii::types::global_dof_index, double> &boundary_values,
+		std::shared_ptr< dealii::Vector<double> > x,
+		bool zero
+	);
+
 	////////////////////////////////////////////////////////////////////////////
 	// internal data structures:
 	//
@@ -407,6 +420,7 @@ protected:
 
 	struct {
 		std::shared_ptr< dealii::Function<dim> > viscosity;
+		std::shared_ptr< dealii::TensorFunction<1,dim> > convection_dirichlet;
 	} function;
 
 	struct {
