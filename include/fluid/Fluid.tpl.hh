@@ -278,6 +278,9 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > b;
 		std::shared_ptr< dealii::Vector<double> > Je;
 
+		std::shared_ptr< dealii::SparseMatrix<double> > debug_L_no_bc;
+
+
 		dealii::SparseDirectUMFPACK iA;
 
 		// Data Output

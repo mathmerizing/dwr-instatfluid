@@ -1742,7 +1742,7 @@ primal_solve_slab_problem(
 
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
 //			// printing out the system matrix
-//			std::ofstream out("matrix.txt", std::ios_base::out);
+//			std::ofstream out("primal_matrix.txt", std::ios_base::out);
 //			primal.L->print(out);
 //			out.close();
 //			exit(9);
@@ -2831,6 +2831,21 @@ dual_solve_slab_problem(
 	dual.b->add(1., *dual.Mzn);
 	dual.b->add(1., *dual.Je);
 
+	if (std::next(slab) == grid->slabs.end())
+	{
+		std::cout << "slab->t_n = " << slab->t_n << std::endl;
+//		std::cout << "copying debug_L matrix" << std::endl;
+		dual.debug_L_no_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+//		std::cout << "created pointer" << std::endl;
+		dual.debug_L_no_bc->reinit(dual.L->get_sparsity_pattern());
+////		std::cout << "reinited with sparsity pattern" << std::endl;
+		dual.debug_L_no_bc->copy_from(*dual.L);
+		//dual.debug_L_no_bc.add(-1.,*dual.L);
+////		std::cout << "copied matrix" << std::endl;
+		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
+		std::cout << "dual.debug_L_no_bc.linfty_norm() = " << dual.debug_L_no_bc->linfty_norm() << std::endl;
+	}
+
 	////////////////////////////////////////////////////////////////////////////
 	// apply (in)homogeneous Dirichlet boundary values
 	//
@@ -3222,45 +3237,81 @@ dual_solve_slab_problem(
 					diagonal_scaling_value * boundary_value.second;
 			}
 
-// 			////////////////////////////////////////////////////////////////////
-// 			// eliminate constrained column entries
-// 			//
-// 			// NOTE: this is quite expensive, but helps iterative lss
-// 			//       since the boundary value entries are shifted to the
-// 			//       right hand side.
-// 			//
-// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
-// 			//       which is necessary for space-time operators
-// 			//
-// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-// 				// if the row i of the operator A is not constrained,
-// 				// check if constrained columns need to be eliminated
-// 				if (boundary_values.find(i) == boundary_values.end()) {
-// 					// row i of A is not constrained
-// 					auto el_in_row_i{A->begin(i)};
-// 					auto end_el_in_row_i{A->end(i)};
-//
-// 					// check if a_ij needs to be eliminated
-// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-// 						// get iterator of a_ij
-// 						auto boundary_value =
-// 							boundary_values.find(el_in_row_i->column());
-//
-// 						// if a_ij is constrained
-// 						if (boundary_value != boundary_values.end()) {
-// 							// shift constraint to rhs
-// 							(*b)[i] -=
-// 								el_in_row_i->value()*boundary_value->second;
-//
-// 							// eliminate a_ij
-// 							el_in_row_i->value() = 0.;
-// 						}
-// 					}
-// 				}
-// 			}
+ 			////////////////////////////////////////////////////////////////////
+ 			// eliminate constrained column entries
+ 			//
+ 			// NOTE: this is quite expensive, but helps iterative lss
+ 			//       since the boundary value entries are shifted to the
+ 			//       right hand side.
+ 			//
+ 			// NOTE: there is no symmetry assumption on the sparsity pattern,
+ 			//       which is necessary for space-time operators
+ 			//
+ 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+ 				// if the row i of the operator A is not constrained,
+ 				// check if constrained columns need to be eliminated
+ 				if (boundary_values.find(i) == boundary_values.end()) {
+ 					// row i of A is not constrained
+ 					auto el_in_row_i{A->begin(i)};
+ 					auto end_el_in_row_i{A->end(i)};
+
+ 					// check if a_ij needs to be eliminated
+ 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
+ 						// get iterator of a_ij
+ 						auto boundary_value =
+ 							boundary_values.find(el_in_row_i->column());
+
+ 						// if a_ij is constrained
+ 						if (boundary_value != boundary_values.end()) {
+ 							// shift constraint to rhs
+ 							(*b)[i] -=
+ 								el_in_row_i->value()*boundary_value->second;
+
+ 							// eliminate a_ij
+ 							el_in_row_i->value() = 0.;
+ 						}
+ 					}
+ 				}
+ 			}
 		}
 	}
 	DTM::pout << " (done)" << std::endl;
+
+//	std::ofstream out("dual_matrix.txt", std::ios_base::out);
+//	dual.L->print(out);
+//	out.close();
+//	exit(20);
+
+	// TODO!!!
+//	if (dual.debug_L_bc == nullptr)
+//	{
+////		std::cout << "copying debug_L matrix" << std::endl;
+//		dual.debug_L_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+////		std::cout << "created pointer" << std::endl;
+//		dual.debug_L_bc->reinit(dual.L->get_sparsity_pattern());
+////		std::cout << "reinited with sparsity pattern" << std::endl;
+//		dual.debug_L_bc->copy_from(*dual.L);
+////		std::cout << "copied matrix" << std::endl;
+//		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
+//		std::cout << "dual.debug_L_bc->linfty_norm() = " << dual.debug_L_bc->linfty_norm() << std::endl;
+//	}
+
+	if (std::next(slab) == grid->slabs.end())
+	{
+////		std::cout << "copying debug_L matrix" << std::endl;
+//		//dual.debug_L_no_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+////		std::cout << "created pointer" << std::endl;
+//		dual.debug_L_bc.reinit(dual.L->get_sparsity_pattern());
+//////		std::cout << "reinited with sparsity pattern" << std::endl;
+//		//dual.debug_L_bc.copy_from(*dual.L);
+//		dual.debug_L_bc.add(1.,*dual.L);
+//////		std::cout << "copied matrix" << std::endl;
+//		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
+//		std::cout << "dual.debug_L_bc.linfty_norm() = " << dual.debug_L_bc.linfty_norm() << std::endl;
+		std::ofstream out("dual_matrix.txt", std::ios_base::out);
+		dual.L->print(out);
+		out.close();
+	}
 
 	////////////////////////////////////////////////////////////////////////////
 	// condense hanging nodes in system matrix, if any
@@ -3286,6 +3337,8 @@ dual_solve_slab_problem(
 	slab->spacetime.dual.constraints->distribute(
 		*z->x[0]
 	);
+
+	std::cout << "2: dual.debug_L_no_bc.linfty_norm() = " << dual.debug_L_no_bc->linfty_norm() << std::endl;
 }
 
 
@@ -3499,6 +3552,7 @@ dual_do_backward_TMS(
 		// solve slab problem (i.e. apply boundary values and solve for z0)
 		dual_solve_slab_problem(slab, z);
 
+
 		////////////////////////////////////
 		// error estimation with PU-DWR
 		//
@@ -3510,7 +3564,9 @@ dual_do_backward_TMS(
 		// evaluate error on next slab
 		if (n < N)
 		{
-			error_estimator.pu_dwr->estimate_on_slab(std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
+			// pass dual.L to error estimator -> only for debugging! TODO: delete this
+			std::cout << "calling estimate with linfty norms: " << dual.debug_L_no_bc->linfty_norm() << std::endl;
+			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
 
 			// apply B. Endtmayer's post processing of the error indicators
 			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
@@ -3530,7 +3586,8 @@ dual_do_backward_TMS(
 		// evaluate error on first slab
 		if (n == 1)
 		{
-			error_estimator.pu_dwr->estimate_on_slab(slab, u, um, z, eta_space, eta_time);
+			// pass dual.L to error estimator -> only for debugging! TODO: delete this
+			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, slab, u, um, z, eta_space, eta_time);
 
 			// apply B. Endtmayer's post processing of the error indicators
 			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
@@ -4554,6 +4611,7 @@ Fluid<dim>::
 compute_effectivity_index() {
 	// sum up error estimator
 	double value_eta_k = 0.;
+	std::cout << "eta_k(estimator) = ";
 	for (auto &element : *error_estimator.storage.eta_time)
 	{
 		value_eta_k += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
@@ -4562,8 +4620,13 @@ compute_effectivity_index() {
 	std::cout << std::endl;
 
 	double value_eta_h = 0.;
+	std::cout << "eta_h(estimator) = ";
 	for (auto &element : *error_estimator.storage.eta_space)
+	{
 		value_eta_h += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
+		std::cout << std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.) << ",";
+	}
+	std::cout << std::endl;
 
 	const double value_eta = std::abs(value_eta_k + value_eta_h);
 
