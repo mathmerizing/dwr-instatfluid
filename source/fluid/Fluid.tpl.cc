@@ -2833,17 +2833,21 @@ dual_solve_slab_problem(
 
 	if (std::next(slab) == grid->slabs.end())
 	{
-		std::cout << "slab->t_n = " << slab->t_n << std::endl;
+//		std::cout << "slab->t_n = " << slab->t_n << std::endl;
 //		std::cout << "copying debug_L matrix" << std::endl;
 		dual.debug_L_no_bc = std::make_shared< dealii::SparseMatrix<double> > ();
 //		std::cout << "created pointer" << std::endl;
-		dual.debug_L_no_bc->reinit(dual.L->get_sparsity_pattern());
+
+		dual.debug_sp = std::make_shared< dealii::SparsityPattern > ();
+		dual.debug_sp->copy_from(dual.L->get_sparsity_pattern());
+//		std::cout << "copied sparsity pattern into dual.debug_sp" << std::endl;
+		dual.debug_L_no_bc->reinit(*dual.debug_sp);  //dual.L->get_sparsity_pattern());
 ////		std::cout << "reinited with sparsity pattern" << std::endl;
 		dual.debug_L_no_bc->copy_from(*dual.L);
 		//dual.debug_L_no_bc.add(-1.,*dual.L);
 ////		std::cout << "copied matrix" << std::endl;
-		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
-		std::cout << "dual.debug_L_no_bc.linfty_norm() = " << dual.debug_L_no_bc->linfty_norm() << std::endl;
+//		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
+//		std::cout << "dual.debug_L_no_bc.linfty_norm() = " << dual.debug_L_no_bc->linfty_norm() << std::endl;
 	}
 
 	////////////////////////////////////////////////////////////////////////////
@@ -3277,25 +3281,6 @@ dual_solve_slab_problem(
 	}
 	DTM::pout << " (done)" << std::endl;
 
-//	std::ofstream out("dual_matrix.txt", std::ios_base::out);
-//	dual.L->print(out);
-//	out.close();
-//	exit(20);
-
-	// TODO!!!
-//	if (dual.debug_L_bc == nullptr)
-//	{
-////		std::cout << "copying debug_L matrix" << std::endl;
-//		dual.debug_L_bc = std::make_shared< dealii::SparseMatrix<double> > ();
-////		std::cout << "created pointer" << std::endl;
-//		dual.debug_L_bc->reinit(dual.L->get_sparsity_pattern());
-////		std::cout << "reinited with sparsity pattern" << std::endl;
-//		dual.debug_L_bc->copy_from(*dual.L);
-////		std::cout << "copied matrix" << std::endl;
-//		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
-//		std::cout << "dual.debug_L_bc->linfty_norm() = " << dual.debug_L_bc->linfty_norm() << std::endl;
-//	}
-
 	if (std::next(slab) == grid->slabs.end())
 	{
 ////		std::cout << "copying debug_L matrix" << std::endl;
@@ -3308,9 +3293,14 @@ dual_solve_slab_problem(
 //////		std::cout << "copied matrix" << std::endl;
 //		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
 //		std::cout << "dual.debug_L_bc.linfty_norm() = " << dual.debug_L_bc.linfty_norm() << std::endl;
-		std::ofstream out("dual_matrix.txt", std::ios_base::out);
-		dual.L->print(out);
-		out.close();
+
+//		std::ofstream out("dual_matrix.txt", std::ios_base::out);
+//		dual.L->print(out);
+//		out.close();
+
+		dual.debug_L_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+		dual.debug_L_bc->reinit(*dual.debug_sp);
+		dual.debug_L_bc->copy_from(*dual.L);
 	}
 
 	////////////////////////////////////////////////////////////////////////////
@@ -3337,8 +3327,6 @@ dual_solve_slab_problem(
 	slab->spacetime.dual.constraints->distribute(
 		*z->x[0]
 	);
-
-	std::cout << "2: dual.debug_L_no_bc.linfty_norm() = " << dual.debug_L_no_bc->linfty_norm() << std::endl;
 }
 
 
@@ -3551,6 +3539,7 @@ dual_do_backward_TMS(
 
 		// solve slab problem (i.e. apply boundary values and solve for z0)
 		dual_solve_slab_problem(slab, z);
+//		std::cout << "Finished dual_solve_slab_problem" << std::endl;
 
 
 		////////////////////////////////////
@@ -3565,8 +3554,9 @@ dual_do_backward_TMS(
 		if (n < N)
 		{
 			// pass dual.L to error estimator -> only for debugging! TODO: delete this
-			std::cout << "calling estimate with linfty norms: " << dual.debug_L_no_bc->linfty_norm() << std::endl;
-			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
+//			std::cout << "calling estimate with linfty norms: " << dual.debug_L_no_bc->linfty_norm() << std::endl;
+			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, dual.debug_L_bc, std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
+//			std::cout << "finished estimate_on_slab" << std::endl;
 
 			// apply B. Endtmayer's post processing of the error indicators
 			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
@@ -3582,12 +3572,13 @@ dual_do_backward_TMS(
 					(*std::next(eta_time)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_time)->x[0])[line.index];
 				(*std::next(eta_time)->x[0])[line.index] = 0.;
 			}
+//			std::cout << "post processed error estimator" << std::endl;
 		}
 		// evaluate error on first slab
 		if (n == 1)
 		{
 			// pass dual.L to error estimator -> only for debugging! TODO: delete this
-			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, slab, u, um, z, eta_space, eta_time);
+			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, dual.debug_L_bc, slab, u, um, z, eta_space, eta_time);
 
 			// apply B. Endtmayer's post processing of the error indicators
 			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
@@ -4611,22 +4602,22 @@ Fluid<dim>::
 compute_effectivity_index() {
 	// sum up error estimator
 	double value_eta_k = 0.;
-	std::cout << "eta_k(estimator) = ";
+	DTM::pout << "eta_k(estimator) = ";
 	for (auto &element : *error_estimator.storage.eta_time)
 	{
 		value_eta_k += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
-		std::cout << std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.) << ",";
+		DTM::pout << std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.) << ",";
 	}
-	std::cout << std::endl;
+	DTM::pout << std::endl;
 
 	double value_eta_h = 0.;
-	std::cout << "eta_h(estimator) = ";
+	DTM::pout << "eta_h(estimator) = ";
 	for (auto &element : *error_estimator.storage.eta_space)
 	{
 		value_eta_h += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
-		std::cout << std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.) << ",";
+		DTM::pout << std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.) << ",";
 	}
-	std::cout << std::endl;
+	DTM::pout << std::endl;
 
 	const double value_eta = std::abs(value_eta_k + value_eta_h);
 

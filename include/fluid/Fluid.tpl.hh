@@ -278,7 +278,10 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > b;
 		std::shared_ptr< dealii::Vector<double> > Je;
 
+		// matrices and sparsity pattern for matrix-resdidual based debugging of error estimator
 		std::shared_ptr< dealii::SparseMatrix<double> > debug_L_no_bc;
+		std::shared_ptr< dealii::SparseMatrix<double> > debug_L_bc;
+		std::shared_ptr< dealii::SparsityPattern > debug_sp;
 
 
 		dealii::SparseDirectUMFPACK iA;

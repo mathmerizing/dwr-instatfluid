@@ -276,6 +276,7 @@ void
 ErrorEstimator<dim>::
 estimate_on_slab(
 	std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_no_bc,
+	std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_bc,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_vectors<1>::iterator &u,
 	const typename DTM::types::storage_data_vectors<1>::iterator &um,
@@ -354,7 +355,7 @@ estimate_on_slab(
 //	//
 //	// point to test temporal reconstruction:
 //	dealii::Point<dim> x_star(0.1,0.2);
-	std::cout << "Starting error estimation " << std::endl;
+//	std::cout << "Starting error estimation " << std::endl;
 //	std::cout << "dual_matrix_no_bc.linfty norm = " << dual_matrix_no_bc.linfty_norm() << std::endl;
 //	std::cout << "dual_matrix_bc.linfty norm = " << dual_matrix_bc.linfty_norm() << std::endl;
 
@@ -521,7 +522,7 @@ estimate_on_slab(
 
 	// TODO: now use mixed solution, output vectors to files and compare error estimator with python residual
 
-	std::cout << "getting the space time vectors" << std::endl;
+//	std::cout << "getting the space time vectors" << std::endl;
 
 	auto high_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
 //	// computation of z_kh^(1,2) from z_kh^(2,2)
@@ -548,7 +549,7 @@ estimate_on_slab(
 		tmp_slab++;
 	}
 
-	std::cout << "got high_back_interpolated_time_z" << std::endl;
+//	std::cout << "got high_back_interpolated_time_z" << std::endl;
 
 //	// print out high_back_interpolated_time_z -> z_k
 //	std::ostringstream zk_filename;
@@ -591,7 +592,7 @@ estimate_on_slab(
 		unsigned int ii = 0;
 		for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
 		{
-			std::cout << "getting slab_u_tq" << std::endl;
+//			std::cout << "getting slab_u_tq" << std::endl;
 //			// get slab_w_tq
 //			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
 //				(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * ii];
@@ -605,7 +606,7 @@ estimate_on_slab(
 				t_q,
 				slab_u_tq
 			);
-			std::cout << "got slab_u_tq" << std::endl;
+//			std::cout << "got slab_u_tq" << std::endl;
 
 			// use interpolation in space to go from slab_w_tq to high_slab_w_tq
 			interpolate_space(
@@ -613,7 +614,7 @@ estimate_on_slab(
 				slab_u_tq,
 				high_slab_u_tq
 			);
-			std::cout << "interpolated slab_u_tq in space" << std::endl;
+//			std::cout << "interpolated slab_u_tq in space" << std::endl;
 
 //			if (ii == 0)
 //				apply_bc(tm_bc, high_slab_u_tq, false);
@@ -627,7 +628,7 @@ estimate_on_slab(
 			// write high_slab_w_tq into high_slab_w
 			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
 				(*high_slab_u)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_u_tq)[i];
-			std::cout << "filled high_slab_u" << std::endl;
+//			std::cout << "filled high_slab_u" << std::endl;
 			ii++;
 		}
 
@@ -636,7 +637,7 @@ estimate_on_slab(
 //		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
 //		high_slab_u->print(uk_out,8,true,false);
 	}
-	std::cout << "got high_slab_u" << std::endl;
+//	std::cout << "got high_slab_u" << std::endl;
 
 	// print out z->x[0] back interpolated in space
 	auto high_back_interpolated_space_slab_z = std::make_shared< dealii::Vector<double> > ();
@@ -707,7 +708,7 @@ estimate_on_slab(
 //		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
 //		high_slab_u->print(uk_out,8,true,false);
 	}
-	std::cout << "got high_back_interpolated_space_slab_z" << std::endl;
+//	std::cout << "got high_back_interpolated_space_slab_z" << std::endl;
 
 	//////////////////////////////////////////////////////////////////////////////////////////
 	// MATRIX RESIDUALS TO DEBUG ERROR ESTIMATOR
@@ -722,10 +723,10 @@ estimate_on_slab(
 		* slab->time.high.fe_info->dof->n_dofs()
 	);
 	*tmp_vec_z = 0.;
-	std::cout << "reinited tmp_vec_z" << std::endl;
+//	std::cout << "reinited tmp_vec_z" << std::endl;
 	tmp_vec_z->add(-1., *(z->x[0]));
 	tmp_vec_z->add(1., *high_back_interpolated_time_z);
-	std::cout << "added up tmp_vec_z" << std::endl;
+//	std::cout << "added up tmp_vec_z" << std::endl;
 //	std::cout << "tmp_vec_z->linfty_norm() =" << tmp_vec_z->linfty_norm() << std::endl;
 
 	auto tmp_vec_vmult = std::make_shared< dealii::Vector<double> > ();
@@ -745,7 +746,7 @@ estimate_on_slab(
 //	exit(22);
 	//_L->vmult(*tmp_vec_vmult, *tmp_vec_z);
 	_dual_matrix_no_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
-	std::cout << "_matrix_no_bc.linfty norm = " << _dual_matrix_no_bc->linfty_norm() << std::endl;
+//	std::cout << "_matrix_no_bc.linfty norm = " << _dual_matrix_no_bc->linfty_norm() << std::endl;
 	//exit(7);
 //	std::cout << "tmp_vec_vmult->linfty_norm() =" << tmp_vec_vmult->linfty_norm() << std::endl;
 	//std::cout << "residual " << slab_number << " = " << (*tmp_vec_vmult) * (*high_slab_u) << std::endl;
@@ -791,34 +792,34 @@ estimate_on_slab(
 //	}
 //	std::cout << "Created primal matrix" << std::endl;
 
-	if (dual_matrix_bc == nullptr)
-	{
-		dual_matrix_bc = std::make_shared< dealii::SparseMatrix<double> > ();
-		dual_matrix_bc->reinit(_dual_matrix_no_bc->get_sparsity_pattern());
-
-		std::string matrix_filename = "dual_matrix.txt";
-		std::ifstream matrix_in(matrix_filename.c_str(), std::ios_base::in);
-		std::string line4;
-		while (std::getline (matrix_in,line4))
-		{
-			std::vector<std::string> line_parts;
-			split_str(line4, ' ', line_parts);
-			line_parts[0].replace(line_parts[0].find("("), 1, "");
-			line_parts[0].replace(line_parts[0].find(")"), 1, "");
-			std::vector<std::string> index_parts;
-			split_str(line_parts[0], ',', index_parts);
-
-			dual_matrix_bc->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
-		}
-	}
+//	if (dual_matrix_bc == nullptr)
+//	{
+//		dual_matrix_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+//		dual_matrix_bc->reinit(_dual_matrix_no_bc->get_sparsity_pattern());
+//
+//		std::string matrix_filename = "dual_matrix.txt";
+//		std::ifstream matrix_in(matrix_filename.c_str(), std::ios_base::in);
+//		std::string line4;
+//		while (std::getline (matrix_in,line4))
+//		{
+//			std::vector<std::string> line_parts;
+//			split_str(line4, ' ', line_parts);
+//			line_parts[0].replace(line_parts[0].find("("), 1, "");
+//			line_parts[0].replace(line_parts[0].find(")"), 1, "");
+//			std::vector<std::string> index_parts;
+//			split_str(line_parts[0], ',', index_parts);
+//
+//			dual_matrix_bc->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
+//		}
+//	}
 
 
 	*tmp_vec_vmult = 0.;
 	//primal_matrix->vmult(*tmp_vec_vmult, *high_slab_u);
-	dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
+	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
 	//std::cout << "eta_k(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
 	eta_k_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
-	std::cout << "dual_matrix_bc.linfty norm = " << dual_matrix_bc->linfty_norm() << std::endl;
+//	std::cout << "dual_matrix_bc.linfty norm = " << dual_matrix_bc->linfty_norm() << std::endl;
 
 	// SPATIAL ERROR
 
@@ -833,36 +834,36 @@ estimate_on_slab(
 
 	*tmp_vec_vmult = 0.;
 	//primal_matrix->vmult(*tmp_vec_vmult, *high_slab_u);
-	dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
+	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
 	eta_h_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
 	//std::cout << "eta_h(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
 
 	if (slab_number == 0)
 	{
 		// print out list of matrix based residuals
-		std::cout << "eta_k(mat,BC) = ";
+		DTM::pout << "\neta_k(mat,BC) = ";
 		for (unsigned int i = eta_k_bc.size()-1; i>0; --i)
-			std::cout << eta_k_bc[i] << ",";
-		std::cout << eta_k_bc[0] << ",";
-		std::cout << std::endl;
+			DTM::pout << eta_k_bc[i] << ",";
+		DTM::pout << eta_k_bc[0] << ",";
+		DTM::pout << std::endl;
 
-		std::cout << "eta_k(mat,no BC) = ";
+		DTM::pout << "eta_k(mat,no BC) = ";
 		for (unsigned int i = eta_k_nobc.size()-1; i>0; --i)
-			std::cout << eta_k_nobc[i] << ",";
-		std::cout << eta_k_nobc[0] << ",";
-		std::cout << std::endl;
+			DTM::pout << eta_k_nobc[i] << ",";
+		DTM::pout << eta_k_nobc[0] << ",";
+		DTM::pout << std::endl;
 
-		std::cout << "eta_h(mat,BC) = ";
+		DTM::pout << "\neta_h(mat,BC) = ";
 		for (unsigned int i = eta_h_bc.size()-1; i>0; --i)
-			std::cout << eta_h_bc[i] << ",";
-		std::cout << eta_h_bc[0] << ",";
-		std::cout << std::endl;
+			DTM::pout << eta_h_bc[i] << ",";
+		DTM::pout << eta_h_bc[0] << ",";
+		DTM::pout << std::endl;
 
-		std::cout << "eta_h(mat,no BC) = ";
+		DTM::pout << "eta_h(mat,no BC) = ";
 		for (unsigned int i = eta_h_nobc.size()-1; i>0; --i)
-			std::cout << eta_h_nobc[i] << ",";
-		std::cout << eta_h_nobc[0] << ",";
-		std::cout << std::endl;
+			DTM::pout << eta_h_nobc[i] << ",";
+		DTM::pout << eta_h_nobc[0] << ",";
+		DTM::pout << std::endl;
 
 		double sum_eta_k_no_bc = 0.;
 		double sum_eta_h_no_bc = 0.;
@@ -870,7 +871,7 @@ estimate_on_slab(
 			sum_eta_k_no_bc += val;
 		for (auto val : eta_h_nobc)
 			sum_eta_h_no_bc += val;
-		std::cout << "NO BC:\n\neta_k              = " << sum_eta_k_no_bc
+		DTM::pout << "\nNO BC:\neta_k              = " << sum_eta_k_no_bc
 				  << "\neta_h              = " << sum_eta_h_no_bc
 				  << "\neta                = " << std::abs(sum_eta_k_no_bc+sum_eta_h_no_bc) << std::endl;
 
@@ -880,7 +881,7 @@ estimate_on_slab(
 			sum_eta_k_bc += val;
 		for (auto val : eta_h_bc)
 			sum_eta_h_bc += val;
-		std::cout << "BC:\n\neta_k              = " << sum_eta_k_bc
+		DTM::pout << "\nBC:\neta_k              = " << sum_eta_k_bc
 				  << "\neta_h              = " << sum_eta_h_bc
 				  << "\neta                = " << std::abs(sum_eta_k_bc+sum_eta_h_bc) << std::endl;
 	}

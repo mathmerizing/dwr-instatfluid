@@ -262,6 +262,7 @@ public:
 
 	virtual void estimate_on_slab(
 		std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_no_bc,
+		std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_bc,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const typename DTM::types::storage_data_vectors<1>::iterator &u,
 		const typename DTM::types::storage_data_vectors<1>::iterator &um,
@@ -493,8 +494,6 @@ protected:
 	////////////////////////////////////////////////////////////////////////////
 	// other data structures
 	//
-
-	std::shared_ptr< dealii::SparseMatrix<double> > dual_matrix_bc;
 
 	dealii::FEValuesExtractors::Vector convection;
 	dealii::FEValuesExtractors::Scalar pressure;
