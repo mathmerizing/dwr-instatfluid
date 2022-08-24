@@ -1793,7 +1793,6 @@ primal_solve_slab_problem(
 			DTM::pout << " \t";
 
 		DTM::pout << line_search_step << "\t" << std::scientific << std::endl;
-
 		if (line_search_step == newton.line_search_steps && std::abs(newton_residual - old_newton_residual) < 1e-15)
 		{
 			break;

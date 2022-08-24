@@ -578,6 +578,13 @@ estimate_on_slab(
 		);
 		*slab_u_tq = 0.;
 
+		// TODO: comment this out
+		auto tmp_u_tq  = std::make_shared< dealii::Vector<double> > ();
+		tmp_u_tq->reinit(
+			slab->space.low.fe_info->dof->n_dofs()
+		);
+		*tmp_u_tq = 0.;
+
 		auto high_slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
 		high_slab_u_tq->reinit(
 			slab->space.high.fe_info->dof->n_dofs()
@@ -607,6 +614,17 @@ estimate_on_slab(
 				slab_u_tq
 			);
 //			std::cout << "got slab_u_tq" << std::endl;
+
+			// TODO: comment this out
+			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+				if (ii == 0)
+					(*tmp_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
+				else if (ii == 1)
+					(*tmp_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+				else if (ii == 2)
+					(*tmp_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+			tmp_u_tq->add(-1., *slab_u_tq);
+			std::cout << "tmp_u_tq->linfty_norm() = " << tmp_u_tq->linfty_norm() << std::endl;
 
 			// use interpolation in space to go from slab_w_tq to high_slab_w_tq
 			interpolate_space(
@@ -654,6 +672,13 @@ estimate_on_slab(
 		);
 		*high_slab_z_tq = 0.;
 
+		// TODO: comment this out
+		auto tmp_z_tq  = std::make_shared< dealii::Vector<double> > ();
+		tmp_z_tq->reinit(
+			slab->space.high.fe_info->dof->n_dofs()
+		);
+		*tmp_z_tq = 0.;
+
 		auto high_slab_back_interpolated_z_tq  = std::make_shared< dealii::Vector<double> > ();
 		high_slab_back_interpolated_z_tq->reinit(
 			slab->space.high.fe_info->dof->n_dofs()
@@ -679,6 +704,11 @@ estimate_on_slab(
 				high_slab_z_tq
 			);
 
+			// TODO: comment this out
+			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+				(*tmp_z_tq)[i] = (*z->x[0])[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+			tmp_z_tq->add(-1., *high_slab_z_tq);
+			std::cout << "tmp_z_tq->linfty_norm() = " << tmp_z_tq->linfty_norm() << std::endl;
 
 			// use interpolation in space to go from slab_w_tq to high_slab_w_tq
 			back_interpolate_space(
@@ -837,6 +867,11 @@ estimate_on_slab(
 	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
 	eta_h_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
 	//std::cout << "eta_h(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
+
+//	std::ofstream out("dual_matrix_debug.txt", std::ios_base::out);
+//	_dual_matrix_bc->print(out);
+//	out.close();
+//	exit(99);
 
 	if (slab_number == 0)
 	{

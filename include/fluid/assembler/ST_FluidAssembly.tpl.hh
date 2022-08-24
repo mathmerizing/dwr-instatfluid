@@ -100,6 +100,7 @@ struct FluidAssembly {
 	
 	// time
 	dealii::FEValues<1> time_fe_values;
+	dealii::FEValues<1> time_fe_quad_values;
 	dealii::FEValues<1> time_fe_face_values;
 	dealii::FEValues<1> time_fe_face_values_neighbor;
 	
