@@ -604,6 +604,7 @@ estimate_on_slab(
 //			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
 //				(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * ii];
 
+			// TODO: comment this out
 			get_w_t(
 				slab->time.low.fe_info->fe,
 				slab->time.low.fe_info->mapping,
@@ -611,18 +612,19 @@ estimate_on_slab(
 				slab->time.low.fe_info->dof->begin_active(),
 				u->x[0],
 				t_q,
-				slab_u_tq
+				tmp_u_tq
 			);
 //			std::cout << "got slab_u_tq" << std::endl;
 
-			// TODO: comment this out
 			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
 				if (ii == 0)
-					(*tmp_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
+					(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
 				else if (ii == 1)
-					(*tmp_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+					(*slab_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
 				else if (ii == 2)
-					(*tmp_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+					(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+
+
 			tmp_u_tq->add(-1., *slab_u_tq);
 			std::cout << "tmp_u_tq->linfty_norm() = " << tmp_u_tq->linfty_norm() << std::endl;
 
@@ -693,6 +695,7 @@ estimate_on_slab(
 		unsigned int ii = 0;
 		for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
 		{
+			// TODO: comment this out
 			// get slab_w_tq
 			get_w_t(
 				slab->time.high.fe_info->fe,
@@ -701,12 +704,13 @@ estimate_on_slab(
 				slab->time.high.fe_info->dof->begin_active(),
 				z->x[0],
 				t_q,
-				high_slab_z_tq
+				tmp_z_tq
 			);
 
-			// TODO: comment this out
 			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
-				(*tmp_z_tq)[i] = (*z->x[0])[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+				(*high_slab_z_tq)[i] = (*z->x[0])[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+
+
 			tmp_z_tq->add(-1., *high_slab_z_tq);
 			std::cout << "tmp_z_tq->linfty_norm() = " << tmp_z_tq->linfty_norm() << std::endl;
 
@@ -3489,16 +3493,6 @@ get_back_interpolated_time_slab_w(
 	);
 	*back_interpolated_time_slab_w = 0.;
 
-	// init quadratures in time for interpolations in time
-	// NOTE: we need here the original support points of the low/high fe
-	dealii::QGaussLobatto<1> low_quad_time( // TODO: here one should switch between QGauss and QGaussLobatto depending on temporal quadrature
-		slab->time.low.fe_info->fe->dofs_per_cell
-	);
-
-	dealii::QGaussLobatto<1> high_quad_time( // TODO: here one should switch between QGauss and QGaussLobatto depending on temporal quadrature
-		slab->time.high.fe_info->fe->dofs_per_cell
-	);
-
 	// prepare local dof mappings
 	std::vector< dealii::types::global_dof_index >
 	low_local_dof_indices_time(
@@ -3514,14 +3508,14 @@ get_back_interpolated_time_slab_w(
 	dealii::FEValues<1> high_fe_values_time(
 		*slab->time.high.fe_info->mapping,
 		*slab->time.high.fe_info->fe,
-		low_quad_time,
+		dealii::Quadrature<1>(slab->time.low.fe_info->fe->get_unit_support_points()),//*low_quad_time,
 		dealii::update_values
 	);
 
 	dealii::FEValues<1> low_fe_values_time(
 		*slab->time.low.fe_info->mapping,
 		*slab->time.low.fe_info->fe,
-		high_quad_time,
+		dealii::Quadrature<1>(slab->time.high.fe_info->fe->get_unit_support_points()),//*high_quad_time,
 		dealii::update_values
 	);
 
@@ -4231,7 +4225,7 @@ assemble_error_on_cell(
 
 			// (∂_t v_k, [z^v-z^v_k]χ_i)
 			copydata.local_eta_k_vector[scratch.j] -= (
-				1. //(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
+				1. // (1 / cell_time_tau_n) // mapping I_n -> widehat(I) // TODO: reset scaling to 1.
 				* scratch.value_dt_u_k_convection
 				* scratch.value_z_z_k_convection
 				* scratch.chi[scratch.j]
@@ -4240,7 +4234,7 @@ assemble_error_on_cell(
 
 			// (∂_t v_kh, [z^v_k-z^v_kh]χ_i)
 			copydata.local_eta_h_vector[scratch.j] -= (
-				1. // (1 / cell_time_tau_n) // mapping I_n -> widehat(I)
+				1. // (1 / cell_time_tau_n) // mapping I_n -> widehat(I) // TODO: reset scaling to 1.
 				* scratch.value_dt_u_kh_convection
 				* scratch.value_z_k_z_kh_convection
 				* scratch.chi[scratch.j]

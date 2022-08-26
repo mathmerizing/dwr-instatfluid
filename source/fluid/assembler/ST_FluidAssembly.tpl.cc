@@ -563,46 +563,46 @@ void Assembler<dim>::local_assemble_cell(
 							scratch.space_fe_values.JxW(q)
 								* scratch.time_fe_values.JxW(qt)
 						)
-//						// div-free constraint B_pb
-//						+ (
-//							scratch.space_psi[i]
-//								* scratch.time_fe_values.shape_value(ii,qt) *
-//
-//							scratch.space_div_phi[j]
-//								* scratch.time_fe_values.shape_value(jj,qt) *
-//
-//							scratch.space_fe_values.JxW(q)
-//								* scratch.time_fe_values.JxW(qt)
-//						)
+						// div-free constraint B_pb
+						+ (
+							scratch.space_psi[i]
+								* scratch.time_fe_values.shape_value(ii,qt) *
+
+							scratch.space_div_phi[j]
+								* scratch.time_fe_values.shape_value(jj,qt) *
+
+							scratch.space_fe_values.JxW(q)
+								* scratch.time_fe_values.JxW(qt)
+						)
 					;
 				}
 			} // x_q
 		} // t_q
 
 
-		// pointwise divergence free condition
-		scratch.time_fe_quad_values.reinit(cell_time);
-		for (unsigned int qt{0}; qt < scratch.time_fe_quad_values.n_quadrature_points; ++qt) {
-			// assemble: div(v),phi_p
-			for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
-				unsigned int ii = qt;
-				unsigned int jj = qt;
-				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
-				for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-					copydata.vi_ui_matrix[n](
-						i + ii*space.fe->dofs_per_cell,
-						j + jj*space.fe->dofs_per_cell
-					) +=
-						// div-free constraint B_pb
-						scratch.space_fe_values[pressure].value(i,q) *
-
-						scratch.space_fe_values[convection].divergence(j,q) *
-
-						scratch.space_fe_values.JxW(q)
-					;
-				}
-			}
-		} // t_q
+//		// pointwise divergence free condition
+//		scratch.time_fe_quad_values.reinit(cell_time);
+//		for (unsigned int qt{0}; qt < scratch.time_fe_quad_values.n_quadrature_points; ++qt) {
+//			// assemble: div(v),phi_p
+//			for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
+//				unsigned int ii = qt;
+//				unsigned int jj = qt;
+//				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
+//				for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
+//					copydata.vi_ui_matrix[n](
+//						i + ii*space.fe->dofs_per_cell,
+//						j + jj*space.fe->dofs_per_cell
+//					) +=
+//						// div-free constraint B_pb
+//						scratch.space_fe_values[pressure].value(i,q) *
+//
+//						scratch.space_fe_values[convection].divergence(j,q) *
+//
+//						scratch.space_fe_values.JxW(q)
+//					;
+//				}
+//			}
+//		} // t_q
 
 
  		// prepare [.]_t_m trace operator

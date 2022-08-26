@@ -506,48 +506,48 @@ void Assembler<dim>::local_assemble_cell(
 									 *scratch.time_fe_values.shape_value(ii,qt)*
 								 scratch.p * scratch.spacetime_JxW
 							 )
-//							// div-free constraint
-//							+ ( scratch.space_psi[i]
-//								 *scratch.time_fe_values.shape_value(ii,qt)*
-//								 scratch.div_v*
-//								 scratch.spacetime_JxW
-//								 )
+							// div-free constraint
+							+ ( scratch.space_psi[i]
+								 *scratch.time_fe_values.shape_value(ii,qt)*
+								 scratch.div_v*
+								 scratch.spacetime_JxW
+								 )
 					;
 				}
 			}//space qp
 
 		}//time qp
 
-		for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii) {
-			for (unsigned int q{0} ; q < scratch.space_fe_values.n_quadrature_points ; ++q) {
-				scratch.div_v = 0;
-
-				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
-					//correct ST solution vector entry
-					double u_i_ii = (*u)[
-							scratch.space_local_dof_indices[i]
-							// time offset
-							+ space.dof->n_dofs() *
-							   (n * time.fe->dofs_per_cell)
-							// local in time dof
-							+ space.dof->n_dofs() * ii
-							];
-					// function eval div(u(x,t_q))
-					scratch.div_v +=
-							u_i_ii * scratch.space_fe_values[convection].divergence(i,q);
-				}
-
-				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
-					copydata.vi_rhs_vector[n](
-							i + ii*space.fe->dofs_per_cell
-					) +=
-					  // pointwise incompressibility condition
-						scratch.space_fe_values[pressure].value(i,q)
-						 * scratch.div_v * scratch.space_fe_values.JxW(q)
-					;
-				}
-			}
-		}
+//		for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell ; ++ii) {
+//			for (unsigned int q{0} ; q < scratch.space_fe_values.n_quadrature_points ; ++q) {
+//				scratch.div_v = 0;
+//
+//				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+//					//correct ST solution vector entry
+//					double u_i_ii = (*u)[
+//							scratch.space_local_dof_indices[i]
+//							// time offset
+//							+ space.dof->n_dofs() *
+//							   (n * time.fe->dofs_per_cell)
+//							// local in time dof
+//							+ space.dof->n_dofs() * ii
+//							];
+//					// function eval div(u(x,t_q))
+//					scratch.div_v +=
+//							u_i_ii * scratch.space_fe_values[convection].divergence(i,q);
+//				}
+//
+//				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+//					copydata.vi_rhs_vector[n](
+//							i + ii*space.fe->dofs_per_cell
+//					) +=
+//					  // pointwise incompressibility condition
+//						scratch.space_fe_values[pressure].value(i,q)
+//						 * scratch.div_v * scratch.space_fe_values.JxW(q)
+//					;
+//				}
+//			}
+//		}
 
 
  		// prepare [.]_t_m trace operator

@@ -654,6 +654,24 @@ primal_assemble_system(
 		);
 		
 	}
+
+	// FOR DEBUGGING PRINT MATRIX:
+	{
+		int slab_number = 0;
+		auto tmp_slab = grid->slabs.begin();
+		while (slab != tmp_slab)
+		{
+			slab_number++;
+			tmp_slab++;
+		}
+
+		std::ostringstream filename;
+		filename << "primal_matrix_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+		std::ofstream out(filename.str().c_str(), std::ios_base::out);
+		primal.L->print(out);
+		out.close();
+	}
+
 }
 
 
@@ -2036,6 +2054,22 @@ primal_do_forward_TMS(
 		// solve slab problem (i.e. apply boundary values and solve for u0)
 		primal_solve_slab_problem(slab, u, um);
 		
+		// FOR DEBUGGING: output primal space-time solution vector
+		{
+			int slab_number = 0;
+			auto tmp_slab = grid->slabs.begin();
+			while (slab != tmp_slab)
+			{
+				slab_number++;
+				tmp_slab++;
+			}
+
+			std::ostringstream filename;
+			filename << "u_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+			std::ofstream out(filename.str().c_str(), std::ios_base::out);
+			u->x[0]->print(out,8,true,false);
+		}
+
 		////////////////////////////////////////////////////////////////////////
 		// do postprocessings on the solution
 		//
@@ -2718,6 +2752,23 @@ dual_assemble_system(
 		);
 
 		DTM::pout << " (done)" << std::endl;
+	}
+
+	// FOR DEBUGGING PRINT MATRIX:
+	{
+		int slab_number = 0;
+		auto tmp_slab = grid->slabs.begin();
+		while (slab != tmp_slab)
+		{
+			slab_number++;
+			tmp_slab++;
+		}
+
+		std::ostringstream filename;
+		filename << "dual_matrix_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+		std::ofstream out(filename.str().c_str(), std::ios_base::out);
+		dual.L->print(out);
+		out.close();
 	}
 }
 
@@ -3538,8 +3589,81 @@ dual_do_backward_TMS(
 
 		// solve slab problem (i.e. apply boundary values and solve for z0)
 		dual_solve_slab_problem(slab, z);
+		// FOR DEBUGGING: output dual space-time solution vector
+		{
+			int slab_number = 0;
+			auto tmp_slab = grid->slabs.begin();
+			while (slab != tmp_slab)
+			{
+				slab_number++;
+				tmp_slab++;
+			}
+
+			std::ostringstream filename;
+			filename << "z_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+			std::ofstream out(filename.str().c_str(), std::ios_base::out);
+			z->x[0]->print(out,8,true,false);
+		}
 //		std::cout << "Finished dual_solve_slab_problem" << std::endl;
 
+//		// TODO: delete -> debug
+//		// checking whether J * U = J(u)
+//		auto high_slab_u = std::make_shared< dealii::Vector<double> > ();
+//		{
+//			high_slab_u->reinit(
+//				slab->space.high.fe_info->dof->n_dofs()
+//				* slab->time.high.fe_info->dof->n_dofs()
+//			);
+//			*high_slab_u = 0.;
+//
+//			auto slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//			slab_u_tq->reinit(
+//				slab->space.low.fe_info->dof->n_dofs()
+//			);
+//			*slab_u_tq = 0.;
+//
+//			auto high_slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//			high_slab_u_tq->reinit(
+//				slab->space.high.fe_info->dof->n_dofs()
+//			);
+//			*high_slab_u_tq = 0.;
+//
+//			std::vector<double> time_qp;
+//			time_qp.push_back(slab->t_m);
+//			time_qp.push_back(0.5*(slab->t_m+slab->t_n));
+//			time_qp.push_back(slab->t_n);
+//
+//			unsigned int ii = 0;
+//			for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
+//			{
+//				for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+//					if (ii == 0)
+//						(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
+//					else if (ii == 1)
+//						(*slab_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+//					else if (ii == 2)
+//						(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+//
+//				// use interpolation in space to go from slab_w_tq to high_slab_w_tq
+//				dealii::FETools::interpolate(
+//					// low solution
+//					*slab->space.low.fe_info->dof,
+//					*slab_u_tq,
+//					// high solution
+//					*slab->space.high.fe_info->dof,
+//					*slab->space.high.fe_info->constraints,
+//					*high_slab_u_tq
+//				);
+//
+//				// write high_slab_w_tq into high_slab_w
+//				for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//					(*high_slab_u)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_u_tq)[i];
+//		//			std::cout << "filled high_slab_u" << std::endl;
+//				ii++;
+//			}
+//		}
+//		std::cout << (*dual.Je) * (*high_slab_u) << std::endl;
+//		// END of debug
 
 		////////////////////////////////////
 		// error estimation with PU-DWR
