@@ -1045,6 +1045,8 @@ primal_assemble_const_rhs(
 	}
 	else // not using divfree projection
 	{
+		um->x[0] = primal.um;
+
 		primal.Mum->reinit(
 			slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
 		);

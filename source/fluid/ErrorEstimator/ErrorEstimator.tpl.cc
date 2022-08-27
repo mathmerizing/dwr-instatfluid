@@ -1483,6 +1483,7 @@ estimate_on_slab(
 		// slab n > 1
 		// primal_um_on_tm has actually already been stored with a divergence free projection in um
 		primal_um_on_tm->equ(1., *um->x[0]);
+		std::cout << "primal_um_on_tm->linfty_norm() = " << primal_um_on_tm->linfty_norm() << std::endl;
 	}
 
 	// interpolate (space): low -> high
