@@ -19,7 +19,7 @@ subsection Fluid Problem Specification
     set primal order = low # options: low, high
     
     # dual problem: convection-pressure : [z_b; z_p]^T
-    set dual order = high-time #high # options: low, high, high-time
+    set dual order = high-time #high-time #high # options: low, high, high-time
     
     # LOW order problem
     # convection
@@ -29,7 +29,7 @@ subsection Fluid Problem Specification
     
     set low convection time type = dG
     set low convection r = 1
-    set low convection time type support points = Gauss-Lobatto
+    set low convection time type support points = Gauss #Gauss-Lobatto
 
     # pressure
     set low pressure space type = cG
@@ -38,17 +38,17 @@ subsection Fluid Problem Specification
     
     set low pressure time type = dG
     set low pressure r = 1
-    set low pressure time type support points = Gauss-Lobatto
+    set low pressure time type support points = Gauss #Gauss-Lobatto
     
     # HIGH order problem
     # convection
     set high convection space type = cG
-    set high convection p = 4
+    set high convection p = 4#3
     set high convection space type support points = Gauss-Lobatto
     
     set high convection time type = dG
     set high convection r = 2
-    set high convection time type support points = Gauss-Lobatto
+    set high convection time type support points = Gauss #Gauss-Lobatto
 
     # pressure
     set high pressure space type = cG
@@ -57,7 +57,7 @@ subsection Fluid Problem Specification
     
     set high pressure time type = dG
     set high pressure r = 2
-    set high pressure time type support points = Gauss-Lobatto
+    set high pressure time type support points = Gauss #Gauss-Lobatto
 end
 
 subsection Mesh Specification
@@ -73,13 +73,13 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 1 #6
+    set global refinement = 2 #3 #TODO: change back for semi-mixed #1 #6
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.8 #4.0 #0.4 #0.0015625
+    set time step size = 0.8 #0.1 #4.0 #0.4 #0.0015625
     set global refinement = 0
 end
 

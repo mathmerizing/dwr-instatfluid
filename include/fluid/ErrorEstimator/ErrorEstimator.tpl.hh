@@ -261,8 +261,6 @@ public:
 	virtual ~ErrorEstimator() = default;
 
 	virtual void estimate_on_slab(
-		std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_no_bc,
-		std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_bc,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const typename DTM::types::storage_data_vectors<1>::iterator &u,
 		const typename DTM::types::storage_data_vectors<1>::iterator &um,
@@ -338,12 +336,41 @@ protected:
 		std::shared_ptr< dealii::Vector<double> > &back_interpolated_space_w
 	);
 
+	/// patchwise high order interpolate the space-time vector slab_w in space
+	virtual void get_patchwise_high_order_interpolated_space_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::Vector<double> > slab_w,
+		std::shared_ptr< dealii::Vector<double> > &high_slab_w
+	);
+
+	/// interpolate the space-time vector slab_w in space
+	virtual void get_interpolated_space_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::Vector<double> > slab_w,
+		std::shared_ptr< dealii::Vector<double> > &high_slab_w
+	);
+
+	/// back interpolate the space-time vector slab_w in space
+	virtual void get_back_interpolated_space_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::Vector<double> > slab_w,
+		std::shared_ptr< dealii::Vector<double> > &high_slab_w
+	);
+
 	/// take the entire solution on the space slab_w, restrict it back in time and then interpolate it back in time again
 	virtual void get_back_interpolated_time_slab_w(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
 		std::shared_ptr< dealii::Vector<double> > slab_w,
 		std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
+	);
+
+	/// take the entire solution on the space slab_w and interpolate it back in time again
+	virtual void get_interpolated_time_slab_w(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
+		std::shared_ptr< dealii::Vector<double> > slab_w,
+		std::shared_ptr< dealii::Vector<double> > &interpolated_time_slab_w
 	);
 
 	/// take the entire solution on the space slab_w, patchwise interpolate up in space, restrict it back in time and then interpolate it back in time again

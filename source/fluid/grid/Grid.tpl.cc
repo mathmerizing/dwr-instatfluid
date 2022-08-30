@@ -961,15 +961,15 @@ refine_slab_in_time(
 		std::make_shared< dealii::AffineConstraints<double> > ();
 
 	std::prev(slab)->space.low.fe_info->mapping =
-	std::make_shared< dealii::MappingQ<dim> > (
-		std::max(
-			static_cast<unsigned int> (1),
-			std::max(
-				parameter_set->fe.low.convection.p,
-				parameter_set->fe.low.pressure.p
-			)
-		)
-	);
+	std::make_shared< dealii::MappingQ<dim> > (1);
+//		std::max(
+//			static_cast<unsigned int> (1),
+//			std::max(
+//				parameter_set->fe.low.convection.p,
+//				parameter_set->fe.low.pressure.p
+//			)
+//		)
+//	);
 
 	////////////////////////////////////////
 	// init high grid components of new slab
@@ -1069,15 +1069,15 @@ refine_slab_in_time(
 		std::make_shared< dealii::AffineConstraints<double> > ();
 	
 	std::prev(slab)->space.high.fe_info->mapping =
-	std::make_shared< dealii::MappingQ<dim> > (
-		std::max(
-			static_cast<unsigned int> (1),
-			std::max(
-				parameter_set->fe.high.convection.p,
-				parameter_set->fe.high.pressure.p
-			)
-		)
-	);
+	std::make_shared< dealii::MappingQ<dim> > (1);
+//		std::max(
+//			static_cast<unsigned int> (1),
+//			std::max(
+//				parameter_set->fe.high.convection.p,
+//				parameter_set->fe.high.pressure.p
+//			)
+//		)
+//	);
 	
 	////////////////////////////////////////
 	// init pu grid components of new slab

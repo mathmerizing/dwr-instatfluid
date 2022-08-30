@@ -654,24 +654,6 @@ primal_assemble_system(
 		);
 		
 	}
-
-	// FOR DEBUGGING PRINT MATRIX:
-	{
-		int slab_number = 0;
-		auto tmp_slab = grid->slabs.begin();
-		while (slab != tmp_slab)
-		{
-			slab_number++;
-			tmp_slab++;
-		}
-
-		std::ostringstream filename;
-		filename << "primal_matrix_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-		std::ofstream out(filename.str().c_str(), std::ios_base::out);
-		primal.L->print(out);
-		out.close();
-	}
-
 }
 
 
@@ -1294,8 +1276,6 @@ primal_calculate_boundary_values(
 				}
 			}
 
-
-
 			auto cell_time = slab->time.primal.fe_info->dof->begin_active();
 			auto endc_time = slab->time.primal.fe_info->dof->end();
 
@@ -1761,11 +1741,6 @@ primal_solve_slab_problem(
 			}
 
 			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
-//			// printing out the system matrix
-//			std::ofstream out("primal_matrix.txt", std::ios_base::out);
-//			primal.L->print(out);
-//			out.close();
-//			exit(9);
 
 			////////////////////////////////////////////////////////////////////////////
 			// condense hanging nodes in system matrix, if any
@@ -2055,22 +2030,6 @@ primal_do_forward_TMS(
 		
 		// solve slab problem (i.e. apply boundary values and solve for u0)
 		primal_solve_slab_problem(slab, u, um);
-		
-		// FOR DEBUGGING: output primal space-time solution vector
-		{
-			int slab_number = 0;
-			auto tmp_slab = grid->slabs.begin();
-			while (slab != tmp_slab)
-			{
-				slab_number++;
-				tmp_slab++;
-			}
-
-			std::ostringstream filename;
-			filename << "u_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-			std::ofstream out(filename.str().c_str(), std::ios_base::out);
-			u->x[0]->print(out,8,true,false);
-		}
 
 		////////////////////////////////////////////////////////////////////////
 		// do postprocessings on the solution
@@ -2545,47 +2504,6 @@ primal_do_data_output_on_slab_Qn_mode(
 					primal.data_postprocessor,
 					fe_values_time.quadrature_point(qt)[0] + (qt == 0) * 1e-5 // t_trigger, slightly shifted for left time cell end point to avoid ParaView errors caused by 2 outputs at same time point
 				);
-
-//				// TODO: delete vtk output
-//				{
-//					// get slab number
-//					int slab_number = 0;
-//					auto tmp_slab = grid->slabs.begin();
-//					while (slab != tmp_slab)
-//					{
-//						slab_number++;
-//						tmp_slab++;
-//					}
-//
-//					std::vector<std::string> solution_names;
-//					solution_names.push_back("x_velo");
-//					solution_names.push_back("y_velo");
-//					solution_names.push_back("p_fluid");
-//
-//					std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
-//						data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
-//
-//					dealii::DataOut<dim> data_out;
-//					data_out.attach_dof_handler(*slab->space.low.fe_info->dof);
-//
-//					data_out.add_data_vector(*u_trigger, solution_names,
-//											 dealii::DataOut<dim>::type_dof_data,
-//											 data_component_interpretation);
-//
-//					data_out.build_patches();
-//					data_out.set_flags(
-//							dealii::DataOutBase::VtkFlags(
-//									slab->t_n,
-//									slab_number
-//							)
-//					);
-//
-//					// save VTK files
-//					const std::string filename =
-//						"interpolated_solution-" + dealii::Utilities::int_to_string(slab_number, 6) + ".vtk";
-//					std::ofstream output(filename);
-//					data_out.write_vtk(output);
-//				}
 			}
 		}
 	}
@@ -2755,23 +2673,6 @@ dual_assemble_system(
 
 		DTM::pout << " (done)" << std::endl;
 	}
-
-	// FOR DEBUGGING PRINT MATRIX:
-	{
-		int slab_number = 0;
-		auto tmp_slab = grid->slabs.begin();
-		while (slab != tmp_slab)
-		{
-			slab_number++;
-			tmp_slab++;
-		}
-
-		std::ostringstream filename;
-		filename << "dual_matrix_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-		std::ofstream out(filename.str().c_str(), std::ios_base::out);
-		dual.L->print(out);
-		out.close();
-	}
 }
 
 
@@ -2882,25 +2783,6 @@ dual_solve_slab_problem(
 
 	dual.b->add(1., *dual.Mzn);
 	dual.b->add(1., *dual.Je);
-
-	if (std::next(slab) == grid->slabs.end())
-	{
-//		std::cout << "slab->t_n = " << slab->t_n << std::endl;
-//		std::cout << "copying debug_L matrix" << std::endl;
-		dual.debug_L_no_bc = std::make_shared< dealii::SparseMatrix<double> > ();
-//		std::cout << "created pointer" << std::endl;
-
-		dual.debug_sp = std::make_shared< dealii::SparsityPattern > ();
-		dual.debug_sp->copy_from(dual.L->get_sparsity_pattern());
-//		std::cout << "copied sparsity pattern into dual.debug_sp" << std::endl;
-		dual.debug_L_no_bc->reinit(*dual.debug_sp);  //dual.L->get_sparsity_pattern());
-////		std::cout << "reinited with sparsity pattern" << std::endl;
-		dual.debug_L_no_bc->copy_from(*dual.L);
-		//dual.debug_L_no_bc.add(-1.,*dual.L);
-////		std::cout << "copied matrix" << std::endl;
-//		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
-//		std::cout << "dual.debug_L_no_bc.linfty_norm() = " << dual.debug_L_no_bc->linfty_norm() << std::endl;
-	}
 
 	////////////////////////////////////////////////////////////////////////////
 	// apply (in)homogeneous Dirichlet boundary values
@@ -3293,67 +3175,45 @@ dual_solve_slab_problem(
 					diagonal_scaling_value * boundary_value.second;
 			}
 
- 			////////////////////////////////////////////////////////////////////
- 			// eliminate constrained column entries
- 			//
- 			// NOTE: this is quite expensive, but helps iterative lss
- 			//       since the boundary value entries are shifted to the
- 			//       right hand side.
- 			//
- 			// NOTE: there is no symmetry assumption on the sparsity pattern,
- 			//       which is necessary for space-time operators
- 			//
- 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
- 				// if the row i of the operator A is not constrained,
- 				// check if constrained columns need to be eliminated
- 				if (boundary_values.find(i) == boundary_values.end()) {
- 					// row i of A is not constrained
- 					auto el_in_row_i{A->begin(i)};
- 					auto end_el_in_row_i{A->end(i)};
-
- 					// check if a_ij needs to be eliminated
- 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
- 						// get iterator of a_ij
- 						auto boundary_value =
- 							boundary_values.find(el_in_row_i->column());
-
- 						// if a_ij is constrained
- 						if (boundary_value != boundary_values.end()) {
- 							// shift constraint to rhs
- 							(*b)[i] -=
- 								el_in_row_i->value()*boundary_value->second;
-
- 							// eliminate a_ij
- 							el_in_row_i->value() = 0.;
- 						}
- 					}
- 				}
- 			}
+// 			////////////////////////////////////////////////////////////////////
+// 			// eliminate constrained column entries
+// 			//
+// 			// NOTE: this is quite expensive, but helps iterative lss
+// 			//       since the boundary value entries are shifted to the
+// 			//       right hand side.
+// 			//
+// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
+// 			//       which is necessary for space-time operators
+// 			//
+// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
+// 				// if the row i of the operator A is not constrained,
+// 				// check if constrained columns need to be eliminated
+// 				if (boundary_values.find(i) == boundary_values.end()) {
+// 					// row i of A is not constrained
+// 					auto el_in_row_i{A->begin(i)};
+// 					auto end_el_in_row_i{A->end(i)};
+//
+// 					// check if a_ij needs to be eliminated
+// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
+// 						// get iterator of a_ij
+// 						auto boundary_value =
+// 							boundary_values.find(el_in_row_i->column());
+//
+// 						// if a_ij is constrained
+// 						if (boundary_value != boundary_values.end()) {
+// 							// shift constraint to rhs
+// 							(*b)[i] -=
+// 								el_in_row_i->value()*boundary_value->second;
+//
+// 							// eliminate a_ij
+// 							el_in_row_i->value() = 0.;
+// 						}
+// 					}
+// 				}
+// 			}
 		}
 	}
 	DTM::pout << " (done)" << std::endl;
-
-	if (std::next(slab) == grid->slabs.end())
-	{
-////		std::cout << "copying debug_L matrix" << std::endl;
-//		//dual.debug_L_no_bc = std::make_shared< dealii::SparseMatrix<double> > ();
-////		std::cout << "created pointer" << std::endl;
-//		dual.debug_L_bc.reinit(dual.L->get_sparsity_pattern());
-//////		std::cout << "reinited with sparsity pattern" << std::endl;
-//		//dual.debug_L_bc.copy_from(*dual.L);
-//		dual.debug_L_bc.add(1.,*dual.L);
-//////		std::cout << "copied matrix" << std::endl;
-//		std::cout << "dual.L->linfty_norm() = " << dual.L->linfty_norm() << std::endl;
-//		std::cout << "dual.debug_L_bc.linfty_norm() = " << dual.debug_L_bc.linfty_norm() << std::endl;
-
-//		std::ofstream out("dual_matrix.txt", std::ios_base::out);
-//		dual.L->print(out);
-//		out.close();
-
-		dual.debug_L_bc = std::make_shared< dealii::SparseMatrix<double> > ();
-		dual.debug_L_bc->reinit(*dual.debug_sp);
-		dual.debug_L_bc->copy_from(*dual.L);
-	}
 
 	////////////////////////////////////////////////////////////////////////////
 	// condense hanging nodes in system matrix, if any
@@ -3591,81 +3451,6 @@ dual_do_backward_TMS(
 
 		// solve slab problem (i.e. apply boundary values and solve for z0)
 		dual_solve_slab_problem(slab, z);
-		// FOR DEBUGGING: output dual space-time solution vector
-		{
-			int slab_number = 0;
-			auto tmp_slab = grid->slabs.begin();
-			while (slab != tmp_slab)
-			{
-				slab_number++;
-				tmp_slab++;
-			}
-
-			std::ostringstream filename;
-			filename << "z_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-			std::ofstream out(filename.str().c_str(), std::ios_base::out);
-			z->x[0]->print(out,8,true,false);
-		}
-//		std::cout << "Finished dual_solve_slab_problem" << std::endl;
-
-//		// TODO: delete -> debug
-//		// checking whether J * U = J(u)
-//		auto high_slab_u = std::make_shared< dealii::Vector<double> > ();
-//		{
-//			high_slab_u->reinit(
-//				slab->space.high.fe_info->dof->n_dofs()
-//				* slab->time.high.fe_info->dof->n_dofs()
-//			);
-//			*high_slab_u = 0.;
-//
-//			auto slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
-//			slab_u_tq->reinit(
-//				slab->space.low.fe_info->dof->n_dofs()
-//			);
-//			*slab_u_tq = 0.;
-//
-//			auto high_slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
-//			high_slab_u_tq->reinit(
-//				slab->space.high.fe_info->dof->n_dofs()
-//			);
-//			*high_slab_u_tq = 0.;
-//
-//			std::vector<double> time_qp;
-//			time_qp.push_back(slab->t_m);
-//			time_qp.push_back(0.5*(slab->t_m+slab->t_n));
-//			time_qp.push_back(slab->t_n);
-//
-//			unsigned int ii = 0;
-//			for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
-//			{
-//				for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
-//					if (ii == 0)
-//						(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
-//					else if (ii == 1)
-//						(*slab_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
-//					else if (ii == 2)
-//						(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
-//
-//				// use interpolation in space to go from slab_w_tq to high_slab_w_tq
-//				dealii::FETools::interpolate(
-//					// low solution
-//					*slab->space.low.fe_info->dof,
-//					*slab_u_tq,
-//					// high solution
-//					*slab->space.high.fe_info->dof,
-//					*slab->space.high.fe_info->constraints,
-//					*high_slab_u_tq
-//				);
-//
-//				// write high_slab_w_tq into high_slab_w
-//				for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
-//					(*high_slab_u)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_u_tq)[i];
-//		//			std::cout << "filled high_slab_u" << std::endl;
-//				ii++;
-//			}
-//		}
-//		std::cout << (*dual.Je) * (*high_slab_u) << std::endl;
-//		// END of debug
 
 		////////////////////////////////////
 		// error estimation with PU-DWR
@@ -3678,10 +3463,7 @@ dual_do_backward_TMS(
 		// evaluate error on next slab
 		if (n < N)
 		{
-			// pass dual.L to error estimator -> only for debugging! TODO: delete this
-//			std::cout << "calling estimate with linfty norms: " << dual.debug_L_no_bc->linfty_norm() << std::endl;
-			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, dual.debug_L_bc, std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
-//			std::cout << "finished estimate_on_slab" << std::endl;
+			error_estimator.pu_dwr->estimate_on_slab(std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
 
 			// apply B. Endtmayer's post processing of the error indicators
 			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
@@ -3702,8 +3484,7 @@ dual_do_backward_TMS(
 		// evaluate error on first slab
 		if (n == 1)
 		{
-			// pass dual.L to error estimator -> only for debugging! TODO: delete this
-			error_estimator.pu_dwr->estimate_on_slab(dual.debug_L_no_bc, dual.debug_L_bc, slab, u, um, z, eta_space, eta_time);
+			error_estimator.pu_dwr->estimate_on_slab(slab, u, um, z, eta_space, eta_time);
 
 			// apply B. Endtmayer's post processing of the error indicators
 			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
@@ -5161,7 +4942,7 @@ eta_space_do_data_output_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_vectors<1>::iterator &eta,
 	const unsigned int dwr_loop) {
-	// TODO: might need to be debugged; adapted from primal_do_data_output_on_slab() & copied form dual_do_data_output_on_slab()
+	// TODO: might need to be debugged; adapted from primal_do_data_output_on_slab() & copied from dual_do_data_output_on_slab()
 
 	// triggered output mode
 	Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());

@@ -275,8 +275,6 @@ template<int dim>
 void
 ErrorEstimator<dim>::
 estimate_on_slab(
-	std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_no_bc,
-	std::shared_ptr< dealii::SparseMatrix<double> > _dual_matrix_bc,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_vectors<1>::iterator &u,
 	const typename DTM::types::storage_data_vectors<1>::iterator &um,
@@ -520,424 +518,512 @@ estimate_on_slab(
 //	std::map<dealii::types::global_dof_index, double> tmiddle_bc;
 //	high_calculate_boundary_values(slab, tmiddle_bc, 0.5*(slab->t_m+slab->t_n));
 
-	// TODO: now use mixed solution, output vectors to files and compare error estimator with python residual
+	/////////////////////////////////////////////////////////////////////////////
+	// GETTING THE SPACE-TIME VECTORS: U_k, U_kh, Z, Z_k^{ρ_k}, Z_k^{ρ_h}, Z_kh
+	//
 
-//	std::cout << "getting the space time vectors" << std::endl;
+	//////////////////////
+	// GETTING Z
+	//
+	auto high_z_slab = std::make_shared< dealii::Vector<double> > ();
 
-	auto high_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
-//	// computation of z_kh^(1,2) from z_kh^(2,2)
-//	get_high_back_interpolated_time_slab_w( // for semi-mixed order
-//		slab,
-//		z->x[0],
-//		high_back_interpolated_time_z
-//	);
-	get_back_interpolated_time_slab_w( // for mixed order
+	if (!dual_order.compare("high")) // dual = [time = high, space = high]
+		high_z_slab = z->x[0]; // for mixed order
+	else if (!dual_order.compare("high-time")) // dual = [time = high, space = low]
+	{
+		// computation of z_kh^(2,2) from z_kh^(2,1)
+		get_patchwise_high_order_interpolated_space_slab( // for semi-mixed order
+			slab,
+			z->x[0],
+			high_z_slab
+		);
+	}
+	else
+		AssertThrow(false, dealii::ExcNotImplemented());
+
+	//////////////////////
+	// GETTING Z_k^{ρ_k}
+	//
+	auto high_z_k_rho_k_slab = std::make_shared< dealii::Vector<double> > ();
+
+	if (!dual_order.compare("high") || !dual_order.compare("high-time")) // dual = { [time = high, space = high], [time = high, space = low] }
+	{
+		// computation of z_kh^(1,2) from z_kh^(2,2)
+		get_back_interpolated_time_slab_w( // for mixed order
+			slab,
+			slab->space.high.fe_info->dof,
+			high_z_slab,
+			high_z_k_rho_k_slab
+		);
+	}
+	else
+		AssertThrow(false, dealii::ExcNotImplemented());
+
+	//////////////////////
+	// GETTING Z_k^{ρ_h}
+	//   --> same as Z
+	auto high_z_k_rho_h_slab = high_z_slab;
+
+	//////////////////////
+	// GETTING Z_kh
+	//
+	auto high_z_kh_slab = std::make_shared< dealii::Vector<double> > ();
+
+	if (!dual_order.compare("high")) // dual = [time = high, space = high]
+	{
+		// computation of z_kh^(2,1) from z_kh^(2,2)
+		get_back_interpolated_space_slab( // for mixed order
+			slab,
+			z->x[0],
+			high_z_kh_slab
+		);
+	}
+	else if (!dual_order.compare("high-time")) // dual = [time = high, space = low]
+	{
+		// make dual solution of high length, i.e. interpolate to high spatial space
+		get_interpolated_space_slab( // for semi-mixed order
+			slab,
+			z->x[0],
+			high_z_kh_slab
+		);
+	}
+	else
+		AssertThrow(false, dealii::ExcNotImplemented());
+
+	auto tmp_vec = std::make_shared< dealii::Vector<double> > ();
+	tmp_vec->reinit(high_z_kh_slab->size());
+	*tmp_vec = 0.;
+	tmp_vec->add(1., *high_z_k_rho_h_slab);
+	tmp_vec->add(-1., *high_z_kh_slab);
+	std::cout << "tmp_vec->linfty_norm() = " << tmp_vec->linfty_norm() << std::endl;
+	std::cout << "high_z_k_rho_h_slab->linfty_norm() = " << high_z_k_rho_h_slab->linfty_norm() << std::endl;
+	std::cout << "high_z_kh_slab->linfty_norm() = " << high_z_kh_slab->linfty_norm() << std::endl;
+
+	///////////////////////
+	// GETTING U_k == U_kh
+	//
+
+	// interpolate u_kh^(1,1) in time
+	auto low_interpolated_time_u_slab = std::make_shared< dealii::Vector<double> > ();
+	get_interpolated_time_slab_w(
 		slab,
-		slab->space.high.fe_info->dof,
-		z->x[0],
-		high_back_interpolated_time_z
+		slab->space.low.fe_info->dof,
+		u->x[0],
+		low_interpolated_time_u_slab
 	);
 
-	///////////////////////////////////////////////////////////////////////
-	// DEBUGGING WITH MIXED ORDER VECTORS
-	//
-	int slab_number = 0;
-	auto tmp_slab = grid->slabs.begin();
-	while (slab != tmp_slab)
-	{
-		slab_number++;
-		tmp_slab++;
-	}
-
-//	std::cout << "got high_back_interpolated_time_z" << std::endl;
-
-//	// print out high_back_interpolated_time_z -> z_k
-//	std::ostringstream zk_filename;
-//	zk_filename << "zk_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-//	std::ofstream zk_out(zk_filename.str().c_str(), std::ios_base::out);
-//	high_back_interpolated_time_z->print(zk_out,8,true,false);
-//
-//	// print z
-//	std::ostringstream z_filename;
-//	z_filename << "z_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-//	std::ofstream z_out(z_filename.str().c_str(), std::ios_base::out);
-//	z->x[0]->print(z_out,8,true,false);
-
-	// print out u->x[0] interpolated in space and back interpolated in time
-	auto high_slab_u = std::make_shared< dealii::Vector<double> > ();
-	{
-		high_slab_u->reinit(
-			slab->space.high.fe_info->dof->n_dofs()
-			* slab->time.high.fe_info->dof->n_dofs()
-		);
-		*high_slab_u = 0.;
-
-		auto slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
-		slab_u_tq->reinit(
-			slab->space.low.fe_info->dof->n_dofs()
-		);
-		*slab_u_tq = 0.;
-
-		// TODO: comment this out
-		auto tmp_u_tq  = std::make_shared< dealii::Vector<double> > ();
-		tmp_u_tq->reinit(
-			slab->space.low.fe_info->dof->n_dofs()
-		);
-		*tmp_u_tq = 0.;
-
-		auto high_slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
-		high_slab_u_tq->reinit(
-			slab->space.high.fe_info->dof->n_dofs()
-		);
-		*high_slab_u_tq = 0.;
-
-		std::vector<double> time_qp;
-		time_qp.push_back(slab->t_m);
-		time_qp.push_back(0.5*(slab->t_m+slab->t_n));
-		time_qp.push_back(slab->t_n);
-
-		unsigned int ii = 0;
-		for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
-		{
-//			std::cout << "getting slab_u_tq" << std::endl;
-//			// get slab_w_tq
-//			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
-//				(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * ii];
-
-			// TODO: comment this out
-			get_w_t(
-				slab->time.low.fe_info->fe,
-				slab->time.low.fe_info->mapping,
-				slab->space.low.fe_info->dof,
-				slab->time.low.fe_info->dof->begin_active(),
-				u->x[0],
-				t_q,
-				tmp_u_tq
-			);
-//			std::cout << "got slab_u_tq" << std::endl;
-
-			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
-				if (ii == 0)
-					(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
-				else if (ii == 1)
-					(*slab_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
-				else if (ii == 2)
-					(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
-
-
-			tmp_u_tq->add(-1., *slab_u_tq);
-			std::cout << "tmp_u_tq->linfty_norm() = " << tmp_u_tq->linfty_norm() << std::endl;
-
-			// use interpolation in space to go from slab_w_tq to high_slab_w_tq
-			interpolate_space(
-				slab,
-				slab_u_tq,
-				high_slab_u_tq
-			);
-//			std::cout << "interpolated slab_u_tq in space" << std::endl;
-
-//			if (ii == 0)
-//				apply_bc(tm_bc, high_slab_u_tq, false);
-//			else if (ii == 1)
-//				apply_bc(tmiddle_bc, high_slab_u_tq, false);
-//			else if (ii == 2)
-//				apply_bc(tn_bc, high_slab_u_tq, false);
-//			else
-//				AssertThrow(false, dealii::ExcNotImplemented());
-
-			// write high_slab_w_tq into high_slab_w
-			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
-				(*high_slab_u)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_u_tq)[i];
-//			std::cout << "filled high_slab_u" << std::endl;
-			ii++;
-		}
-
-//		std::ostringstream uk_filename;
-//		uk_filename << "uk_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-//		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
-//		high_slab_u->print(uk_out,8,true,false);
-	}
-//	std::cout << "got high_slab_u" << std::endl;
-
-	// print out z->x[0] back interpolated in space
-	auto high_back_interpolated_space_slab_z = std::make_shared< dealii::Vector<double> > ();
-	{
-		high_back_interpolated_space_slab_z->reinit(
-			slab->space.high.fe_info->dof->n_dofs()
-			* slab->time.high.fe_info->dof->n_dofs()
-		);
-		*high_back_interpolated_space_slab_z = 0.;
-
-		auto high_slab_z_tq  = std::make_shared< dealii::Vector<double> > ();
-		high_slab_z_tq->reinit(
-			slab->space.high.fe_info->dof->n_dofs()
-		);
-		*high_slab_z_tq = 0.;
-
-		// TODO: comment this out
-		auto tmp_z_tq  = std::make_shared< dealii::Vector<double> > ();
-		tmp_z_tq->reinit(
-			slab->space.high.fe_info->dof->n_dofs()
-		);
-		*tmp_z_tq = 0.;
-
-		auto high_slab_back_interpolated_z_tq  = std::make_shared< dealii::Vector<double> > ();
-		high_slab_back_interpolated_z_tq->reinit(
-			slab->space.high.fe_info->dof->n_dofs()
-		);
-		*high_slab_back_interpolated_z_tq = 0.;
-
-		std::vector<double> time_qp;
-		time_qp.push_back(slab->t_m);
-		time_qp.push_back(0.5*(slab->t_m+slab->t_n));
-		time_qp.push_back(slab->t_n);
-
-		unsigned int ii = 0;
-		for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
-		{
-			// TODO: comment this out
-			// get slab_w_tq
-			get_w_t(
-				slab->time.high.fe_info->fe,
-				slab->time.high.fe_info->mapping,
-				slab->space.high.fe_info->dof,
-				slab->time.high.fe_info->dof->begin_active(),
-				z->x[0],
-				t_q,
-				tmp_z_tq
-			);
-
-			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
-				(*high_slab_z_tq)[i] = (*z->x[0])[i + slab->space.high.fe_info->dof->n_dofs() * ii];
-
-
-			tmp_z_tq->add(-1., *high_slab_z_tq);
-			std::cout << "tmp_z_tq->linfty_norm() = " << tmp_z_tq->linfty_norm() << std::endl;
-
-			// use interpolation in space to go from slab_w_tq to high_slab_w_tq
-			back_interpolate_space(
-				slab,
-				high_slab_z_tq,
-				high_slab_back_interpolated_z_tq
-			);
-
-//			if (ii == 0)
-//				apply_bc(tm_bc, high_slab_u_tq, false);
-//			else if (ii == 1)
-//				apply_bc(tmiddle_bc, high_slab_u_tq, false);
-//			else if (ii == 2)
-//				apply_bc(tn_bc, high_slab_u_tq, false);
-//			else
-//				AssertThrow(false, dealii::ExcNotImplemented());
-
-			// write high_slab_w_tq into high_slab_w
-			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
-				(*high_back_interpolated_space_slab_z)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_back_interpolated_z_tq)[i];
-
-			ii++;
-		}
-
-//		std::ostringstream uk_filename;
-//		uk_filename << "uk_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
-//		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
-//		high_slab_u->print(uk_out,8,true,false);
-	}
-//	std::cout << "got high_back_interpolated_space_slab_z" << std::endl;
-
-	//////////////////////////////////////////////////////////////////////////////////////////
-	// MATRIX RESIDUALS TO DEBUG ERROR ESTIMATOR
-	//
-
-	// TEMPORAL ERROR
-
-	// print matrix residual (works only for mixed order, since then dual matrix is (Q^4,Q^2) x dG(2)
-	auto tmp_vec_z = std::make_shared< dealii::Vector<double> > ();
-	tmp_vec_z->reinit(
-		slab->space.high.fe_info->dof->n_dofs()
-		* slab->time.high.fe_info->dof->n_dofs()
+	// interpolate u_kh^(2,1) in space
+	auto high_u_slab = std::make_shared< dealii::Vector<double> > ();
+	get_interpolated_space_slab(
+		slab,
+		low_interpolated_time_u_slab,
+		high_u_slab
 	);
-	*tmp_vec_z = 0.;
-//	std::cout << "reinited tmp_vec_z" << std::endl;
-	tmp_vec_z->add(-1., *(z->x[0]));
-	tmp_vec_z->add(1., *high_back_interpolated_time_z);
-//	std::cout << "added up tmp_vec_z" << std::endl;
-//	std::cout << "tmp_vec_z->linfty_norm() =" << tmp_vec_z->linfty_norm() << std::endl;
 
-	auto tmp_vec_vmult = std::make_shared< dealii::Vector<double> > ();
-	tmp_vec_vmult->reinit(
-		slab->space.high.fe_info->dof->n_dofs()
-		* slab->time.high.fe_info->dof->n_dofs()
-	);
-//	std::cout << "matrix dimension: " << _L->m() << " x " << _L->n() << std::endl;
-//	std::cout << "matrix actually nonzero: " << _L->n_actually_nonzero_elements() << std::endl;
-//	std::cout << "matrix nonzero: " << _L->n_nonzero_elements() << std::endl;
-//	std::cout << "matrix infty norm: " << _L->linfty_norm() << std::endl;
-//	std::cout << "matrix(0,0) = " << _L->el(0,0) << std::endl;
-
-//	std::ofstream mat_out("matrix_dual_debug.txt", std::ios_base::out);
-//	_L->print(mat_out);
-//	mat_out.close();
-//	exit(22);
-	//_L->vmult(*tmp_vec_vmult, *tmp_vec_z);
-	_dual_matrix_no_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
-//	std::cout << "_matrix_no_bc.linfty norm = " << _dual_matrix_no_bc->linfty_norm() << std::endl;
-	//exit(7);
-//	std::cout << "tmp_vec_vmult->linfty_norm() =" << tmp_vec_vmult->linfty_norm() << std::endl;
-	//std::cout << "residual " << slab_number << " = " << (*tmp_vec_vmult) * (*high_slab_u) << std::endl;
-	//std::cout << "eta_k(mat,no BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
-	eta_k_nobc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
-
-//	// read primal matrix from file
-//	auto primal_matrix = std::make_shared< dealii::SparseMatrix<double> > ();
-////	std::cout << "created pointer to primal_matrix" << std::endl;
-//	slab->spacetime.dual.sp->symmetrize(); // I am too lazy to construct the high primal sparsity pattern
-////	std::cout << "symmetrized dual sparsity pattern" << std::endl;
-//	primal_matrix->reinit(*slab->spacetime.dual.sp);
-//
-//	std::ostringstream matrix_filename;
-////	std::cout << "k = " << (slab->t_n - slab->t_m) << std::endl;
-//	if ((slab->t_n - slab->t_m) > 0.5)
+//	///////////////////////////////////////////////////////////////////////
+//	// DEALING WITH MIXED ORDER VECTORS
+//	//
+//	if (!dual_order.compare("high")) // dual = [time = high, space = high]
 //	{
-////		std::cout << "coarse matrix" << std::endl;
-//		matrix_filename << "matrix_coarse_all.txt";
-//	}
-//	else
-//	{
-////		std::cout << "fine matrix" << std::endl;
-//		matrix_filename << "matrix_fine_all.txt";
-//	}
+//		//	int slab_number = 0;
+//		//	auto tmp_slab = grid->slabs.begin();
+//		//	while (slab != tmp_slab)
+//		//	{
+//		//		slab_number++;
+//		//		tmp_slab++;
+//		//	}
 //
-//	std::ifstream matrix_in(matrix_filename.str().c_str(), std::ios_base::in);
-//	std::string line4;
-//	while (std::getline (matrix_in,line4))
-//	{
-//		std::vector<std::string> line_parts;
-//		split_str(line4, ' ', line_parts);
-//		line_parts[0].replace(line_parts[0].find("("), 1, "");
-//		line_parts[0].replace(line_parts[0].find(")"), 1, "");
-//		std::vector<std::string> index_parts;
-//		split_str(line_parts[0], ',', index_parts);
-////		std::cout << index_parts[0] << " " << index_parts[0] << std::endl;
-////		std::cout << (std::stoi(index_parts[0])+3) * (std::stoi(index_parts[1])+5) << std::endl;
-////		std::cout << std::stod(line_parts[1]) << std::endl;
-////		exit(5);
+//		//	std::cout << "got high_back_interpolated_time_z" << std::endl;
 //
-//		primal_matrix->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
-//	}
-//	std::cout << "Created primal matrix" << std::endl;
-
-//	if (dual_matrix_bc == nullptr)
-//	{
-//		dual_matrix_bc = std::make_shared< dealii::SparseMatrix<double> > ();
-//		dual_matrix_bc->reinit(_dual_matrix_no_bc->get_sparsity_pattern());
+//		//	// print out high_back_interpolated_time_z -> z_k
+//		//	std::ostringstream zk_filename;
+//		//	zk_filename << "zk_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//		//	std::ofstream zk_out(zk_filename.str().c_str(), std::ios_base::out);
+//		//	high_back_interpolated_time_z->print(zk_out,8,true,false);
+//		//
+//		//	// print z
+//		//	std::ostringstream z_filename;
+//		//	z_filename << "z_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//		//	std::ofstream z_out(z_filename.str().c_str(), std::ios_base::out);
+//		//	z->x[0]->print(z_out,8,true,false);
 //
-//		std::string matrix_filename = "dual_matrix.txt";
-//		std::ifstream matrix_in(matrix_filename.c_str(), std::ios_base::in);
-//		std::string line4;
-//		while (std::getline (matrix_in,line4))
-//		{
-//			std::vector<std::string> line_parts;
-//			split_str(line4, ' ', line_parts);
-//			line_parts[0].replace(line_parts[0].find("("), 1, "");
-//			line_parts[0].replace(line_parts[0].find(")"), 1, "");
-//			std::vector<std::string> index_parts;
-//			split_str(line_parts[0], ',', index_parts);
+//			// print out u->x[0] interpolated in space and back interpolated in time
+//			{
+//				high_slab_u->reinit(
+//					slab->space.high.fe_info->dof->n_dofs()
+//					* slab->time.high.fe_info->dof->n_dofs()
+//				);
+//				*high_slab_u = 0.;
 //
-//			dual_matrix_bc->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
-//		}
+//				auto slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//				slab_u_tq->reinit(
+//					slab->space.low.fe_info->dof->n_dofs()
+//				);
+//				*slab_u_tq = 0.;
+//
+//				// TODO: comment this out
+//				auto tmp_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//				tmp_u_tq->reinit(
+//					slab->space.low.fe_info->dof->n_dofs()
+//				);
+//				*tmp_u_tq = 0.;
+//
+//				auto high_slab_u_tq  = std::make_shared< dealii::Vector<double> > ();
+//				high_slab_u_tq->reinit(
+//					slab->space.high.fe_info->dof->n_dofs()
+//				);
+//				*high_slab_u_tq = 0.;
+//
+//				std::vector<double> time_qp;
+//				time_qp.push_back(slab->t_m);
+//				time_qp.push_back(0.5*(slab->t_m+slab->t_n));
+//				time_qp.push_back(slab->t_n);
+//
+//				unsigned int ii = 0;
+//				for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
+//				{
+//		//			std::cout << "getting slab_u_tq" << std::endl;
+//		//			// get slab_w_tq
+//		//			for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+//		//				(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+//
+//					// TODO: comment this out
+//					get_w_t(
+//						slab->time.low.fe_info->fe,
+//						slab->time.low.fe_info->mapping,
+//						slab->space.low.fe_info->dof,
+//						slab->time.low.fe_info->dof->begin_active(),
+//						u->x[0],
+//						t_q,
+//						tmp_u_tq
+//					);
+//		//			std::cout << "got slab_u_tq" << std::endl;
+//
+//					for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+//						if (ii == 0)
+//							(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0];
+//						else if (ii == 1)
+//							(*slab_u_tq)[i] =  0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 0] + 0.5 * (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+//						else if (ii == 2)
+//							(*slab_u_tq)[i] = (*u->x[0])[i + slab->space.low.fe_info->dof->n_dofs() * 1];
+//
+//
+//					tmp_u_tq->add(-1., *slab_u_tq);
+//					std::cout << "tmp_u_tq->linfty_norm() = " << tmp_u_tq->linfty_norm() << std::endl;
+//
+//					// use interpolation in space to go from slab_w_tq to high_slab_w_tq
+//					interpolate_space(
+//						slab,
+//						slab_u_tq,
+//						high_slab_u_tq
+//					);
+//		//			std::cout << "interpolated slab_u_tq in space" << std::endl;
+//
+//		//			if (ii == 0)
+//		//				apply_bc(tm_bc, high_slab_u_tq, false);
+//		//			else if (ii == 1)
+//		//				apply_bc(tmiddle_bc, high_slab_u_tq, false);
+//		//			else if (ii == 2)
+//		//				apply_bc(tn_bc, high_slab_u_tq, false);
+//		//			else
+//		//				AssertThrow(false, dealii::ExcNotImplemented());
+//
+//					// write high_slab_w_tq into high_slab_w
+//					for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//						(*high_slab_u)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_u_tq)[i];
+//		//			std::cout << "filled high_slab_u" << std::endl;
+//					ii++;
+//				}
+//
+//		//		std::ostringstream uk_filename;
+//		//		uk_filename << "uk_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//		//		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
+//		//		high_slab_u->print(uk_out,8,true,false);
+//			}
+//		//	std::cout << "got high_slab_u" << std::endl;
+//
+//			// print out z->x[0] back interpolated in space
+//			auto high_back_interpolated_space_slab_z = std::make_shared< dealii::Vector<double> > ();
+//			{
+//				high_back_interpolated_space_slab_z->reinit(
+//					slab->space.high.fe_info->dof->n_dofs()
+//					* slab->time.high.fe_info->dof->n_dofs()
+//				);
+//				*high_back_interpolated_space_slab_z = 0.;
+//
+//				auto high_slab_z_tq  = std::make_shared< dealii::Vector<double> > ();
+//				high_slab_z_tq->reinit(
+//					slab->space.high.fe_info->dof->n_dofs()
+//				);
+//				*high_slab_z_tq = 0.;
+//
+//				// TODO: comment this out
+//				auto tmp_z_tq  = std::make_shared< dealii::Vector<double> > ();
+//				tmp_z_tq->reinit(
+//					slab->space.high.fe_info->dof->n_dofs()
+//				);
+//				*tmp_z_tq = 0.;
+//
+//				auto high_slab_back_interpolated_z_tq  = std::make_shared< dealii::Vector<double> > ();
+//				high_slab_back_interpolated_z_tq->reinit(
+//					slab->space.high.fe_info->dof->n_dofs()
+//				);
+//				*high_slab_back_interpolated_z_tq = 0.;
+//
+//				std::vector<double> time_qp;
+//				time_qp.push_back(slab->t_m);
+//				time_qp.push_back(0.5*(slab->t_m+slab->t_n));
+//				time_qp.push_back(slab->t_n);
+//
+//				unsigned int ii = 0;
+//				for (auto t_q : time_qp)//{slab->t_m, 0.5*(slab->t_m+slab->t_n), slab->t_n})
+//				{
+//					// TODO: comment this out
+//					// get slab_w_tq
+//					get_w_t(
+//						slab->time.high.fe_info->fe,
+//						slab->time.high.fe_info->mapping,
+//						slab->space.high.fe_info->dof,
+//						slab->time.high.fe_info->dof->begin_active(),
+//						z->x[0],
+//						t_q,
+//						tmp_z_tq
+//					);
+//
+//					for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//						(*high_slab_z_tq)[i] = (*z->x[0])[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+//
+//
+//					tmp_z_tq->add(-1., *high_slab_z_tq);
+//					std::cout << "tmp_z_tq->linfty_norm() = " << tmp_z_tq->linfty_norm() << std::endl;
+//
+//					// use interpolation in space to go from slab_w_tq to high_slab_w_tq
+//					back_interpolate_space(
+//						slab,
+//						high_slab_z_tq,
+//						high_slab_back_interpolated_z_tq
+//					);
+//
+//		//			if (ii == 0)
+//		//				apply_bc(tm_bc, high_slab_u_tq, false);
+//		//			else if (ii == 1)
+//		//				apply_bc(tmiddle_bc, high_slab_u_tq, false);
+//		//			else if (ii == 2)
+//		//				apply_bc(tn_bc, high_slab_u_tq, false);
+//		//			else
+//		//				AssertThrow(false, dealii::ExcNotImplemented());
+//
+//					// write high_slab_w_tq into high_slab_w
+//					for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//						(*high_back_interpolated_space_slab_z)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_back_interpolated_z_tq)[i];
+//
+//					ii++;
+//				}
+//
+//		//		std::ostringstream uk_filename;
+//		//		uk_filename << "uk_mixed_coarse_" << std::setw(3) << std::setfill('0') << slab_number << ".txt";
+//		//		std::ofstream uk_out(uk_filename.str().c_str(), std::ios_base::out);
+//		//		high_slab_u->print(uk_out,8,true,false);
+//			}
+//		//	std::cout << "got high_back_interpolated_space_slab_z" << std::endl;
+//
+//		//	//////////////////////////////////////////////////////////////////////////////////////////
+//		//	// MATRIX RESIDUALS TO DEBUG ERROR ESTIMATOR
+//		//	//
+//		//
+//		//	// TEMPORAL ERROR
+//		//
+//		//	// print matrix residual (works only for mixed order, since then dual matrix is (Q^4,Q^2) x dG(2)
+//		//	auto tmp_vec_z = std::make_shared< dealii::Vector<double> > ();
+//		//	tmp_vec_z->reinit(
+//		//		slab->space.high.fe_info->dof->n_dofs()
+//		//		* slab->time.high.fe_info->dof->n_dofs()
+//		//	);
+//		//	*tmp_vec_z = 0.;
+//		////	std::cout << "reinited tmp_vec_z" << std::endl;
+//		//	tmp_vec_z->add(-1., *(z->x[0]));
+//		//	tmp_vec_z->add(1., *high_back_interpolated_time_z);
+//		////	std::cout << "added up tmp_vec_z" << std::endl;
+//		////	std::cout << "tmp_vec_z->linfty_norm() =" << tmp_vec_z->linfty_norm() << std::endl;
+//		//
+//		//	auto tmp_vec_vmult = std::make_shared< dealii::Vector<double> > ();
+//		//	tmp_vec_vmult->reinit(
+//		//		slab->space.high.fe_info->dof->n_dofs()
+//		//		* slab->time.high.fe_info->dof->n_dofs()
+//		//	);
+//		////	std::cout << "matrix dimension: " << _L->m() << " x " << _L->n() << std::endl;
+//		////	std::cout << "matrix actually nonzero: " << _L->n_actually_nonzero_elements() << std::endl;
+//		////	std::cout << "matrix nonzero: " << _L->n_nonzero_elements() << std::endl;
+//		////	std::cout << "matrix infty norm: " << _L->linfty_norm() << std::endl;
+//		////	std::cout << "matrix(0,0) = " << _L->el(0,0) << std::endl;
+//		//
+//		////	std::ofstream mat_out("matrix_dual_debug.txt", std::ios_base::out);
+//		////	_L->print(mat_out);
+//		////	mat_out.close();
+//		////	exit(22);
+//		//	//_L->vmult(*tmp_vec_vmult, *tmp_vec_z);
+//		//	_dual_matrix_no_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
+//		////	std::cout << "_matrix_no_bc.linfty norm = " << _dual_matrix_no_bc->linfty_norm() << std::endl;
+//		//	//exit(7);
+//		////	std::cout << "tmp_vec_vmult->linfty_norm() =" << tmp_vec_vmult->linfty_norm() << std::endl;
+//		//	//std::cout << "residual " << slab_number << " = " << (*tmp_vec_vmult) * (*high_slab_u) << std::endl;
+//		//	//std::cout << "eta_k(mat,no BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
+//		//	eta_k_nobc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
+//		//
+//		////	// read primal matrix from file
+//		////	auto primal_matrix = std::make_shared< dealii::SparseMatrix<double> > ();
+//		//////	std::cout << "created pointer to primal_matrix" << std::endl;
+//		////	slab->spacetime.dual.sp->symmetrize(); // I am too lazy to construct the high primal sparsity pattern
+//		//////	std::cout << "symmetrized dual sparsity pattern" << std::endl;
+//		////	primal_matrix->reinit(*slab->spacetime.dual.sp);
+//		////
+//		////	std::ostringstream matrix_filename;
+//		//////	std::cout << "k = " << (slab->t_n - slab->t_m) << std::endl;
+//		////	if ((slab->t_n - slab->t_m) > 0.5)
+//		////	{
+//		//////		std::cout << "coarse matrix" << std::endl;
+//		////		matrix_filename << "matrix_coarse_all.txt";
+//		////	}
+//		////	else
+//		////	{
+//		//////		std::cout << "fine matrix" << std::endl;
+//		////		matrix_filename << "matrix_fine_all.txt";
+//		////	}
+//		////
+//		////	std::ifstream matrix_in(matrix_filename.str().c_str(), std::ios_base::in);
+//		////	std::string line4;
+//		////	while (std::getline (matrix_in,line4))
+//		////	{
+//		////		std::vector<std::string> line_parts;
+//		////		split_str(line4, ' ', line_parts);
+//		////		line_parts[0].replace(line_parts[0].find("("), 1, "");
+//		////		line_parts[0].replace(line_parts[0].find(")"), 1, "");
+//		////		std::vector<std::string> index_parts;
+//		////		split_str(line_parts[0], ',', index_parts);
+//		//////		std::cout << index_parts[0] << " " << index_parts[0] << std::endl;
+//		//////		std::cout << (std::stoi(index_parts[0])+3) * (std::stoi(index_parts[1])+5) << std::endl;
+//		//////		std::cout << std::stod(line_parts[1]) << std::endl;
+//		//////		exit(5);
+//		////
+//		////		primal_matrix->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
+//		////	}
+//		////	std::cout << "Created primal matrix" << std::endl;
+//		//
+//		////	if (dual_matrix_bc == nullptr)
+//		////	{
+//		////		dual_matrix_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+//		////		dual_matrix_bc->reinit(_dual_matrix_no_bc->get_sparsity_pattern());
+//		////
+//		////		std::string matrix_filename = "dual_matrix.txt";
+//		////		std::ifstream matrix_in(matrix_filename.c_str(), std::ios_base::in);
+//		////		std::string line4;
+//		////		while (std::getline (matrix_in,line4))
+//		////		{
+//		////			std::vector<std::string> line_parts;
+//		////			split_str(line4, ' ', line_parts);
+//		////			line_parts[0].replace(line_parts[0].find("("), 1, "");
+//		////			line_parts[0].replace(line_parts[0].find(")"), 1, "");
+//		////			std::vector<std::string> index_parts;
+//		////			split_str(line_parts[0], ',', index_parts);
+//		////
+//		////			dual_matrix_bc->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
+//		////		}
+//		////	}
+//		//
+//		//
+//		//	*tmp_vec_vmult = 0.;
+//		//	//primal_matrix->vmult(*tmp_vec_vmult, *high_slab_u);
+//		//	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
+//		//	//std::cout << "eta_k(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
+//		//	eta_k_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
+//		////	std::cout << "dual_matrix_bc.linfty norm = " << dual_matrix_bc->linfty_norm() << std::endl;
+//		//
+//		//	// SPATIAL ERROR
+//		//
+//		//	*tmp_vec_z = 0.;
+//		//	tmp_vec_z->add(-1., *(z->x[0]));
+//		//	tmp_vec_z->add(1., *high_back_interpolated_space_slab_z);
+//		//
+//		//	*tmp_vec_vmult = 0.;
+//		//	_dual_matrix_no_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
+//		//	eta_h_nobc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
+//		//	//std::cout << "eta_h(mat,no BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
+//		//
+//		//	*tmp_vec_vmult = 0.;
+//		//	//primal_matrix->vmult(*tmp_vec_vmult, *high_slab_u);
+//		//	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
+//		//	eta_h_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
+//		//	//std::cout << "eta_h(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
+//		//
+//		////	std::ofstream out("dual_matrix_debug.txt", std::ios_base::out);
+//		////	_dual_matrix_bc->print(out);
+//		////	out.close();
+//		////	exit(99);
+//		//
+//		//	if (slab_number == 0)
+//		//	{
+//		//		// print out list of matrix based residuals
+//		//		DTM::pout << "\neta_k(mat,BC) = ";
+//		//		for (unsigned int i = eta_k_bc.size()-1; i>0; --i)
+//		//			DTM::pout << eta_k_bc[i] << ",";
+//		//		DTM::pout << eta_k_bc[0] << ",";
+//		//		DTM::pout << std::endl;
+//		//
+//		//		DTM::pout << "eta_k(mat,no BC) = ";
+//		//		for (unsigned int i = eta_k_nobc.size()-1; i>0; --i)
+//		//			DTM::pout << eta_k_nobc[i] << ",";
+//		//		DTM::pout << eta_k_nobc[0] << ",";
+//		//		DTM::pout << std::endl;
+//		//
+//		//		DTM::pout << "\neta_h(mat,BC) = ";
+//		//		for (unsigned int i = eta_h_bc.size()-1; i>0; --i)
+//		//			DTM::pout << eta_h_bc[i] << ",";
+//		//		DTM::pout << eta_h_bc[0] << ",";
+//		//		DTM::pout << std::endl;
+//		//
+//		//		DTM::pout << "eta_h(mat,no BC) = ";
+//		//		for (unsigned int i = eta_h_nobc.size()-1; i>0; --i)
+//		//			DTM::pout << eta_h_nobc[i] << ",";
+//		//		DTM::pout << eta_h_nobc[0] << ",";
+//		//		DTM::pout << std::endl;
+//		//
+//		//		double sum_eta_k_no_bc = 0.;
+//		//		double sum_eta_h_no_bc = 0.;
+//		//		for (auto val : eta_k_nobc)
+//		//			sum_eta_k_no_bc += val;
+//		//		for (auto val : eta_h_nobc)
+//		//			sum_eta_h_no_bc += val;
+//		//		DTM::pout << "\nNO BC:\neta_k              = " << sum_eta_k_no_bc
+//		//				  << "\neta_h              = " << sum_eta_h_no_bc
+//		//				  << "\neta                = " << std::abs(sum_eta_k_no_bc+sum_eta_h_no_bc) << std::endl;
+//		//
+//		//		double sum_eta_k_bc = 0.;
+//		//		double sum_eta_h_bc = 0.;
+//		//		for (auto val : eta_k_bc)
+//		//			sum_eta_k_bc += val;
+//		//		for (auto val : eta_h_bc)
+//		//			sum_eta_h_bc += val;
+//		//		DTM::pout << "\nBC:\neta_k              = " << sum_eta_k_bc
+//		//				  << "\neta_h              = " << sum_eta_h_bc
+//		//				  << "\neta                = " << std::abs(sum_eta_k_bc+sum_eta_h_bc) << std::endl;
+//		//	}
+//		//
+//		//	//_L->print(std::cout);
+//		////	for (auto &entry : *primal_matrix)
+//		////	{
+//		////		double difference = (_L->el(entry.column(),entry.row())) - entry.value();
+//		////		double relative_difference = 100. * difference / (_L->el(entry.column(),entry.row()));
+//		////		if ((std::abs(difference) > 1e-16) && (std::abs(relative_difference) > 0.01))
+//		////		{
+//		////			std::cout << "matrix[" << entry.row() << "," << entry.column() << "] = " << entry.value() << std::endl;
+//		////			std::cout << "diff(absolute): " << difference << std::endl;
+//		////			std::cout << "diff(relative): " << relative_difference << " %" << std::endl;
+//		////			exit(11);
+//		////		}
+//		////	}
+//
 //	}
 
-
-	*tmp_vec_vmult = 0.;
-	//primal_matrix->vmult(*tmp_vec_vmult, *high_slab_u);
-	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
-	//std::cout << "eta_k(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
-	eta_k_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
-//	std::cout << "dual_matrix_bc.linfty norm = " << dual_matrix_bc->linfty_norm() << std::endl;
-
-	// SPATIAL ERROR
-
-	*tmp_vec_z = 0.;
-	tmp_vec_z->add(-1., *(z->x[0]));
-	tmp_vec_z->add(1., *high_back_interpolated_space_slab_z);
-
-	*tmp_vec_vmult = 0.;
-	_dual_matrix_no_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
-	eta_h_nobc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
-	//std::cout << "eta_h(mat,no BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
-
-	*tmp_vec_vmult = 0.;
-	//primal_matrix->vmult(*tmp_vec_vmult, *high_slab_u);
-	_dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_slab_u);
-	eta_h_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
-	//std::cout << "eta_h(mat,BC)_" << slab_number << " = " << (*tmp_vec_vmult) * (*tmp_vec_z) << std::endl;
-
-//	std::ofstream out("dual_matrix_debug.txt", std::ios_base::out);
-//	_dual_matrix_bc->print(out);
-//	out.close();
-//	exit(99);
-
-	if (slab_number == 0)
-	{
-		// print out list of matrix based residuals
-		DTM::pout << "\neta_k(mat,BC) = ";
-		for (unsigned int i = eta_k_bc.size()-1; i>0; --i)
-			DTM::pout << eta_k_bc[i] << ",";
-		DTM::pout << eta_k_bc[0] << ",";
-		DTM::pout << std::endl;
-
-		DTM::pout << "eta_k(mat,no BC) = ";
-		for (unsigned int i = eta_k_nobc.size()-1; i>0; --i)
-			DTM::pout << eta_k_nobc[i] << ",";
-		DTM::pout << eta_k_nobc[0] << ",";
-		DTM::pout << std::endl;
-
-		DTM::pout << "\neta_h(mat,BC) = ";
-		for (unsigned int i = eta_h_bc.size()-1; i>0; --i)
-			DTM::pout << eta_h_bc[i] << ",";
-		DTM::pout << eta_h_bc[0] << ",";
-		DTM::pout << std::endl;
-
-		DTM::pout << "eta_h(mat,no BC) = ";
-		for (unsigned int i = eta_h_nobc.size()-1; i>0; --i)
-			DTM::pout << eta_h_nobc[i] << ",";
-		DTM::pout << eta_h_nobc[0] << ",";
-		DTM::pout << std::endl;
-
-		double sum_eta_k_no_bc = 0.;
-		double sum_eta_h_no_bc = 0.;
-		for (auto val : eta_k_nobc)
-			sum_eta_k_no_bc += val;
-		for (auto val : eta_h_nobc)
-			sum_eta_h_no_bc += val;
-		DTM::pout << "\nNO BC:\neta_k              = " << sum_eta_k_no_bc
-				  << "\neta_h              = " << sum_eta_h_no_bc
-				  << "\neta                = " << std::abs(sum_eta_k_no_bc+sum_eta_h_no_bc) << std::endl;
-
-		double sum_eta_k_bc = 0.;
-		double sum_eta_h_bc = 0.;
-		for (auto val : eta_k_bc)
-			sum_eta_k_bc += val;
-		for (auto val : eta_h_bc)
-			sum_eta_h_bc += val;
-		DTM::pout << "\nBC:\neta_k              = " << sum_eta_k_bc
-				  << "\neta_h              = " << sum_eta_h_bc
-				  << "\neta                = " << std::abs(sum_eta_k_bc+sum_eta_h_bc) << std::endl;
-	}
-
-	//_L->print(std::cout);
-//	for (auto &entry : *primal_matrix)
-//	{
-//		double difference = (_L->el(entry.column(),entry.row())) - entry.value();
-//		double relative_difference = 100. * difference / (_L->el(entry.column(),entry.row()));
-//		if ((std::abs(difference) > 1e-16) && (std::abs(relative_difference) > 0.01))
-//		{
-//			std::cout << "matrix[" << entry.row() << "," << entry.column() << "] = " << entry.value() << std::endl;
-//			std::cout << "diff(absolute): " << difference << std::endl;
-//			std::cout << "diff(relative): " << relative_difference << " %" << std::endl;
-//			exit(11);
-//		}
-//	}
 
 //	///////////////////////////////////////////////////////////////////////
 //	// DEBUGGING FOR MIXED ORDER WITH OLD VECTORS
@@ -1483,7 +1569,6 @@ estimate_on_slab(
 		// slab n > 1
 		// primal_um_on_tm has actually already been stored with a divergence free projection in um
 		primal_um_on_tm->equ(1., *um->x[0]);
-		std::cout << "primal_um_on_tm->linfty_norm() = " << primal_um_on_tm->linfty_norm() << std::endl;
 	}
 
 	// interpolate (space): low -> high
@@ -2031,22 +2116,32 @@ estimate_on_slab(
 		//////////////////////////////////////////
 		// get the primal solution at t_m^+
 		//
-		std::shared_ptr< dealii::Vector<double> > primal_up_on_tm;
-		get_w_t(
-			slab->time.primal.fe_info->fe,
-			slab->time.primal.fe_info->mapping,
-			slab->space.primal.fe_info->dof,
-			primal_cell_time,
-			u->x[0],
-			fe_face_values_time.quadrature_point(0)[0],
-			primal_up_on_tm
-		);
+//		std::shared_ptr< dealii::Vector<double> > primal_up_on_tm;
+//		get_w_t(
+//			slab->time.primal.fe_info->fe,
+//			slab->time.primal.fe_info->mapping,
+//			slab->space.primal.fe_info->dof,
+//			primal_cell_time,
+//			u->x[0],
+//			fe_face_values_time.quadrature_point(0)[0],
+//			primal_up_on_tm
+//		);
+//
+//		// compute high_u_kh_p_on_tm and high_u_k_p_on_tm from primal_up_on_tm
+//		// interpolate (space): low -> high
+//		interpolate_space(
+//			slab,
+//			primal_up_on_tm,
+//			high_u_kh_p_on_tm
+//		);
 
-		// compute high_u_kh_p_on_tm and high_u_k_p_on_tm from primal_up_on_tm
-		// interpolate (space): low -> high
-		interpolate_space(
-			slab,
-			primal_up_on_tm,
+		get_w_t(
+			slab->time.high.fe_info->fe,
+			slab->time.high.fe_info->mapping,
+			slab->space.high.fe_info->dof,
+			cell_time,
+			high_u_slab,
+			fe_face_values_time.quadrature_point(0)[0],
 			high_u_kh_p_on_tm
 		);
 
@@ -2132,7 +2227,7 @@ estimate_on_slab(
 			slab->time.high.fe_info->mapping,
 			slab->space.high.fe_info->dof,
 			cell_time,
-			z->x[0],
+			high_z_slab,
 			fe_face_values_time.quadrature_point(0)[0],
 			high_z_p_on_tm
 		);
@@ -2141,7 +2236,7 @@ estimate_on_slab(
 			slab->time.high.fe_info->mapping,
 			slab->space.high.fe_info->dof,
 			cell_time,
-			high_back_interpolated_time_z,
+			high_z_k_rho_k_slab,
 			fe_face_values_time.quadrature_point(0)[0],
 			high_z_k_rho_k_p_on_tm
 		);
@@ -2150,7 +2245,7 @@ estimate_on_slab(
 			slab->time.high.fe_info->mapping,
 			slab->space.high.fe_info->dof,
 			cell_time,
-			z->x[0],
+			high_z_k_rho_h_slab,
 			fe_face_values_time.quadrature_point(0)[0],
 			high_z_k_rho_h_p_on_tm
 		);
@@ -2159,7 +2254,7 @@ estimate_on_slab(
 			slab->time.high.fe_info->mapping,
 			slab->space.high.fe_info->dof,
 			cell_time,
-			high_back_interpolated_space_slab_z,
+			high_z_kh_slab,
 			fe_face_values_time.quadrature_point(0)[0],
 			high_z_kh_p_on_tm
 		);
@@ -2713,7 +2808,7 @@ estimate_on_slab(
 				slab->time.high.fe_info->mapping,
 				slab->space.high.fe_info->dof,
 				cell_time,
-				high_slab_u,
+				high_u_slab,
 				fe_values_time.quadrature_point(qt)[0],
 				high_u_kh_on_tq
 			);
@@ -2722,7 +2817,7 @@ estimate_on_slab(
 				slab->time.high.fe_info->mapping,
 				slab->space.high.fe_info->dof,
 				cell_time,
-				z->x[0],
+				high_z_slab,
 				fe_values_time.quadrature_point(qt)[0],
 				high_z_on_tq
 			);
@@ -2731,7 +2826,7 @@ estimate_on_slab(
 				slab->time.high.fe_info->mapping,
 				slab->space.high.fe_info->dof,
 				cell_time,
-				high_back_interpolated_time_z,
+				high_z_k_rho_k_slab,
 				fe_values_time.quadrature_point(qt)[0],
 				high_z_k_rho_k_on_tq
 			);
@@ -2743,7 +2838,7 @@ estimate_on_slab(
 				slab->time.high.fe_info->mapping,
 				slab->space.high.fe_info->dof,
 				cell_time,
-				high_slab_u,
+				high_u_slab,
 				fe_values_time.quadrature_point(qt)[0],
 				high_dt_u_kh_on_tq
 			);
@@ -2756,7 +2851,7 @@ estimate_on_slab(
 				slab->time.high.fe_info->mapping,
 				slab->space.high.fe_info->dof,
 				cell_time,
-				z->x[0],
+				high_z_k_rho_h_slab,
 				fe_values_time.quadrature_point(qt)[0],
 				high_z_k_rho_h_on_tq
 			);
@@ -2769,7 +2864,7 @@ estimate_on_slab(
 				slab->time.high.fe_info->mapping,
 				slab->space.high.fe_info->dof,
 				cell_time,
-				high_back_interpolated_space_slab_z,
+				high_z_kh_slab,
 				fe_values_time.quadrature_point(qt)[0],
 				high_z_kh_on_tq
 			);
@@ -3388,11 +3483,163 @@ back_interpolate_space(
 template<int dim>
 void
 ErrorEstimator<dim>::
+get_patchwise_high_order_interpolated_space_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double> > slab_w,
+	std::shared_ptr< dealii::Vector<double> > &high_slab_w
+) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
+	// higher order reconstruction in space of slab_w
+	high_slab_w->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+		* slab->time.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w = 0.;
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	slab_w_tq->reinit(
+		slab->space.low.fe_info->dof->n_dofs()
+	);
+	*slab_w_tq = 0.;
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	high_slab_w_tq->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+			(*slab_w_tq)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+
+		// use higher order interpolation in space to go from slab_w_tq to high_slab_w_tq
+		patchwise_high_order_interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+}
+
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_interpolated_space_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double> > slab_w,
+	std::shared_ptr< dealii::Vector<double> > &high_slab_w
+) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
+	// higher order reconstruction in space of slab_w
+	high_slab_w->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+		* slab->time.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w = 0.;
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	slab_w_tq->reinit(
+		slab->space.low.fe_info->dof->n_dofs()
+	);
+	*slab_w_tq = 0.;
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	high_slab_w_tq->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
+			(*slab_w_tq)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+
+		// use interpolation in space to go from slab_w_tq to high_slab_w_tq
+		interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+}
+
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_back_interpolated_space_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::Vector<double> > slab_w,
+	std::shared_ptr< dealii::Vector<double> > &high_slab_w
+) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
+	// higher order reconstruction in space of slab_w
+	high_slab_w->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+		* slab->time.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w = 0.;
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	slab_w_tq->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+	);
+	*slab_w_tq = 0.;
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::Vector<double> > ();
+	high_slab_w_tq->reinit(
+		slab->space.high.fe_info->dof->n_dofs()
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+			(*slab_w_tq)[i] = (*slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+
+		// use back interpolation in space to go from slab_w_tq to high_slab_w_tq
+		back_interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+}
+
+template<int dim>
+void
+ErrorEstimator<dim>::
 get_high_back_interpolated_time_slab_w(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	std::shared_ptr< dealii::Vector<double> > slab_w,
 	std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
 ) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
 	// higher order reconstruction in space of slab_w
 	auto high_slab_w = std::make_shared< dealii::Vector<double> > ();
 	high_slab_w->reinit(
@@ -3653,6 +3900,163 @@ get_back_interpolated_time_slab_w(
 					+ space_dof->n_dofs() *
 						high_local_dof_indices_time[qt]
 				] += (*low_restricted_time_slab_w)[
+					i
+					// time offset
+					+ space_dof->n_dofs() *
+						low_local_dof_indices_time[jj]
+				] * low_fe_values_time.shape_value(jj,qt);
+			}}
+		}
+	}
+}
+
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_interpolated_time_slab_w(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
+	std::shared_ptr< dealii::Vector<double> > slab_w,
+	std::shared_ptr< dealii::Vector<double> > &interpolated_time_slab_w
+) {
+	// TODO: does this also work for multiple cells per slab?!
+	// evaluate interpolation in time for the whole slab solution z:
+	// I_k^[high]{z^low}
+
+	Assert(
+		space_dof.use_count(),
+		dealii::ExcNotInitialized()
+	);
+	Assert(
+		slab->time.low.fe_info->dof.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	Assert(
+		slab->time.high.fe_info->fe.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	Assert(
+		slab_w.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	Assert(
+		slab_w->size(),
+		dealii::ExcNotInitialized()
+	);
+
+	// init result vector
+	interpolated_time_slab_w = std::make_shared< dealii::Vector<double> > ();
+	interpolated_time_slab_w->reinit(
+		space_dof->n_dofs()
+		* slab->time.high.fe_info->dof->n_dofs()
+	);
+	*interpolated_time_slab_w = 0.;
+
+	// prepare local dof mappings
+	std::vector< dealii::types::global_dof_index >
+	low_local_dof_indices_time(
+		slab->time.low.fe_info->fe->dofs_per_cell
+	);
+
+	std::vector< dealii::types::global_dof_index >
+	high_local_dof_indices_time(
+		slab->time.high.fe_info->fe->dofs_per_cell
+	);
+
+	// prepare fe values for interpolation
+	dealii::FEValues<1> low_fe_values_time(
+		*slab->time.low.fe_info->mapping,
+		*slab->time.low.fe_info->fe,
+		dealii::Quadrature<1>(slab->time.high.fe_info->fe->get_unit_support_points()),//*high_quad_time,
+		dealii::update_values
+	);
+
+	// loop over all cell time on slab
+	auto cell_time = slab->time.high.fe_info->dof->begin_active();
+	auto endc_time = slab->time.high.fe_info->dof->end();
+
+	auto low_cell_time = slab->time.low.fe_info->dof->begin_active();
+
+	for ( ; cell_time != endc_time; ++cell_time, ++low_cell_time) {
+		////////////////////////////////////////////////////////////////////////
+		// check (low) cell time iterators and matching
+		Assert(
+			low_cell_time != slab->time.low.fe_info->dof->end(),
+			dealii::ExcInternalError()
+		);
+
+		Assert(
+			cell_time->center()[0] == low_cell_time->center()[0],
+			dealii::ExcInternalError()
+		);
+
+		////////////////////////////////////////////////////////////////////////
+		// high_local_dof_indices_time
+		Assert(
+			high_local_dof_indices_time.size() ==
+			slab->time.high.fe_info->fe->dofs_per_cell,
+			dealii::ExcNotInitialized()
+		);
+
+		cell_time->get_dof_indices(
+			high_local_dof_indices_time
+		);
+
+		// low_local_dof_indices_time
+		Assert(
+			low_local_dof_indices_time.size() ==
+			slab->time.low.fe_info->fe->dofs_per_cell,
+			dealii::ExcNotInitialized()
+		);
+
+		low_cell_time->get_dof_indices(
+			low_local_dof_indices_time
+		);
+
+		// reinit and check: low_fe_values_time
+		low_fe_values_time.reinit(low_cell_time);
+
+		Assert(
+			low_local_dof_indices_time.size() ==
+			low_fe_values_time.get_fe().dofs_per_cell,
+			dealii::ExcInternalError()
+		);
+
+		Assert(
+			low_fe_values_time.n_quadrature_points ==
+			high_local_dof_indices_time.size(),
+			dealii::ExcInternalError()
+		);
+
+		////////////////////////////////////////////////////////////////////////
+		// z -> I_k z
+		//
+
+		// NOTE: qt must correspond to local dof jj of high back interpolation
+		Assert(
+			low_fe_values_time.n_quadrature_points ==
+			slab->time.high.fe_info->fe->dofs_per_cell,
+			dealii::ExcInternalError()
+		);
+
+		for (unsigned int qt{0};
+			qt < low_fe_values_time.n_quadrature_points; ++qt) {
+
+			for (
+				unsigned int jj{0};
+				jj < low_fe_values_time.get_fe().dofs_per_cell; ++jj) {
+			for (
+				dealii::types::global_dof_index i{0};
+				i < space_dof->n_dofs(); ++i) {
+				(*interpolated_time_slab_w)[
+					i
+					// time offset
+					+ space_dof->n_dofs() *
+						high_local_dof_indices_time[qt]
+				] += (*slab_w)[
 					i
 					// time offset
 					+ space_dof->n_dofs() *
