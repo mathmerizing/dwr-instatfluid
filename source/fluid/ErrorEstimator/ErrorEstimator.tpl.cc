@@ -56,6 +56,8 @@
 #include <deal.II/fe/fe_tools.h>
 
 #include <deal.II/numerics/vector_tools.h>
+#include <deal.II/numerics/matrix_tools.h> // for mass matrix assembly
+#include <deal.II/dofs/dof_tools.h> // for make_sparsity_patterm
 
 #include <sstream>
 
@@ -559,10 +561,46 @@ estimate_on_slab(
 	else
 		AssertThrow(false, dealii::ExcNotImplemented());
 
+
+//	auto tmp_high_z_k = std::make_shared< dealii::Vector<double> > ();
+//	{
+//		tmp_high_z_k->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//			* slab->time.high.fe_info->dof->n_dofs()
+//		);
+//		*tmp_high_z_k = 0.;
+//
+//		auto slab_z_tq  = std::make_shared< dealii::Vector<double> > ();
+//		slab_z_tq->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//		);
+//		*slab_z_tq = 0.;
+//
+//
+//		for (unsigned int ii=0; ii<3; ++ii)
+//		{
+//			// get slab_w_tq
+//			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//				if (ii == 0 || ii == 2)
+//					(*slab_z_tq)[i] = (*high_z_slab)[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+//				else if (ii == 1)
+//					(*slab_z_tq)[i] = 0.5 * (*high_z_slab)[i + slab->space.high.fe_info->dof->n_dofs() * 0] + 0.5 * (*high_z_slab)[i + slab->space.high.fe_info->dof->n_dofs() * 2];
+//
+//			// write high_slab_w_tq into high_slab_w
+//			for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//				(*tmp_high_z_k)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*slab_z_tq)[i];
+//		}
+//	}
+//	tmp_high_z_k->add(-1.,*high_z_k_rho_k_slab);
+//	std::cout << "Difference between z_k from restriction and hand coded:" << tmp_high_z_k->linfty_norm() << std::endl;
+//	//high_z_k_rho_k_slab->equ(1.,*tmp_high_z_k);
+
 	//////////////////////
 	// GETTING Z_k^{ρ_h}
-	//   --> same as Z
-	auto high_z_k_rho_h_slab = high_z_slab;
+//	   --> same as Z
+//	auto high_z_k_rho_h_slab = high_z_slab;
+	//   --> same as Z_k^{ρ_k}
+	auto high_z_k_rho_h_slab = high_z_k_rho_k_slab;
 
 	//////////////////////
 	// GETTING Z_kh
@@ -574,16 +612,31 @@ estimate_on_slab(
 		// computation of z_kh^(2,1) from z_kh^(2,2)
 		get_back_interpolated_space_slab( // for mixed order
 			slab,
-			z->x[0],
+			high_z_k_rho_h_slab, //z->x[0],
 			high_z_kh_slab
 		);
 	}
 	else if (!dual_order.compare("high-time")) // dual = [time = high, space = low]
 	{
-		// make dual solution of high length, i.e. interpolate to high spatial space
-		get_interpolated_space_slab( // for semi-mixed order
+//		auto low_z_kh_slab = std::make_shared< dealii::Vector<double> > ();
+//
+//		// back interpolate z->x[0] in time
+//		get_back_interpolated_time_slab_w( // for mixed order
+//			slab,
+//			slab->space.low.fe_info->dof,
+//			z->x[0],
+//			low_z_kh_slab
+//		);
+//
+//		// make dual solution of high length, i.e. interpolate to high spatial space
+//		get_interpolated_space_slab( // for semi-mixed order
+//			slab,
+//			low_z_kh_slab, //z->x[0],
+//			high_z_kh_slab
+//		);
+		get_back_interpolated_space_slab( // for semi-mixed order
 			slab,
-			z->x[0],
+			high_z_k_rho_h_slab,
 			high_z_kh_slab
 		);
 	}
@@ -595,9 +648,9 @@ estimate_on_slab(
 	*tmp_vec = 0.;
 	tmp_vec->add(1., *high_z_k_rho_h_slab);
 	tmp_vec->add(-1., *high_z_kh_slab);
-	std::cout << "tmp_vec->linfty_norm() = " << tmp_vec->linfty_norm() << std::endl;
-	std::cout << "high_z_k_rho_h_slab->linfty_norm() = " << high_z_k_rho_h_slab->linfty_norm() << std::endl;
-	std::cout << "high_z_kh_slab->linfty_norm() = " << high_z_kh_slab->linfty_norm() << std::endl;
+//	std::cout << "tmp_vec->linfty_norm() = " << tmp_vec->linfty_norm() << std::endl;
+//	std::cout << "high_z_k_rho_h_slab->linfty_norm() = " << high_z_k_rho_h_slab->linfty_norm() << std::endl;
+//	std::cout << "high_z_kh_slab->linfty_norm() = " << high_z_kh_slab->linfty_norm() << std::endl;
 
 	///////////////////////
 	// GETTING U_k == U_kh
@@ -619,6 +672,465 @@ estimate_on_slab(
 		low_interpolated_time_u_slab,
 		high_u_slab
 	);
+
+//	///////////////////////////////////////////////
+//	// FOR DEBUGGING:
+//	//
+//	int slab_number = 0;
+//	auto tmp_slab = grid->slabs.begin();
+//	while (slab != tmp_slab)
+//	{
+//		slab_number++;
+//		tmp_slab++;
+//	}
+//
+//	// print out Z_k^{ρ_h} and Z_kh as vtk files
+//	std::vector<double> time_qp;
+//	time_qp.push_back(0.5*(slab->t_m+slab->t_n)-0.38729833462*(slab->t_n-slab->t_m));
+//	time_qp.push_back(0.5*(slab->t_m+slab->t_n));
+//	time_qp.push_back(0.5*(slab->t_m+slab->t_n)+0.38729833462*(slab->t_n-slab->t_m));
+//
+//	// Z_k^{ρ_h}
+//	for (unsigned int ii = 0; ii < 3; ++ii)
+//	{
+//		std::vector<std::string> solution_names;
+//		solution_names.push_back("x_velo");
+//		solution_names.push_back("y_velo");
+//		solution_names.push_back("p_fluid");
+//
+//		std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
+//			data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
+//
+//		dealii::DataOut<dim> data_out;
+//		data_out.attach_dof_handler(*slab->space.high.fe_info->dof);
+//
+//		auto z_trigger = std::make_shared< dealii::Vector<double> > ();
+//		z_trigger->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//		);
+//
+//		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//			(*z_trigger)[i] = (*high_z_k_rho_h_slab)[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+//
+//		data_out.add_data_vector(*z_trigger, solution_names,
+//								 dealii::DataOut<dim>::type_dof_data,
+//								 data_component_interpretation);
+//
+//		data_out.build_patches();
+//		data_out.set_flags(
+//				dealii::DataOutBase::VtkFlags(
+//						time_qp[ii],
+//						slab_number*3+ii
+//				)
+//		);
+//
+//		// save VTK files
+//		const std::string filename =
+//			"solution-z_k-" + dealii::Utilities::int_to_string(slab_number*3+ii, 6) + ".vtk";
+//		std::ofstream output(filename);
+//		data_out.write_vtk(output);
+//	}
+//
+//	// Z_kh
+//	for (unsigned int ii = 0; ii < 3; ++ii)
+//	{
+//		std::vector<std::string> solution_names;
+//		solution_names.push_back("x_velo");
+//		solution_names.push_back("y_velo");
+//		solution_names.push_back("p_fluid");
+//
+//		std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
+//			data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
+//
+//		dealii::DataOut<dim> data_out;
+//		data_out.attach_dof_handler(*slab->space.high.fe_info->dof);
+//
+//		auto z_trigger = std::make_shared< dealii::Vector<double> > ();
+//		z_trigger->reinit(
+//			slab->space.high.fe_info->dof->n_dofs()
+//		);
+//
+//		for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//			(*z_trigger)[i] = (*high_z_kh_slab)[i + slab->space.high.fe_info->dof->n_dofs() * ii];
+//
+//		data_out.add_data_vector(*z_trigger, solution_names,
+//								 dealii::DataOut<dim>::type_dof_data,
+//								 data_component_interpretation);
+//
+//		data_out.build_patches();
+//		data_out.set_flags(
+//				dealii::DataOutBase::VtkFlags(
+//						time_qp[ii],
+//						slab_number*3+ii
+//				)
+//		);
+//
+//		// save VTK files
+//		const std::string filename =
+//			"solution-z_kh-" + dealii::Utilities::int_to_string(slab_number*3+ii, 6) + ".vtk";
+//		std::ofstream output(filename);
+//		data_out.write_vtk(output);
+//	}
+//
+////	std::cout << "creating dual matrix pointer" << std::endl;
+//	auto dual_matrix_bc = std::make_shared< dealii::SparseMatrix<double> > ();
+//
+//	std::string matrix_filename = "dual_matrix_009.txt";
+//
+//	// read in sparsity pattern from matrix
+//	dealii::DynamicSparsityPattern _dsp(
+//		slab->space.high.fe_info->dof->n_dofs() * slab->time.high.fe_info->dof->n_dofs(),
+//		slab->space.high.fe_info->dof->n_dofs() * slab->time.high.fe_info->dof->n_dofs()
+//	);
+//
+//	std::ifstream sp_in(matrix_filename.c_str(), std::ios_base::in);
+//	std::string line5;
+//	while (std::getline (sp_in,line5))
+//	{
+//		std::vector<std::string> line_parts;
+//		split_str(line5, ' ', line_parts);
+//		line_parts[0].replace(line_parts[0].find("("), 1, "");
+//		line_parts[0].replace(line_parts[0].find(")"), 1, "");
+//		std::vector<std::string> index_parts;
+//		split_str(line_parts[0], ',', index_parts);
+//
+//		_dsp.add(std::stoi(index_parts[0]),std::stoi(index_parts[1]));
+//	}
+//
+//	dealii::SparsityPattern _sp;
+//	_sp.copy_from(_dsp);
+//	dual_matrix_bc->reinit(_sp);
+////	std::cout << "reinited dual matrix with _sp" << std::endl;
+//
+//	// read in matrix entries
+//	std::ifstream matrix_in(matrix_filename.c_str(), std::ios_base::in);
+//	std::string line4;
+//	while (std::getline (matrix_in,line4))
+//	{
+//		std::vector<std::string> line_parts;
+//		split_str(line4, ' ', line_parts);
+//		line_parts[0].replace(line_parts[0].find("("), 1, "");
+//		line_parts[0].replace(line_parts[0].find(")"), 1, "");
+//		std::vector<std::string> index_parts;
+//		split_str(line_parts[0], ',', index_parts);
+//
+//		dual_matrix_bc->set(std::stoi(index_parts[0]),std::stoi(index_parts[1]),std::stod(line_parts[1]));
+//	}
+//
+//	/////////////////////////////
+//	// MATRIX RESIDUAL:
+//	// -(Z_k-Z_kh) * B^T * (U_k)
+//	auto tmp_vec_z = std::make_shared< dealii::Vector<double> > ();
+//	tmp_vec_z->reinit(
+//		slab->space.high.fe_info->dof->n_dofs()
+//		* slab->time.high.fe_info->dof->n_dofs()
+//	);
+//
+//	auto tmp_vec_vmult = std::make_shared< dealii::Vector<double> > ();
+//	tmp_vec_vmult->reinit(
+//		slab->space.high.fe_info->dof->n_dofs()
+//		* slab->time.high.fe_info->dof->n_dofs()
+//	);
+//
+//	*tmp_vec_z = 0.;
+//	tmp_vec_z->add(-1., *high_z_k_rho_h_slab);
+//	tmp_vec_z->add(1., *high_z_kh_slab);
+//
+//	*tmp_vec_vmult = 0.;
+//	dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_u_slab);
+//	eta_h_bc.push_back((*tmp_vec_vmult) * (*tmp_vec_z));
+//
+//	double matrix_residual = (*tmp_vec_vmult) * (*tmp_vec_z);
+//
+//	////////////////////////////
+//	// RHS RESIDUAL
+//	// +(Z_k-Z_kh)_m^+ * M * (U_k)_m^-
+//
+//	// assemble *spatial* mass matrix
+//	dealii::SparseMatrix<double> mass_matrix;
+//	dealii::DynamicSparsityPattern _dsp2 (slab->space.high.fe_info->dof->n_dofs());
+//	dealii::DoFTools::make_sparsity_pattern (*slab->space.high.fe_info->dof,_dsp2);
+//	dealii::SparsityPattern _sp2;
+//	_sp2.copy_from(_dsp2);
+//	mass_matrix.reinit(_sp2);
+//	dealii::QGauss<dim> _quad(6);
+//	dealii::MatrixCreator::create_mass_matrix(
+//		*slab->space.high.fe_info->dof,
+//		_quad,
+//		mass_matrix
+//	);
+////	std::cout << "Mass matrix:    " << mass_matrix.frobenius_norm() << std::endl;
+//
+//	std::vector< dealii::types::global_dof_index > dofs_per_component(
+//		slab->space.high.fe_info->dof->get_fe_collection().n_components(), 0
+//	);
+//
+//	dofs_per_component = dealii::DoFTools::count_dofs_per_fe_component(
+//		*slab->space.high.fe_info->dof,
+//		true
+//	);
+//	unsigned int n_velocity_dofs = dofs_per_component[0] + dofs_per_component[1];
+////		unsigned int n_pressure_dofs = dofs_per_component[2];
+////	std::cout << "DoFs = " << n_velocity_dofs << " , " << n_pressure_dofs << std::endl;
+////	std::cout << "total DoFs = " << slab->space.high.fe_info->dof->n_dofs() << std::endl;
+//
+//	// get u_m^- in high FE space
+//	auto tmp_vec_um = std::make_shared< dealii::Vector<double> > ();
+//	tmp_vec_um->reinit(
+//		slab->space.high.fe_info->dof->n_dofs()
+//	);
+//	dealii::FETools::interpolate(
+//		// primal/low solution
+//		*slab->space.primal.fe_info->dof,
+//		*um->x[0],
+//		// high solution
+//		*slab->space.high.fe_info->dof,
+//		*slab->space.high.fe_info->constraints,
+//		*tmp_vec_um
+//	);
+//	// set pressure DoFs to 0.
+//	for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//		(*tmp_vec_um)[i] = 0.;
+//
+//	// M * (U_m^-)
+//	auto tmp_vec_vmult2 = std::make_shared< dealii::Vector<double> > ();
+//	tmp_vec_vmult2->reinit(
+//		slab->space.high.fe_info->dof->n_dofs()
+//	);
+//	mass_matrix.vmult(*tmp_vec_vmult2, *tmp_vec_um);
+//
+//	// get z_k,m^+ and z_kh,m^+
+//	auto tmp_vec_z_k_m = std::make_shared< dealii::Vector<double> > ();
+//	tmp_vec_z_k_m->reinit(
+//		slab->space.high.fe_info->dof->n_dofs()
+//	);
+//	get_w_t(
+//		slab->time.high.fe_info->fe,
+//		slab->time.high.fe_info->mapping,
+//		slab->space.high.fe_info->dof,
+//		slab->time.high.fe_info->dof->begin_active(),
+//		high_z_k_rho_h_slab,
+//		slab->t_m,
+//		tmp_vec_z_k_m
+//	);
+//	// set pressure DoFs to 0.
+//	for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//		(*tmp_vec_z_k_m)[i] = 0.;
+//
+//	auto tmp_vec_z_kh_m = std::make_shared< dealii::Vector<double> > ();
+//	tmp_vec_z_kh_m->reinit(
+//		slab->space.high.fe_info->dof->n_dofs()
+//	);
+//	get_w_t(
+//		slab->time.high.fe_info->fe,
+//		slab->time.high.fe_info->mapping,
+//		slab->space.high.fe_info->dof,
+//		slab->time.high.fe_info->dof->begin_active(),
+//		high_z_kh_slab,
+//		slab->t_m,
+//		tmp_vec_z_kh_m
+//	);
+//	// set pressure DoFs to 0.
+//	for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+//		(*tmp_vec_z_kh_m)[i] = 0.;
+//
+//	double rhs_residual = ((*tmp_vec_vmult2) * (*tmp_vec_z_k_m)) - ((*tmp_vec_vmult2) * (*tmp_vec_z_kh_m));
+////	std::cout << "eta_h(mat,BC)_" << slab_number << " (no u_m^-) = " << matrix_residual << std::endl;
+//	//std::cout << "eta_h(mat,BC)_" << slab_number << " = " << matrix_residual + rhs_residual << std::endl;
+//
+//	////////////////////////////////////////////////
+//	// trying out other correction terms
+//	//
+//
+//	////////////////////////////////////////
+//	// 1. correction term: -ρ(ũ_k)(z̃_k+z_kh)
+//	//
+//	double matrix_residual_1_correction = 0.;
+//	double rhs_residual_1_correction = 0.;
+//
+//	// NOTE: the first correction was taken from Bernhard's paper BUT it didn't solve our problems
+////	{
+////		///////////////////
+////		// matrix residual
+////		// +(Z_k+Z_kh) * B^T * (U_k)
+////		auto tmp_vec_z = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_z->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////			* slab->time.high.fe_info->dof->n_dofs()
+////		);
+////
+////		auto tmp_vec_vmult = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_vmult->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////			* slab->time.high.fe_info->dof->n_dofs()
+////		);
+////
+////		*tmp_vec_z = 0.;
+////		tmp_vec_z->add(1., *high_z_k_rho_h_slab);
+////		tmp_vec_z->add(1., *high_z_kh_slab);
+////
+////		auto high_extrapolated_u_slab = std::make_shared< dealii::Vector<double> > ();
+////		get_patchwise_high_order_interpolated_space_slab(
+////			slab,
+////			low_interpolated_time_u_slab,
+////			high_extrapolated_u_slab
+////		);
+////
+////		*tmp_vec_vmult = 0.;
+////		dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_extrapolated_u_slab);
+////
+////		matrix_residual_1_correction = (*tmp_vec_vmult) * (*tmp_vec_z);
+////
+////		////////////////
+////		// rhs residual
+////		// -(Z_k+Z_kh)_m^+ * M * (U_k)_m^-
+////
+////		// get u_m^- in high FE space
+////		auto tmp_vec_um = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_um->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		dealii::FETools::extrapolate(
+////			// primal/low solution
+////			*slab->space.primal.fe_info->dof,
+////			*um->x[0],
+////			// high solution
+////			*slab->space.high.fe_info->dof,
+////			*slab->space.high.fe_info->constraints,
+////			*tmp_vec_um
+////		);
+////		// set pressure DoFs to 0.
+////		for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+////			(*tmp_vec_um)[i] = 0.;
+////
+////		// M * (U_m^-)
+////		auto tmp_vec_vmult2 = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_vmult2->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		mass_matrix.vmult(*tmp_vec_vmult2, *tmp_vec_um);
+////
+////		// get z_k,m^+ and z_kh,m^+
+////		auto tmp_vec_z_k_m = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_z_k_m->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		get_w_t(
+////			slab->time.high.fe_info->fe,
+////			slab->time.high.fe_info->mapping,
+////			slab->space.high.fe_info->dof,
+////			slab->time.high.fe_info->dof->begin_active(),
+////			high_z_k_rho_h_slab,
+////			slab->t_m,
+////			tmp_vec_z_k_m
+////		);
+////		// set pressure DoFs to 0.
+////		for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+////			(*tmp_vec_z_k_m)[i] = 0.;
+////
+////		auto tmp_vec_z_kh_m = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_z_kh_m->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		get_w_t(
+////			slab->time.high.fe_info->fe,
+////			slab->time.high.fe_info->mapping,
+////			slab->space.high.fe_info->dof,
+////			slab->time.high.fe_info->dof->begin_active(),
+////			high_z_kh_slab,
+////			slab->t_m,
+////			tmp_vec_z_kh_m
+////		);
+////		// set pressure DoFs to 0.
+////		for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+////			(*tmp_vec_z_kh_m)[i] = 0.;
+////
+////		rhs_residual_1_correction = -1. * ((*tmp_vec_vmult2) * (*tmp_vec_z_k_m)) + ((*tmp_vec_vmult2) * (*tmp_vec_z_kh_m));
+////	}
+//
+////	///////////////////////////////////////////////////////////////////////////////////////////////
+////	// 2. correction term: -ρ(u_kh)(z_kh) --> CAN BE IGNORED; iteration error too small for Stokes
+////	//
+////	double matrix_residual_2_correction = 0.;
+////	double rhs_residual_2_correction = 0.;
+////
+////	{
+////		///////////////////
+////		// matrix residual
+////		// +(Z_kh) * B^T * (U_k)
+////		auto tmp_vec_z = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_z->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////			* slab->time.high.fe_info->dof->n_dofs()
+////		);
+////
+////		auto tmp_vec_vmult = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_vmult->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////			* slab->time.high.fe_info->dof->n_dofs()
+////		);
+////
+////		*tmp_vec_z = 0.;
+////		tmp_vec_z->add(1., *high_z_kh_slab);
+////
+////		*tmp_vec_vmult = 0.;
+////		dual_matrix_bc->Tvmult(*tmp_vec_vmult, *high_u_slab);
+////
+////		matrix_residual_2_correction = (*tmp_vec_vmult) * (*tmp_vec_z);
+////
+////		////////////////
+////		// rhs residual
+////		// -(Z_kh)_m^+ * M * (U_k)_m^-
+////
+////		// get u_m^- in high FE space
+////		auto tmp_vec_um = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_um->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		dealii::FETools::interpolate(
+////			// primal/low solution
+////			*slab->space.primal.fe_info->dof,
+////			*um->x[0],
+////			// high solution
+////			*slab->space.high.fe_info->dof,
+////			*slab->space.high.fe_info->constraints,
+////			*tmp_vec_um
+////		);
+////		// set pressure DoFs to 0.
+////		for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+////			(*tmp_vec_um)[i] = 0.;
+////
+////		// M * (U_m^-)
+////		auto tmp_vec_vmult2 = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_vmult2->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		mass_matrix.vmult(*tmp_vec_vmult2, *tmp_vec_um);
+////
+////		// get z_kh,m^+
+////		auto tmp_vec_z_kh_m = std::make_shared< dealii::Vector<double> > ();
+////		tmp_vec_z_kh_m->reinit(
+////			slab->space.high.fe_info->dof->n_dofs()
+////		);
+////		get_w_t(
+////			slab->time.high.fe_info->fe,
+////			slab->time.high.fe_info->mapping,
+////			slab->space.high.fe_info->dof,
+////			slab->time.high.fe_info->dof->begin_active(),
+////			high_z_kh_slab,
+////			slab->t_m,
+////			tmp_vec_z_kh_m
+////		);
+////		// set pressure DoFs to 0.
+////		for (unsigned int i = n_velocity_dofs; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
+////			(*tmp_vec_z_kh_m)[i] = 0.;
+////
+////		rhs_residual_2_correction = -1. * ((*tmp_vec_vmult2) * (*tmp_vec_z_kh_m));
+////	}
+//
+//	//std::cout << "first_correction_" << slab_number << " = " << matrix_residual_1_correction + rhs_residual_1_correction << std::endl;
+//	//std::cout << "second_correction_" << slab_number << " = " << matrix_residual_2_correction + rhs_residual_2_correction << std::endl;
+//	std::cout << "eta_h(mat,BC)_" << slab_number << " = " << matrix_residual + rhs_residual + matrix_residual_1_correction + rhs_residual_1_correction << std::endl;
 
 //	///////////////////////////////////////////////////////////////////////
 //	// DEALING WITH MIXED ORDER VECTORS
@@ -1568,6 +2080,9 @@ estimate_on_slab(
 	{
 		// slab n > 1
 		// primal_um_on_tm has actually already been stored with a divergence free projection in um
+		/////////////////////////////////////
+		// For debugging; TODO: delete
+		//primal_um_on_tm->equ(0., *um->x[0]);
 		primal_um_on_tm->equ(1., *um->x[0]);
 	}
 
@@ -4122,19 +4637,19 @@ assemble_error_on_cell_tm(
 		// PART 1: u
 
 		// 1)  u_kh := u_kh^(1,1) = u_kh^low = I_k(I_h(u_kh^high))
-		// 1a) get u_kh(t_m^+)
+		// 1a) get u_kh(t_m^-)
 		scratch.local_u_kh_m[scratch.j] =
 			(*high_u_kh_m_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
-		// 1b) get u_kh(t_m^-)
+		// 1b) get u_kh(t_m^+)
 		scratch.local_u_kh_p[scratch.j] =
 			(*high_u_kh_p_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
 
 		// 2)  u_k := u_kh^(1,2) = I_2h(u_kh^low) = I_k(u_kh^high)
 		// BUT: if we replace the linearization point, then here u_k is being replaced by u_kh --> this has already been done in the code before!
-		// 2a) get u_k(t_m^+)
+		// 2a) get u_k(t_m^-)
 		scratch.local_u_k_m[scratch.j] =
 			(*high_u_k_m_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
-		// 2b) get u_k(t_m^-)
+		// 2b) get u_k(t_m^+)
 		scratch.local_u_k_p[scratch.j] =
 			(*high_u_k_p_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
 
