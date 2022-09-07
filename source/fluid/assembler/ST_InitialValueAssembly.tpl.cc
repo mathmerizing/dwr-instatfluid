@@ -135,8 +135,8 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::Vector<double> > _um,  // input
-	std::shared_ptr< dealii::Vector<double> > _Mum, // output
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _um,  // input
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _Mum, // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	////////////////////////////////////////////////////////////////////////////
@@ -172,7 +172,7 @@ assemble(
 	time.fe = slab->time.primal.fe_info->fe;
 	time.mapping = slab->time.primal.fe_info->mapping;
 
-	spacetime.constraints = slab->spacetime.primal.constraints;
+	spacetime.constraints = slab->spacetime.primal.hanging_node_constraints;
 	
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
@@ -230,6 +230,7 @@ assemble(
 			*time.fe
 		)
 	);
+	Mum->compress(dealii::VectorOperation::add);
 }
 
 /// Local assemble on cell.
@@ -266,9 +267,10 @@ void Assembler<dim>::local_assemble_cell(
 		for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
 			scratch.um = 0;
 			for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-				scratch.um +=
-					(*um)[scratch.space_local_dof_indices[j]] *
-					scratch.space_fe_values[convection].value(j,q);
+				for ( unsigned int k{0}; k < dim ; k++){
+					scratch.um[k] +=(*um)[scratch.space_local_dof_indices[j]] *
+							scratch.space_fe_values[convection].value(j,q)[k];
+				}
 			}
 			
 			for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)

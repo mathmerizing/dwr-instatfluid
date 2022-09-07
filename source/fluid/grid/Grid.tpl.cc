@@ -70,10 +70,12 @@
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/sparsity_pattern.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 
 #include <deal.II/numerics/vector_tools.h>
 
+#include <ideal.II/dofs/SlabDoFTools.hh>
 // C++ includes
 #include <cmath>
 #include <limits>
@@ -164,10 +166,12 @@ initialize_slabs() {
 		////////////////////
 		// common components
 		//
-		slab.space.tria = std::make_shared< dealii::Triangulation<dim> >(
-			typename dealii::Triangulation<dim>::MeshSmoothing(
-				dealii::Triangulation<dim>::maximum_smoothing
-			)
+		slab.space.tria = std::make_shared< dealii::parallel::distributed::Triangulation<dim> >(
+			mpi_comm,
+			typename dealii::parallel::distributed::Triangulation<dim>::MeshSmoothing(
+				dealii::parallel::distributed::Triangulation<dim>::maximum_smoothing
+			),
+			dealii::parallel::distributed::Triangulation<dim>::Settings::no_automatic_repartitioning
 		);
 		
 		////////////////////////////////////////////////////////////////////////
@@ -341,6 +345,10 @@ initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::d
 	}
 
 	slab->space.low.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+
+	slab->space.low.fe_info->hanging_node_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+
+	slab->space.low.fe_info->initial_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
 
 	slab->space.low.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
 			1
@@ -581,6 +589,12 @@ initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::
 
 	slab->space.high.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
 
+
+	slab->space.high.fe_info->hanging_node_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+
+	slab->space.high.fe_info->initial_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+
+
 	slab->space.high.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
 		1
 	);
@@ -773,13 +787,13 @@ initialize_pu_grid_components_on_slab(const typename fluid::types::spacetime::dw
 	slab->time.pu.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (0);
 }
 
-
 template<int dim>
-void
+bool
 Grid<dim>::
-refine_slab_in_time(
-	typename fluid::types::spacetime::dwr::slabs<dim>::iterator slab) {
-#ifdef DEBUG
+split_slab_in_time(
+		typename fluid::types::spacetime::dwr::slabs<dim>::iterator slab) {
+
+	#ifdef DEBUG
 	// check if iterator slab is in the container slabs of this object
 	{
 		auto _slab{slabs.begin()};
@@ -796,503 +810,86 @@ refine_slab_in_time(
 			dealii::ExcMessage("your given iterator slab to be refined could not be found in this->slabs object")
 		);
 	}
-#endif
-	
-	// emplace a new slab element in front of the iterator
+	#endif
+
+	unsigned int M = slab->time.tria->n_active_cells();
+
+	//Check whether slab should be split. If not we are done
+	if (M <= parameter_set->time.fluid.max_intervals_per_slab)
+		return false;
+
+	//Get step sizes of current time tria
+	std::vector<double> step_sizes(M);
+	unsigned int i = 0;
+	for (auto &cell : slab->time.tria->active_cell_iterators()){
+		step_sizes[i] = cell->bounding_box().side_length(0);
+		i++;
+	}
+
+    unsigned int split_M = M/2;
+    std::vector<double> step_sizes_1(split_M);
+    std::vector<double> step_sizes_2(M-split_M);
+
+    for (i = 0 ; i < split_M ; i++){
+    	step_sizes_1[i] = step_sizes[i];
+    }
+
+    for (i = 0 ; i < (M-split_M) ; i++) {
+    	step_sizes_2[i] = step_sizes[i+split_M];
+    }
+
+    // emplace a new slab element in front of the iterator
 	slabs.emplace(
 		slab
 	);
-	
+
 	// init new slab ("space-time" tria)
 	std::prev(slab)->t_m=slab->t_m;
 	std::prev(slab)->t_n=slab->t_m + slab->tau_n()/2.;
 	slab->t_m=std::prev(slab)->t_n;
-	
-	////////////////////////////////////////////////////////////////////////////
-	// old slab: init new tria and dof of the
-	slab->refine_in_time=false;
-	
-	Assert(slab->time.low.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	slab->time.low.fe_info->dof->clear();
-	slab->time.low.fe_info->dof = nullptr;
-	
-	Assert(slab->time.high.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	slab->time.high.fe_info->dof->clear();
-	slab->time.high.fe_info->dof = nullptr;
-	
-	Assert(slab->time.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	slab->time.pu.fe_info->dof->clear();
-	slab->time.pu.fe_info->dof = nullptr;
 
-	auto n_active_cells_time{slab->time.tria->n_active_cells()};
-	
+	//init triangulations
 	slab->time.tria = std::make_shared< dealii::Triangulation<1> > ();
-	dealii::GridGenerator::hyper_cube(
-		*slab->time.tria,
-		slab->t_m, slab->t_n,
-		false
-	);
-	
-	for ( ; slab->time.tria->n_active_cells() < n_active_cells_time ; ) {
-		slab->time.tria->refine_global(1);
-	}
-	
-	slab->time.low.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
-		*slab->time.tria
-	);
-	
-	slab->time.high.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
-		*slab->time.tria
+	dealii::Point<1> p1_1(slab->t_m);
+	dealii::Point<1> p2_1(slab->t_n);
+
+	std::vector<std::vector<double>> spacing_1;
+	spacing_1.push_back(step_sizes_1);
+	dealii::GridGenerator::subdivided_hyper_rectangle(
+			*slab->time.tria,
+			spacing_1,
+			p1_1,
+			p2_1
 	);
 
-	slab->time.pu.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
-		*slab->time.tria
-	);
 
-	////////////////////////////////////////////////////////////////////////////
-	// new slab: init
+	//init previous tria
 	std::prev(slab)->refine_in_time=false;
-	
+
 	// space
-	std::prev(slab)->space.tria = std::make_shared< dealii::Triangulation<dim> > (
-		typename dealii::Triangulation<dim>::MeshSmoothing(
-			slab->space.tria->get_mesh_smoothing()
-		)
-	);
-	
-	slab->space.tria->reset_all_manifolds();
-	std::prev(slab)->space.tria->copy_triangulation(*slab->space.tria);
-
-	//////////////////////////////////////////
-	// init low grid components of new slab
-	std::prev(slab)->space.low.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
-		*std::prev(slab)->space.tria
-	);
-	
-	// create low fe system (FESystem does not allow to copy)
-	{
-		// create fe quadratures for support points
-		// convection (Fluid velocity) (\boldsymbol b)
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_b;
-		{
-			if ( !(parameter_set->
-				fe.low.convection.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-
-				fe_quad_b = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.low.convection.p + 1)
-				);
-			}
-		}
-
-		Assert(
-			fe_quad_b.use_count(),
-			dealii::ExcMessage("FE: (low) convection b support points invalid")
+	std::prev(slab)->space.tria = std::make_shared< dealii::parallel::distributed::Triangulation<dim> > (
+			mpi_comm,
+			typename dealii::parallel::distributed::Triangulation<dim>::MeshSmoothing(
+				dealii::parallel::distributed::Triangulation<dim>::smoothing_on_refinement
+			),
+			dealii::parallel::distributed::Triangulation<dim>::Settings::no_automatic_repartitioning
 		);
+//	slab->space.tria->reset_all_manifolds();
+	std::prev(slab)->space.tria->copy_triangulation(*coarse_tria);
+	std::prev(slab)->space.tria->load(slab->space.tria->get_p4est());
 
-		// pressure
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_p;
-		{
-			if ( !(parameter_set->
-				fe.low.pressure.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-
-				fe_quad_p = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.low.pressure.p + 1)
-				);
-			}
-		}
-
-		Assert(
-			fe_quad_p.use_count(),
-			dealii::ExcMessage("FE: (low) pressure p support points invalid")
-		);
-
-		// create convection FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_b;
-		{
-			if (
-				!parameter_set->fe.low.convection.space_type.compare("cG")
-			) {
-
-				fe_b = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_b
-				);
-			}
-
-			Assert(
-				fe_b.use_count(),
-				dealii::ExcMessage("low convection FE not known")
-			);
-		}
-
-		// create pressure FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_p;
-		{
-			if (
-				!parameter_set->fe.low.pressure.space_type.compare("cG")
-			) {
-
-				fe_p = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_p
-				);
-			}
-
-			Assert(
-				fe_p.use_count(),
-				dealii::ExcMessage("low pressure FE not known")
-			);
-		}
-
-		// create FE System
-		std::prev(slab)->space.low.fe_info->fe =
-		std::make_shared< dealii::FESystem<dim> > (
-			// Fluid FE (dim+1)
-			dealii::FESystem<dim> (
-				// convection FE (component 0 ... 1*dim-1)
-				*fe_b, dim,
-				// pressure FE (component 1*dim)
-				*fe_p, 1
-			), 1
-		);
-	}
-
-	std::prev(slab)->space.low.fe_info->constraints =
-		std::make_shared< dealii::AffineConstraints<double> > ();
-
-	std::prev(slab)->space.low.fe_info->mapping =
-	std::make_shared< dealii::MappingQ<dim> > (
-		std::max(
-			static_cast<unsigned int> (1),
-			std::max(
-				parameter_set->fe.low.convection.p,
-				parameter_set->fe.low.pressure.p
-			)
-		)
-	);
-
-	////////////////////////////////////////
-	// init high grid components of new slab
-	std::prev(slab)->space.high.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
-		*std::prev(slab)->space.tria
-	);
-	
-	// create high fe system (FESystem does not allow to copy)
-	{
-		// create fe quadratures for support points
-		// convection (Fluid velocity) (\boldsymbol z_b)
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_z_b;
-		{
-			if ( !(parameter_set->
-				fe.high.convection.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-				
-				fe_quad_z_b = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.high.convection.p + 1)
-				);
-			}
-		}
-		
-		Assert(
-			fe_quad_z_b.use_count(),
-			dealii::ExcMessage("FE: (high) convection b support points invalid")
-		);
-		
-		// pressure
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_z_p;
-		{
-			if ( !(parameter_set->
-				fe.high.pressure.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-				
-				fe_quad_z_p = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.high.pressure.p + 1)
-				);
-			}
-		}
-		
-		Assert(
-			fe_quad_z_p.use_count(),
-			dealii::ExcMessage("FE: (high) pressure p support points invalid")
-		);
-		
-		// create convection FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_z_b;
-		{
-			if (
-				!parameter_set->fe.high.convection.space_type.compare("cG")
-			) {
-				
-				fe_z_b = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_z_b
-				);
-			}
-			
-			Assert(
-				fe_z_b.use_count(),
-				dealii::ExcMessage("high convection FE not known")
-			);
-		}
-		
-		// create pressure FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_z_p;
-		{
-			if (
-				!parameter_set->fe.high.pressure.space_type.compare("cG")
-			) {
-				
-				fe_z_p = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_z_p
-				);
-			}
-			
-			Assert(
-				fe_z_p.use_count(),
-				dealii::ExcMessage("high pressure FE not known")
-			);
-		}
-		
-		// create FE System
-		std::prev(slab)->space.high.fe_info->fe =
-		std::make_shared< dealii::FESystem<dim> > (
-			// Fluid FE (dim+1)
-			dealii::FESystem<dim> (
-				// convection FE (component 0 ... 1*dim-1)
-				*fe_z_b, dim,
-				// pressure FE (component 1*dim)
-				*fe_z_p, 1
-			), 1
-		);
-	}
-	
-	std::prev(slab)->space.high.fe_info->constraints =
-		std::make_shared< dealii::AffineConstraints<double> > ();
-	
-	std::prev(slab)->space.high.fe_info->mapping =
-	std::make_shared< dealii::MappingQ<dim> > (
-		std::max(
-			static_cast<unsigned int> (1),
-			std::max(
-				parameter_set->fe.high.convection.p,
-				parameter_set->fe.high.pressure.p
-			)
-		)
-	);
-	
-	////////////////////////////////////////
-	// init pu grid components of new slab
-	std::prev(slab)->space.pu.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
-		*std::prev(slab)->space.tria
-	);
-
-	// create pu fe system
-	{
-		// create fe quadrature for support points
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad;
-		{
-			fe_quad = std::make_shared< dealii::QGaussLobatto<1> > (2);
-		}
-
-		// create FE
-		std::prev(slab)->space.pu.fe_info->fe = std::make_shared<dealii::FE_Q<dim>> (
-			*fe_quad
-		);
-	}
-
-	std::prev(slab)->space.pu.fe_info->constraints =
-		std::make_shared< dealii::AffineConstraints<double> > ();
-
-	std::prev(slab)->space.pu.fe_info->mapping =
-	std::make_shared< dealii::MappingQ<dim> > (1);
-
-	////////////////////////////////////////////////////////////////////////////
-	// time
 	std::prev(slab)->time.tria = std::make_shared< dealii::Triangulation<1> > ();
-	dealii::GridGenerator::hyper_cube(
-		*std::prev(slab)->time.tria,
-		std::prev(slab)->t_m, std::prev(slab)->t_n,
-		false
+	dealii::Point<1> p1_2(std::prev(slab)->t_m);
+	dealii::Point<1> p2_2(std::prev(slab)->t_n);
+
+	std::vector<std::vector<double>> spacing_2;
+	spacing_2.push_back(step_sizes_2);
+	dealii::GridGenerator::subdivided_hyper_rectangle(
+			*std::prev(slab)->time.tria,
+			spacing_2,
+			p1_2,
+			p2_2
 	);
-	
-	for ( ; std::prev(slab)->time.tria->n_active_cells() < n_active_cells_time ; ) {
-		std::prev(slab)->time.tria->refine_global(1);
-	}
-	
-	// init low grid components of new slab
-	std::prev(slab)->time.low.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
-		*std::prev(slab)->time.tria
-	);
-	
-	// create low fe system (time)
-	{
-		// create fe quadratures for support points
-		// convection (b) (also used for pressure)
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time_convection;
-		{
-			if ( !(parameter_set->
-				fe.low.convection.time_type_support_points
-				.compare("Gauss")) ) {
-
-				fe_quad_time_convection =
-				std::make_shared< dealii::QGauss<1> > (
-					(parameter_set->fe.low.convection.r + 1)
-				);
-
-					DTM::pout
-						<< "FE time: (low) convection b: "
-						<< "created QGauss<1> quadrature"
-						<< std::endl;
-			} else if ( !(parameter_set->
-					fe.low.convection.time_type_support_points
-					.compare("Gauss-Lobatto")) ){
-
-				if (parameter_set->fe.low.convection.r < 1){
-					fe_quad_time_convection =
-							std::make_shared< QRightBox<1> > ();
-						DTM::pout
-							<< "FE time: (low) convection b: "
-							<< "created QRightBox quadrature"
-							<< std::endl;
-				} else {
-					fe_quad_time_convection =
-							std::make_shared< dealii::QGaussLobatto<1> > (
-									(parameter_set->fe.low.convection.r + 1)
-							);
-
-					DTM::pout
-					<< "FE time: (low) convection b: "
-					<< "created QGaussLobatto<1> quadrature"
-					<< std::endl;
-				}
-			}
-		}
-		
-		Assert(
-			fe_quad_time_convection.use_count(),
-			dealii::ExcMessage(
-				"FE time: (low) convection b support points invalid"
-			)
-		);
-		
-		// create FE time
-		{
-			if (
-				!parameter_set->fe.low.convection.time_type.compare("dG")
-			) {
-				std::prev(slab)->time.low.fe_info->fe =
-				std::make_shared< dealii::FE_DGQArbitraryNodes<1> > (
-					*fe_quad_time_convection
-				);
-			}
-			
-			Assert(
-				slab->time.low.fe_info->fe.use_count(),
-				dealii::ExcMessage("low convection FE time not known")
-			);
-		}
-	}
-	
-	std::prev(slab)->time.low.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (
-		parameter_set->fe.low.convection.r
-	);
-
-	// init high grid components of new slab
-	std::prev(slab)->time.high.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
-		*std::prev(slab)->time.tria
-	);
-
-	// create high fe system (time)
-	{
-		// create fe quadratures for support points
-		// convection (b) (also used for pressure)
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time_high_convection;
-		{
-			if ( !(parameter_set->
-				fe.high.convection.time_type_support_points
-				.compare("Gauss")) ) {
-
-				fe_quad_time_high_convection =
-				std::make_shared< dealii::QGauss<1> > (
-					(parameter_set->fe.high.convection.r + 1)
-				);
-
-					DTM::pout
-						<< "FE time: (high) convection b: "
-						<< "created QGauss<1> quadrature"
-						<< std::endl;
-			} else if ( !(parameter_set->
-					fe.high.convection.time_type_support_points
-					.compare("Gauss-Lobatto")) ){
-
-				if (parameter_set->fe.high.convection.r < 1){
-					fe_quad_time_high_convection =
-							std::make_shared< QRightBox<1> > ();
-						DTM::pout
-							<< "FE time: (high) convection b: "
-							<< "created QRightBox quadrature"
-							<< std::endl;
-				} else {
-					fe_quad_time_high_convection =
-							std::make_shared< dealii::QGaussLobatto<1> > (
-									(parameter_set->fe.high.convection.r + 1)
-							);
-
-					DTM::pout
-					<< "FE time: (high) convection b: "
-					<< "created QGaussLobatto<1> quadrature"
-					<< std::endl;
-				}
-			}
-		}
-
-		Assert(
-			fe_quad_time_high_convection.use_count(),
-			dealii::ExcMessage(
-				"FE time: (high) convection b support points invalid"
-			)
-		);
-
-		// create FE time
-		{
-			if (
-				!parameter_set->fe.high.convection.time_type.compare("dG")
-			) {
-				std::prev(slab)->time.high.fe_info->fe =
-				std::make_shared< dealii::FE_DGQArbitraryNodes<1> > (
-					*fe_quad_time_high_convection
-				);
-			}
-
-			Assert(
-				slab->time.high.fe_info->fe.use_count(),
-				dealii::ExcMessage("high convection FE time not known")
-			);
-		}
-	}
-
-	std::prev(slab)->time.high.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (
-		parameter_set->fe.high.convection.r
-	);
-
-	// init pu grid components of new slab
-	std::prev(slab)->time.pu.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
-		*std::prev(slab)->time.tria
-	);
-
-	// create pu fe system (time)
-	{
-		// create fe quadrature for support points
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time;
-		fe_quad_time = std::make_shared< dealii::QGauss<1> > (1);
-
-		// create FE time
-		std::prev(slab)->time.pu.fe_info->fe =
-		std::make_shared< dealii::FE_DGQArbitraryNodes<1> > (
-			*fe_quad_time
-		);
-	}
-
-	std::prev(slab)->time.pu.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (0);
 
 	///////////////////////////////////////////////
 	// assign low or high to primal and dual
@@ -1328,6 +925,17 @@ refine_slab_in_time(
 	{
 		AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high'."));
 	}
+
+	return true;
+}
+
+template<int dim>
+void
+Grid<dim>::
+refine_slab_in_time(
+	typename fluid::types::spacetime::dwr::slabs<dim>::iterator slab) {
+	
+	Assert(false,dealii::ExcMessage("This function should not be in use anymore!"));
 }
 
 
@@ -1336,21 +944,38 @@ template<int dim>
 void
 Grid<dim>::
 generate() {
+
+
+	coarse_tria = std::make_shared< dealii::Triangulation<dim> > (
+			typename dealii::Triangulation<dim>::MeshSmoothing(
+				dealii::Triangulation<dim>::smoothing_on_refinement
+			)
+	);
+	fluid::TriaGenerator<dim> tria_generator;
+	tria_generator.generate(
+		parameter_set->TriaGenerator,
+		parameter_set->TriaGenerator_Options,
+		coarse_tria
+	);
+
 	auto slab(this->slabs.begin());
 	auto ends(this->slabs.end());
-	
+	slab->space.tria->copy_triangulation(*coarse_tria);
+	dealii::GridGenerator::hyper_cube(
+		*slab->time.tria,
+		slab->t_m, slab->t_n,
+		false
+	);
+	slab++;
 	for (; slab != ends; ++slab) {
-		{
-			Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
-			Assert(slab->space.tria.use_count(), dealii::ExcNotInitialized());
-			fluid::TriaGenerator<dim> tria_generator;
-			tria_generator.generate(
-				parameter_set->TriaGenerator,
-				parameter_set->TriaGenerator_Options,
-				slab->space.tria
-			);
-		}
-		
+
+//		if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
+//		{
+//			slab->space.tria = slabs.begin()->space.tria;
+//		}
+//		else{
+			slab->space.tria->copy_triangulation(*coarse_tria);
+//		}
 		{
 			Assert(slab->time.tria.use_count(), dealii::ExcNotInitialized());
 			
@@ -1371,12 +996,39 @@ Grid<dim>::
 refine_global(
 	const unsigned int &space_n,
 	const unsigned int &time_n) {
-	auto slab(slabs.begin());
-	auto ends(slabs.end());
-	
-	for (; slab != ends; ++slab) {
-		slab->space.tria->refine_global(space_n);
-		slab->time.tria->refine_global(time_n);
+
+
+	//do refinement
+	{
+		auto slab(slabs.begin());
+		auto ends(slabs.end());
+
+
+//	if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
+//	{
+//		slabs.begin()->space.tria->refine_global(space_n);
+//		for (; slab != ends; ++slab) {
+//			slab->time.tria->refine_global(time_n);
+//		}
+//	}
+//	else {
+		for (; slab != ends; ++slab) {
+			slab->time.tria->refine_global(time_n);
+			slab->space.tria->refine_global(space_n);
+		}
+	}
+
+	//check if slabs should be split
+    //depending on parameters this might have to happen multiple times
+	bool was_split = true;
+	while (was_split){
+		auto slab(slabs.begin());
+		auto ends(slabs.end());
+        was_split = false;
+		for (; slab != ends; ++slab) {
+			if (split_slab_in_time(slab))
+				was_split = true;
+		}
 	}
 }
 
@@ -1397,6 +1049,13 @@ Grid<dim>::
 set_boundary_indicators() {
 	// base class does not implement this function
 	Assert(false, dealii::ExcNotImplemented());
+}
+
+template<int dim>
+void
+Grid<dim>::
+set_dirichlet_function(std::shared_ptr< dealii::TensorFunction<1,dim,double> > fun){
+	dirichlet_function = fun;
 }
 
 
@@ -1464,48 +1123,14 @@ distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::
 
 		// dof partitioning
 		slab->space.low.fe_info->locally_owned_dofs =
-			std::make_shared< dealii::IndexSet > ();
-		*slab->space.low.fe_info->locally_owned_dofs =
-			slab->space.low.fe_info->dof->locally_owned_dofs();
+			std::make_shared< dealii::IndexSet > (slab->space.low.fe_info->dof->locally_owned_dofs());
 
-		slab->space.low.fe_info->partitioning_locally_owned_dofs =
-			std::make_shared< std::vector< dealii::IndexSet > >();
+		slab->space.low.fe_info->locally_relevant_dofs =
+					std::make_shared< dealii::IndexSet > ();
 
-		slab->space.low.fe_info->partitioning_locally_owned_dofs->push_back(
-			slab->space.low.fe_info->locally_owned_dofs->get_view(
-				N_b_offset, N_b_offset+N_b
-			)
-		);
+		dealii::DoFTools::extract_locally_relevant_dofs(*slab->space.low.fe_info->dof,
+													    *slab->space.low.fe_info->locally_relevant_dofs);
 
-		slab->space.low.fe_info->partitioning_locally_owned_dofs->push_back(
-			slab->space.low.fe_info->locally_owned_dofs->get_view(
-				N_p_offset, N_p_offset+N_p
-			)
-		);
-
-		// TODO: try to remove all BlockVector<double>
-//		// deal.II BlockVector<double> reinit with partitioning is not possible!
-//		// create block_sizes data type
-//		Assert(
-//			slab->space.low.fe_info->partitioning_locally_owned_dofs.use_count(),
-//			dealii::ExcNotInitialized()
-//		);
-//		slab->space.low.fe_info->block_sizes =
-//		std::make_shared < std::vector< dealii::types::global_dof_index > > (
-//			slab->space.low.fe_info->partitioning_locally_owned_dofs->size()
-//		);
-//
-//		for (unsigned int block_component{0};
-//			block_component < slab->space.low.fe_info->partitioning_locally_owned_dofs->size();
-//			++block_component) {
-//			Assert(
-//				(*slab->space.low.fe_info->partitioning_locally_owned_dofs)[block_component].n_elements(),
-//				dealii::ExcMessage("Error: (*slab->space.low.fe_info->partitioning_locally_owned_dofs)[block_component].n_elements() == 0")
-//			);
-//
-//			(*slab->space.low.fe_info->block_sizes)[block_component] =
-//				(*slab->space.low.fe_info->partitioning_locally_owned_dofs)[block_component].n_elements();
-//		}
 
 		// setup constraints (e.g. hanging nodes)
 		Assert(
@@ -1514,15 +1139,44 @@ distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::
 		);
 		{
 			slab->space.low.fe_info->constraints->clear();
-			slab->space.low.fe_info->constraints->reinit();
+			slab->space.low.fe_info->constraints->reinit(*slab->space.low.fe_info->locally_relevant_dofs);
+
+
+			slab->space.low.fe_info->hanging_node_constraints->clear();
+			slab->space.low.fe_info->hanging_node_constraints->reinit(*slab->space.low.fe_info->locally_relevant_dofs);
+
+
+			slab->space.low.fe_info->initial_constraints->clear();
+			slab->space.low.fe_info->initial_constraints->reinit(*slab->space.low.fe_info->locally_relevant_dofs);
+
+
+			interpolate_dirichlet_bc(slab->space.low.fe_info->dof,
+									 slab->space.low.fe_info->constraints,
+									 slab->t_m,false);
+
+
+			interpolate_dirichlet_bc(slab->space.low.fe_info->dof,
+									 slab->space.low.fe_info->initial_constraints,
+									 slab->t_m, true);
+
 
 			Assert(slab->space.low.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 			dealii::DoFTools::make_hanging_node_constraints(
 				*slab->space.low.fe_info->dof,
 				*slab->space.low.fe_info->constraints
 			);
-
+			dealii::DoFTools::make_hanging_node_constraints(
+				*slab->space.low.fe_info->dof,
+				*slab->space.low.fe_info->hanging_node_constraints
+			);
+			dealii::DoFTools::make_hanging_node_constraints(
+				*slab->space.low.fe_info->dof,
+				*slab->space.low.fe_info->initial_constraints
+			);
 			slab->space.low.fe_info->constraints->close();
+			slab->space.low.fe_info->hanging_node_constraints->close();
+			slab->space.low.fe_info->initial_constraints->close();
+
 		}
 	}
 
@@ -1592,48 +1246,14 @@ distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>:
 
 		// dof partitioning
 		slab->space.high.fe_info->locally_owned_dofs =
-			std::make_shared< dealii::IndexSet > ();
-		*slab->space.high.fe_info->locally_owned_dofs =
-			slab->space.high.fe_info->dof->locally_owned_dofs();
+			std::make_shared< dealii::IndexSet > (slab->space.high.fe_info->dof->locally_owned_dofs());
 
-		slab->space.high.fe_info->partitioning_locally_owned_dofs =
-			std::make_shared< std::vector< dealii::IndexSet > >();
+		slab->space.high.fe_info->locally_relevant_dofs =
+					std::make_shared< dealii::IndexSet > ();
 
-		slab->space.high.fe_info->partitioning_locally_owned_dofs->push_back(
-			slab->space.high.fe_info->locally_owned_dofs->get_view(
-				N_b_offset, N_b_offset+N_b
-			)
-		);
+		dealii::DoFTools::extract_locally_relevant_dofs(*slab->space.high.fe_info->dof,
+				 	 	 	 	 	 	 	 	 	 	*slab->space.high.fe_info->locally_relevant_dofs);
 
-		slab->space.high.fe_info->partitioning_locally_owned_dofs->push_back(
-			slab->space.high.fe_info->locally_owned_dofs->get_view(
-				N_p_offset, N_p_offset+N_p
-			)
-		);
-
-		// TODO: try to remove all BlockVector<double>
-//		// deal.II BlockVector<double> reinit with partitioning is not possible!
-//		// create block_sizes data type
-//		Assert(
-//			slab->space.high.fe_info->partitioning_locally_owned_dofs.use_count(),
-//			dealii::ExcNotInitialized()
-//		);
-//		slab->space.high.fe_info->block_sizes =
-//		std::make_shared < std::vector< dealii::types::global_dof_index > > (
-//			slab->space.high.fe_info->partitioning_locally_owned_dofs->size()
-//		);
-//
-//		for (unsigned int block_component{0};
-//			block_component < slab->space.high.fe_info->partitioning_locally_owned_dofs->size();
-//			++block_component) {
-//			Assert(
-//				(*slab->space.high.fe_info->partitioning_locally_owned_dofs)[block_component].n_elements(),
-//				dealii::ExcMessage("Error: (*slab->space.high.fe_info->partitioning_locally_owned_dofs)[block_component].n_elements() == 0")
-//			);
-//
-//			(*slab->space.high.fe_info->block_sizes)[block_component] =
-//				(*slab->space.high.fe_info->partitioning_locally_owned_dofs)[block_component].n_elements();
-//		}
 
 		// setup constraints (e.g. hanging nodes)
 		Assert(
@@ -1642,15 +1262,39 @@ distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>:
 		);
 		{
 			slab->space.high.fe_info->constraints->clear();
-			slab->space.high.fe_info->constraints->reinit();
+			slab->space.high.fe_info->constraints->reinit(*slab->space.high.fe_info->locally_relevant_dofs);
+
+			slab->space.high.fe_info->hanging_node_constraints->clear();
+			slab->space.high.fe_info->hanging_node_constraints->reinit(*slab->space.high.fe_info->locally_relevant_dofs);
+
+
+			slab->space.high.fe_info->initial_constraints->clear();
+			slab->space.high.fe_info->initial_constraints->reinit(*slab->space.high.fe_info->locally_relevant_dofs);
+			interpolate_dirichlet_bc(slab->space.high.fe_info->dof,
+					                 slab->space.high.fe_info->constraints,
+									 slab->t_m,false);
+
+			interpolate_dirichlet_bc(slab->space.high.fe_info->dof,
+									 slab->space.high.fe_info->initial_constraints,
+									 slab->t_m,true);
 
 			Assert(slab->space.high.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+
 			dealii::DoFTools::make_hanging_node_constraints(
 				*slab->space.high.fe_info->dof,
 				*slab->space.high.fe_info->constraints
 			);
-
+			dealii::DoFTools::make_hanging_node_constraints(
+				*slab->space.high.fe_info->dof,
+				*slab->space.high.fe_info->hanging_node_constraints
+			);
+			dealii::DoFTools::make_hanging_node_constraints(
+				*slab->space.high.fe_info->dof,
+				*slab->space.high.fe_info->initial_constraints
+			);
 			slab->space.high.fe_info->constraints->close();
+			slab->space.high.fe_info->hanging_node_constraints->close();
+			slab->space.high.fe_info->initial_constraints->close();
 		}
 	}
 
@@ -1684,12 +1328,13 @@ distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::i
 
 		// dof partitioning
 		slab->space.pu.fe_info->locally_owned_dofs =
-			std::make_shared< dealii::IndexSet > ();
-		*slab->space.pu.fe_info->locally_owned_dofs =
-			slab->space.pu.fe_info->dof->locally_owned_dofs();
+			std::make_shared< dealii::IndexSet > (slab->space.pu.fe_info->dof->locally_owned_dofs());
 
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs =
-			std::make_shared< std::vector< dealii::IndexSet > >();
+		slab->space.pu.fe_info->locally_relevant_dofs =
+			std::make_shared< dealii::IndexSet > ();
+
+		dealii::DoFTools::extract_locally_relevant_dofs(*slab->space.pu.fe_info->dof,
+				*slab->space.pu.fe_info->locally_relevant_dofs);
 
 		// setup constraints (e.g. hanging nodes)
 		Assert(
@@ -1698,7 +1343,7 @@ distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::i
 		);
 		{
 			slab->space.pu.fe_info->constraints->clear();
-			slab->space.pu.fe_info->constraints->reinit();
+			slab->space.pu.fe_info->constraints->reinit(*slab->space.pu.fe_info->locally_relevant_dofs);
 
 			Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 			dealii::DoFTools::make_hanging_node_constraints(
@@ -1720,16 +1365,131 @@ distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::i
 	}
 }
 
+
 template<int dim>
 void
 Grid<dim>::
-create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+interpolate_dirichlet_bc(std::shared_ptr<dealii::DoFHandler<dim>> dof,
+			                              std::shared_ptr<dealii::AffineConstraints<double>> constraints,
+										  double tm,
+										  bool inhom){
+
+
+
+
+	auto component_mask_convection =
+	dealii::ComponentMask (
+			(dim+1), true
+	);
+	component_mask_convection.set(dim,false);
+
+	if ( inhom ){
+		dirichlet_function->set_time(tm);
+		std::shared_ptr< dealii::VectorFunctionFromTensorFunction<dim>>
+		bc_fun = std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
+					*dirichlet_function,
+					0, (dim+1)
+		);
+
+		bc_fun ->set_time(tm);
+		dealii::VectorTools::interpolate_boundary_values(
+				*dof,
+				static_cast< dealii::types::boundary_id> (
+						fluid::types::space::boundary_id::prescribed_convection_c3+
+						fluid::types::space::boundary_id::prescribed_convection_c2+
+						fluid::types::space::boundary_id::prescribed_convection_c1
+				),
+				*bc_fun,
+				*constraints,
+				component_mask_convection
+		);
+		dealii::VectorTools::interpolate_boundary_values(
+				*dof,
+				static_cast< dealii::types::boundary_id> (
+						fluid::types::space::boundary_id::prescribed_convection_c2+
+						fluid::types::space::boundary_id::prescribed_convection_c1
+				),
+				*bc_fun,
+				*constraints,
+				component_mask_convection
+		);
+		dealii::VectorTools::interpolate_boundary_values(
+				*dof,
+				static_cast< dealii::types::boundary_id> (
+						fluid::types::space::boundary_id::prescribed_convection_c1
+				),
+				*bc_fun,
+				*constraints,
+				component_mask_convection
+		);
+	}
+	else {
+
+		dealii::VectorTools::interpolate_boundary_values(
+				*dof,
+				static_cast< dealii::types::boundary_id> (
+						fluid::types::space::boundary_id::prescribed_convection_c3+
+						fluid::types::space::boundary_id::prescribed_convection_c2+
+						fluid::types::space::boundary_id::prescribed_convection_c1
+				),
+				dealii::ZeroFunction<dim>(dim+1),
+				*constraints,
+				component_mask_convection
+		);
+		dealii::VectorTools::interpolate_boundary_values(
+				*dof,
+				static_cast< dealii::types::boundary_id> (
+						fluid::types::space::boundary_id::prescribed_convection_c2+
+						fluid::types::space::boundary_id::prescribed_convection_c1
+				),
+				dealii::ZeroFunction<dim>(dim+1),
+				*constraints,
+				component_mask_convection
+		);
+		dealii::VectorTools::interpolate_boundary_values(
+				*dof,
+				static_cast< dealii::types::boundary_id> (
+						fluid::types::space::boundary_id::prescribed_convection_c1
+				),
+				dealii::ZeroFunction<dim>(dim+1),
+				*constraints,
+				component_mask_convection
+		);
+	}
+	dealii::VectorTools::interpolate_boundary_values(
+			*dof,
+			static_cast< dealii::types::boundary_id> (
+					fluid::types::space::boundary_id::prescribed_no_slip
+			),
+			dealii::ZeroFunction<dim>(dim+1),
+			*constraints,
+			component_mask_convection
+	);
+	dealii::VectorTools::interpolate_boundary_values(
+			*dof,
+			static_cast< dealii::types::boundary_id> (
+					fluid::types::space::boundary_id::prescribed_no_slip+
+					fluid::types::space::boundary_id::prescribed_obstacle
+			),
+			dealii::ZeroFunction<dim>(dim+1),
+			*constraints,
+			component_mask_convection
+	);
+}
+
+template<int dim>
+void
+Grid<dim>::
+create_sparsity_pattern_primal_on_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr<dealii::TrilinosWrappers::SparseMatrix> L_spacetime,
+		std::shared_ptr<dealii::TrilinosWrappers::SparseMatrix> L_space)  {
 	////////////////////////////////////////////////////////////////////////
 	// space
 	{
 		// create sparsity pattern
 		Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-		slab->space.primal.sp_block_L = std::make_shared< dealii::SparsityPattern >(); // std::make_shared< dealii::BlockSparsityPattern >();
+//		slab->space.primal.sp_block_L = std::make_shared< dealii::SparsityPattern >(); // std::make_shared< dealii::BlockSparsityPattern >();
 		slab->space.primal.sp_L = std::make_shared< dealii::SparsityPattern >();
 
 		{
@@ -1781,75 +1541,104 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 				dsp,
 				*slab->space.primal.fe_info->constraints,
 				true // true => keep constrained entry in sparsity pattern
-// 					dealii::Utilities::MPI::this_mpi_process(mpi_comm)
+ 				,dealii::Utilities::MPI::this_mpi_process(mpi_comm)
 			);
 
-			dsp.compress();
+			//copy undistributed pattern for spacetime???
+			slab->space.primal.sp_L->copy_from(dsp);
 
-			Assert(
-				slab->space.primal.sp_block_L.use_count(),
-				dealii::ExcNotInitialized()
-			);
-			slab->space.primal.sp_block_L->copy_from(dsp);
+//			dealii::SparsityTools::distribute_sparsity_pattern(
+//					dsp,
+//					*slab->space.primal.fe_info->locally_owned_dofs,
+//					mpi_comm,
+//					*slab->space.primal.fe_info->locally_relevant_dofs
+//			);
+
+//			dsp.compress();
+//
+//			L_space->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
+//			        		*slab->space.primal.fe_info->locally_owned_dofs,
+//							dsp);
+//			Assert(
+//				slab->space.primal.sp_block_L.use_count(),
+//				dealii::ExcNotInitialized()
+//			);
+//			slab->space.primal.sp_block_L->copy_from(dsp);
 		}
 	}
 
+	//pattern for initial constraints (for projection only)
+	{
+			// create sparsity pattern
+			Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+
+			{
+				// logical coupling tables for basis function and corresponding blocks
+				dealii::Table<2,dealii::DoFTools::Coupling> coupling_block_L(
+					((dim)+1), // rows [phi, psi]
+					((dim)+1)  // cols [b, p]
+				);
+				{
+					// loop 0: init with non-coupling
+					for (unsigned int i{0}; i < dim+1; ++i)
+					for (unsigned int j{0}; j < dim+1; ++j) {
+						coupling_block_L[i][j] = dealii::DoFTools::none;
+					}
+
+					// (Dyn.) Stokes: saddle-point block structure:
+					//     [ K_bb | B_bp ], K_bb = M_bb + A_bb
+					// L = [-------------]
+					//     [ B_pb | 0    ]
+
+					// loop 1a: init with coupling for phi-phi (matrix K_bb)
+					for (unsigned int i{0}; i < dim; ++i)
+					for (unsigned int j{0}; j < dim; ++j) {
+						coupling_block_L[i][j] = dealii::DoFTools::always;
+					}
+					// loop 1b: init with coupling for phi-psi (matrix B_bp)
+					for (unsigned int i{0}; i < dim; ++i)
+					for (unsigned int j{dim}; j < dim+1; ++j) {
+						coupling_block_L[i][j] = dealii::DoFTools::always;
+					}
+					// loop 2a: init with coupling for psi-phi (matrix B_pb)
+					for (unsigned int i{dim}; i < dim+1; ++i)
+					for (unsigned int j{0}; j < dim; ++j) {
+						coupling_block_L[i][j] = dealii::DoFTools::always;
+					}
+				}
+
+				// create sparsity patterns from block couplings
+
+				// stokes: "L" block matrix
+				dealii::DynamicSparsityPattern dsp(slab->space.primal.fe_info->dof->n_dofs()); //dealii::BlockDynamicSparsityPattern dsp;
+
+				dealii::DoFTools::make_sparsity_pattern(
+					*slab->space.primal.fe_info->dof,
+					coupling_block_L,
+					dsp,
+					*slab->space.primal.fe_info->initial_constraints,
+					false // true => keep constrained entry in sparsity pattern
+	 				,dealii::Utilities::MPI::this_mpi_process(mpi_comm)
+				);
+
+				dealii::SparsityTools::distribute_sparsity_pattern(
+						dsp,
+						*slab->space.primal.fe_info->locally_owned_dofs,
+						mpi_comm,
+						*slab->space.primal.fe_info->locally_relevant_dofs
+				);
+
+				L_space->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
+				        		*slab->space.primal.fe_info->locally_owned_dofs,
+								dsp);
+			}
+		}
 	////////////////////////////////////////////////////////////////////////////
 	// space-time
 	//
 
-	// primal dof partitioning
-	{
-		slab->spacetime.primal.locally_owned_dofs =
-		std::make_shared< dealii::IndexSet > (
-			slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
-		);
 
-		for (dealii::types::global_dof_index time_dof_index{0};
-			time_dof_index < slab->time.primal.fe_info->dof->n_dofs(); ++time_dof_index) {
 
-			slab->spacetime.primal.locally_owned_dofs->add_indices(
-				*slab->space.primal.fe_info->locally_owned_dofs,
-				time_dof_index * slab->space.primal.fe_info->dof->n_dofs() // offset
-			);
-		}
-	}
-
-	// primal constraints
-	{
-		slab->spacetime.primal.constraints =
-			std::make_shared< dealii::AffineConstraints<double> > ();
-
-		Assert(
-			slab->spacetime.primal.constraints.use_count(),
-			dealii::ExcNotInitialized()
-		);
-
-		slab->spacetime.primal.constraints->clear();
-		slab->spacetime.primal.constraints->reinit();
-
-		slab->spacetime.primal.constraints->merge(
-			*slab->space.primal.fe_info->constraints
-		);
-
-		if (slab->time.primal.fe_info->dof->n_dofs() > 1) {
-			auto constraints = std::make_shared< dealii::AffineConstraints<double> > (
-				*slab->space.primal.fe_info->constraints
-			);
-			for (dealii::types::global_dof_index d{1};
-				d < slab->time.primal.fe_info->dof->n_dofs(); ++d) {
-				constraints->shift(
-					slab->space.primal.fe_info->dof->n_dofs()
-				);
-
-				slab->spacetime.primal.constraints->merge(
-					*constraints
-				);
-			}
-		}
-
-		slab->spacetime.primal.constraints->close();
-	}
 
 	// primal sparsity pattern (downwind test function in time)
 	{
@@ -1872,52 +1661,6 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 		//
 		// Step 2: create sparsity pattern for space-time tensor product.
 
-		// Step 1:
-		{
-			Assert(
-				slab->space.primal.sp_block_L.use_count(),
-				dealii::ExcNotInitialized()
-			);
-
-//			Assert(
-//				slab->space.primal.fe_info->block_sizes.use_count(),
-//				dealii::ExcNotInitialized()
-//			);
-
-			dealii::DynamicSparsityPattern dsp_transfer_L(
-				slab->space.primal.fe_info->dof->n_dofs(), // test
-				slab->space.primal.fe_info->dof->n_dofs()  // trial
-			);
-
-//			// K_bb block
-//			for ( auto &sp_entry : slab->space.primal.sp_block_L->block(0,0) ) {
-//				dsp_transfer_L.add(
-//					sp_entry.row(),
-//					sp_entry.column()
-//				);
-//			}
-//
-//			// E_bp block
-//			for ( auto &sp_entry : slab->space.primal.sp_block_L->block(0,1) ) {
-//				dsp_transfer_L.add(
-//					sp_entry.row(),
-//					sp_entry.column() + (*slab->space.primal.fe_info->block_sizes)[0]
-//				);
-//			}
-//
-//			// E_pb block
-//			for ( auto &sp_entry : slab->space.primal.sp_block_L->block(1,0) ) {
-//				dsp_transfer_L.add(
-//					sp_entry.row() + (*slab->space.primal.fe_info->block_sizes)[0],
-//					sp_entry.column()
-//				);
-//			}
-
-			slab->space.primal.sp_L = std::make_shared< dealii::SparsityPattern > ();
-			Assert(slab->space.primal.sp_L.use_count(), dealii::ExcNotInitialized());
-			slab->space.primal.sp_L = slab->space.primal.sp_block_L; //slab->space.primal.sp_L->copy_from(slab->space.primal.sp_block_L); // dsp_transfer_L);
-		}
-
 		// Step 2:
 
 		dealii::DynamicSparsityPattern dsp(
@@ -1925,65 +1668,43 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 			slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()  // trial
 		);
 
-		// get all dofs componentwise
-		std::vector< dealii::types::global_dof_index > dofs_per_component(
-			slab->space.primal.fe_info->dof->get_fe_collection().n_components(), 0
-		);
-
-		dofs_per_component = dealii::DoFTools::count_dofs_per_fe_component(
-			*slab->space.primal.fe_info->dof,
-			true
-		);
-
-		// set specific values of dof counts
-		dealii::types::global_dof_index N_b; // convection
-
-		// dof count convection: vector-valued primitive FE
-		N_b = 0;
-		for (unsigned int d{0}; d < dim; ++d) {
-			N_b += dofs_per_component[d];
-		}
-
 		{
 			// sparsity pattern block for coupling between time cells
 			// within the slab by downwind the test functions and a jump
 			// term (trace operator) on the trial functions
 			{
 				Assert(
-					slab->space.primal.sp_block_L.use_count(),
+					slab->space.primal.sp_L.use_count(),
 					dealii::ExcNotInitialized()
 				);
 
 				// TODO: use sp_L, once you have more time derivatives!
 				// NOTE: here we have only ((phi * \partial_t b)).
-				auto cell{slab->space.primal.sp_block_L->begin()};
-				auto endc{slab->space.primal.sp_block_L->end()};
+				auto cell{slab->space.primal.sp_L->begin()};
+				auto endc{slab->space.primal.sp_L->end()};
 
 				dealii::types::global_dof_index offset{0};
 				for ( ; cell != endc; ++cell) {
-					if (cell->row() < N_b && cell->column() < N_b) // only consider (v,v) entries of sparsity pattern
-					{
-						for (dealii::types::global_dof_index nn{0};
+					for (dealii::types::global_dof_index nn{0};
 							nn < slab->time.tria->n_global_active_cells(); ++nn) {
 
-							offset =
+						offset =
 								slab->space.primal.fe_info->dof->n_dofs() *
 								nn * slab->time.primal.fe_info->fe->dofs_per_cell;
 
-							if (nn)
+						if (nn)
 							for (unsigned int i{0}; i < slab->time.primal.fe_info->fe->dofs_per_cell; ++i)
-							for (unsigned int j{0}; j < slab->time.primal.fe_info->fe->dofs_per_cell; ++j) {
-								dsp.add(
-									// downwind test
-									cell->row() + offset
-									+ slab->space.primal.fe_info->dof->n_dofs() * i,
-									// trial functions of K^-
-									cell->column() + offset
-									- slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->fe->dofs_per_cell
-									+ slab->space.primal.fe_info->dof->n_dofs() * j
-								);
-							}
-						}
+								for (unsigned int j{0}; j < slab->time.primal.fe_info->fe->dofs_per_cell; ++j) {
+									dsp.add(
+											// downwind test
+											cell->row() + offset
+											+ slab->space.primal.fe_info->dof->n_dofs() * i,
+											// trial functions of K^-
+											cell->column() + offset
+											- slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->fe->dofs_per_cell
+											+ slab->space.primal.fe_info->dof->n_dofs() * j
+									);
+								}
 					}
 				}
 			}
@@ -2024,19 +1745,38 @@ create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::d
 			}
 		}
 
-		slab->spacetime.primal.sp = std::make_shared< dealii::SparsityPattern > ();
-		Assert(slab->spacetime.primal.sp.use_count(), dealii::ExcNotInitialized());
 
-// 			slab->spacetime.primal.constraints->condense(dsp);
+		Assert(slab->spacetime.primal.locally_owned_dofs.use_count(),
+				dealii::ExcNotInitialized());
 
-		slab->spacetime.primal.sp->copy_from(dsp);
+		Assert(slab->spacetime.primal.locally_relevant_dofs.use_count(),
+						dealii::ExcNotInitialized());
+//		{
+//		  static dealii::Utilities::MPI::CollectiveMutex      mutex;
+//		  dealii::Utilities::MPI::CollectiveMutex::ScopedLock lock(mutex, mpi_comm);
+//		  // [ critical code to be guarded]
+
+		dealii::SparsityTools::distribute_sparsity_pattern(
+				dsp,
+				*slab->spacetime.primal.locally_owned_dofs,
+				mpi_comm,
+				*slab->spacetime.primal.locally_relevant_dofs
+		);
+
+		L_spacetime->reinit(*slab->spacetime.primal.locally_owned_dofs,
+        		  *slab->spacetime.primal.locally_owned_dofs,
+				  dsp);
+//		}
 	}
+	slab->space.primal.sp_L=nullptr;
 }
 
 template<int dim>
 void
 Grid<dim>::
-create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+create_sparsity_pattern_dual_on_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr<dealii::TrilinosWrappers::SparseMatrix> L) {
 	////////////////////////////////////////////////////////////////////////
 	// space
 	{
@@ -2093,10 +1833,17 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 				dsp,
 				*slab->space.dual.fe_info->constraints,
 				true // true => keep constrained entry in sparsity pattern
-// 					dealii::Utilities::MPI::this_mpi_process(mpi_comm)
+				,dealii::Utilities::MPI::this_mpi_process(mpi_comm)
 			);
 
-			dsp.compress();
+			slab->space.dual.sp_L->copy_from(dsp);
+
+			dealii::SparsityTools::distribute_sparsity_pattern(
+					dsp,
+					*slab->space.dual.fe_info->locally_owned_dofs,
+					mpi_comm,
+					*slab->space.dual.fe_info->locally_relevant_dofs);
+//			dsp.compress();
 
 			Assert(
 				slab->space.dual.sp_block_L.use_count(),
@@ -2109,59 +1856,6 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 	////////////////////////////////////////////////////////////////////////////
 	// space-time
 	//
-
-	// dual dof partitioning
-	{
-		slab->spacetime.dual.locally_owned_dofs =
-		std::make_shared< dealii::IndexSet > (
-			slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
-		);
-
-		for (dealii::types::global_dof_index time_dof_index{0};
-			time_dof_index < slab->time.dual.fe_info->dof->n_dofs(); ++time_dof_index) {
-
-			slab->spacetime.dual.locally_owned_dofs->add_indices(
-				*slab->space.dual.fe_info->locally_owned_dofs,
-				time_dof_index * slab->space.dual.fe_info->dof->n_dofs() // offset
-			);
-		}
-	}
-
-	// dual constraints
-	{
-		slab->spacetime.dual.constraints =
-			std::make_shared< dealii::AffineConstraints<double> > ();
-
-		Assert(
-			slab->spacetime.dual.constraints.use_count(),
-			dealii::ExcNotInitialized()
-		);
-
-		slab->spacetime.dual.constraints->clear();
-		slab->spacetime.dual.constraints->reinit();
-
-		slab->spacetime.dual.constraints->merge(
-			*slab->space.dual.fe_info->constraints
-		);
-
-		if (slab->time.dual.fe_info->dof->n_dofs() > 1) {
-			auto constraints = std::make_shared< dealii::AffineConstraints<double> > (
-				*slab->space.dual.fe_info->constraints
-			);
-			for (dealii::types::global_dof_index d{1};
-				d < slab->time.dual.fe_info->dof->n_dofs(); ++d) {
-				constraints->shift(
-					slab->space.dual.fe_info->dof->n_dofs()
-				);
-
-				slab->spacetime.dual.constraints->merge(
-					*constraints
-				);
-			}
-		}
-
-		slab->spacetime.dual.constraints->close();
-	}
 
 	// dual sparsity pattern (upwind trial function in time)
 	{
@@ -2183,52 +1877,6 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 		//       derivative).
 		//
 		// Step 2: create sparsity pattern for space-time tensor product.
-
-		// Step 1:
-		{
-			Assert(
-				slab->space.dual.sp_block_L.use_count(),
-				dealii::ExcNotInitialized()
-			);
-
-//			Assert(
-//				slab->space.dual.fe_info->block_sizes.use_count(),
-//				dealii::ExcNotInitialized()
-//			);
-
-			dealii::DynamicSparsityPattern dsp_transfer_L(
-				slab->space.dual.fe_info->dof->n_dofs(), // test
-				slab->space.dual.fe_info->dof->n_dofs()  // trial
-			);
-
-//			// K_bb block
-//			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(0,0) ) {
-//				dsp_transfer_L.add(
-//					sp_entry.row(),
-//					sp_entry.column()
-//				);
-//			}
-//
-//			// E_bp block
-//			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(0,1) ) {
-//				dsp_transfer_L.add(
-//					sp_entry.row(),
-//					sp_entry.column() + (*slab->space.dual.fe_info->block_sizes)[0]
-//				);
-//			}
-//
-//			// E_pb block
-//			for ( auto &sp_entry : slab->space.dual.sp_block_L->block(1,0) ) {
-//				dsp_transfer_L.add(
-//					sp_entry.row() + (*slab->space.dual.fe_info->block_sizes)[0],
-//					sp_entry.column()
-//				);
-//			}
-
-			slab->space.dual.sp_L = std::make_shared< dealii::SparsityPattern > ();
-			Assert(slab->space.dual.sp_L.use_count(), dealii::ExcNotInitialized());
-			slab->space.dual.sp_L = slab->space.dual.sp_block_L; //slab->space.dual.sp_L->copy_from(dsp_transfer_L);
-		}
 
 		// Step 2:
 
@@ -2268,34 +1916,31 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 
 				// TODO: use sp_L, once you have more time derivatives!
 				// NOTE: here we have only ((phi * \partial_t b)).
-				auto cell{slab->space.dual.sp_block_L->begin()}; // block(0,0)
-				auto endc{slab->space.dual.sp_block_L->end()}; // block(0,0)
+				auto cell{slab->space.dual.sp_L->begin()}; // block(0,0)
+				auto endc{slab->space.dual.sp_L->end()}; // block(0,0)
 
 				dealii::types::global_dof_index offset{0};
 				for ( ; cell != endc; ++cell) {
-					if (cell->row() < N_b && cell->column() < N_b) // only consider (v,v) entries of sparsity pattern
-					{
-						for (dealii::types::global_dof_index nn{0};
+					for (dealii::types::global_dof_index nn{0};
 							nn < slab->time.tria->n_global_active_cells(); ++nn) {
 
-							offset =
+						offset =
 								slab->space.dual.fe_info->dof->n_dofs() *
 								nn * slab->time.dual.fe_info->fe->dofs_per_cell;
 
-							if (nn)
+						if (nn)
 							for (unsigned int i{0}; i < slab->time.dual.fe_info->fe->dofs_per_cell; ++i)
-							for (unsigned int j{0}; j < slab->time.dual.fe_info->fe->dofs_per_cell; ++j) {
-								dual_dsp.add(
-									// test
-									cell->row() + offset
-									- slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->fe->dofs_per_cell
-									+ slab->space.dual.fe_info->dof->n_dofs() * i,
-									// trial
-									cell->column() + offset
-									+ slab->space.dual.fe_info->dof->n_dofs() * j
-								);
-							}
-						}
+								for (unsigned int j{0}; j < slab->time.dual.fe_info->fe->dofs_per_cell; ++j) {
+									dual_dsp.add(
+											// test
+											cell->row() + offset
+											- slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->fe->dofs_per_cell
+											+ slab->space.dual.fe_info->dof->n_dofs() * i,
+											// trial
+											cell->column() + offset
+											+ slab->space.dual.fe_info->dof->n_dofs() * j
+									);
+								}
 					}
 				}
 			}
@@ -2336,15 +1981,21 @@ create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr
 			}
 		}
 
-		slab->spacetime.dual.sp = std::make_shared< dealii::SparsityPattern > ();
-		Assert(slab->spacetime.dual.sp.use_count(), dealii::ExcNotInitialized());
+		dealii::SparsityTools::distribute_sparsity_pattern(
+				dual_dsp,
+				*slab->spacetime.dual.locally_owned_dofs,
+				mpi_comm,
+				*slab->spacetime.dual.locally_relevant_dofs
+		);
 
-// 			slab->spacetime.dual.constraints->condense(dual_dsp);
+		L->reinit(
+				*slab->spacetime.dual.locally_owned_dofs,
+				*slab->spacetime.dual.locally_owned_dofs,
+				dual_dsp
+		);
 
-		slab->spacetime.dual.sp->copy_from(dual_dsp);
 	}
 }
-
 
 template<int dim>
 void

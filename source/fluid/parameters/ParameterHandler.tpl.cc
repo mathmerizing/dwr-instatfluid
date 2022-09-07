@@ -66,6 +66,20 @@ ParameterHandler() {
 		);
 
 		declare_entry(
+			"primal projection type",
+			"none",
+			dealii::Patterns::Anything(),
+			"determines which projection should be used for div-correction"
+		);
+
+		declare_entry(
+			"dual projection type",
+			"none",
+			dealii::Patterns::Anything(),
+			"determines which projection should be used for div-correction"
+		);
+
+		declare_entry(
 			"primal order",
 			"low",
 			dealii::Patterns::Anything()
@@ -307,6 +321,13 @@ ParameterHandler() {
 			"0",
 			dealii::Patterns::Integer(),
 			"Global refinements of the intial time mesh"
+		);
+
+		declare_entry(
+			"maximum number of intervals per slab",
+			"1",
+			dealii::Patterns::Integer(),
+			"Defines when a slab should be split into two slabs"
 		);
 	}
 	leave_subsection();

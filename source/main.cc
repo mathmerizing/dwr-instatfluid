@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
 	//       which can be extended to a MPI-version.
 	//
 	
-	AssertThrow(NumProc == 1, dealii::ExcMessage("MPI mode not supported."));
+//	AssertThrow(NumProc == 1, dealii::ExcMessage("MPI mode not supported."));
 	
 	//
 	////////////////////////////////////////////////////////////////////////////

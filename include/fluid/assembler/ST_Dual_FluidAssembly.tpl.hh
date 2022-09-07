@@ -57,7 +57,7 @@
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/full_matrix.h>
-#include <deal.II/lac/sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
 
 // C++ includes
 #include <memory>
@@ -157,6 +157,8 @@ struct FluidAssembly{
 	
 	FluidAssembly(const FluidAssembly &copydata);
 	
+	dealii::FullMatrix<double> local_matrix;
+	std::vector<dealii::types::global_dof_index> new_local_dof_indices;
 	std::vector< dealii::FullMatrix<double> > vi_ui_matrix;
 	std::vector< dealii::FullMatrix<double> > ve_ui_matrix;
 	std::vector< std::vector<dealii::types::global_dof_index> > local_dof_indices;
@@ -183,9 +185,9 @@ public:
 	void set_time_quad_type(std::string quad_type);
 
 	void assemble(
-		std::shared_ptr< dealii::SparseMatrix<double> > L,
+		std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > L,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	    std::shared_ptr< dealii::Vector<double> > _u,
+	    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _u,
 		bool _nonlin = false
 	);
 	
@@ -201,7 +203,7 @@ protected:
 	);
 	
 private:
-	std::shared_ptr< dealii::SparseMatrix<double> > L;
+	std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > L;
 	
 	bool nonlin;
 
@@ -250,7 +252,7 @@ private:
 	
 	dealii::FEValuesExtractors::Vector convection;
 	dealii::FEValuesExtractors::Scalar pressure;
-    std::shared_ptr< dealii::Vector<double> > u;
+    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u;
 };
 
 }}}} // namespaces

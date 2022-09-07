@@ -242,9 +242,9 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::Vector<double> > _Fu,  // output
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector> _Fu,  // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-    std::shared_ptr< dealii::Vector<double> > _u,
+    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector> _u,
 	bool _nonlin
 ) {
 	////////////////////////////////////////////////////////////////////////////
@@ -359,6 +359,8 @@ assemble(
 			time.n_global_active_cells
 		)
 	);
+
+	Fu->compress(dealii::VectorOperation::add);
 }
 
 /// Local assemble on cell.

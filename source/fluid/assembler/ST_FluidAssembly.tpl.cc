@@ -176,41 +176,20 @@ FluidAssembly<dim>::FluidAssembly(
 	const dealii::FiniteElement<dim> &fe_s,
 	const dealii::FiniteElement<1> &fe_t,
 	const dealii::types::global_dof_index &n_global_active_cells_t) :
-	vi_ui_matrix(
-		n_global_active_cells_t, // n_cells time
-		dealii::FullMatrix<double> (
-			fe_s.dofs_per_cell * fe_t.dofs_per_cell,
-			fe_s.dofs_per_cell * fe_t.dofs_per_cell
-		)
-	),
-	vi_ue_matrix(
-		n_global_active_cells_t-1, // n_cells time -1
-		dealii::FullMatrix<double> (
-			fe_s.dofs_per_cell * fe_t.dofs_per_cell,
-			fe_s.dofs_per_cell * fe_t.dofs_per_cell
-		)
+	local_matrix(
+			n_global_active_cells_t*fe_s.dofs_per_cell * fe_t.dofs_per_cell,
+			n_global_active_cells_t*fe_s.dofs_per_cell * fe_t.dofs_per_cell
 	),
 	local_dof_indices(
-		n_global_active_cells_t, // n_cells time
-		std::vector<dealii::types::global_dof_index>(
-			fe_s.dofs_per_cell * fe_t.dofs_per_cell
-		)
-	),
-	local_dof_indices_neighbor(
-		n_global_active_cells_t-1, // n_cells time - 1
-		std::vector<dealii::types::global_dof_index>(
-			fe_s.dofs_per_cell * fe_t.dofs_per_cell
-		)
-	) {
+			n_global_active_cells_t*fe_s.dofs_per_cell * fe_t.dofs_per_cell
+	){
 }
 
 template<int dim>
 FluidAssembly<dim>::FluidAssembly(const FluidAssembly &copydata) :
-	vi_ui_matrix(copydata.vi_ui_matrix),
-	vi_ue_matrix(copydata.vi_ue_matrix),
-	local_dof_indices(copydata.local_dof_indices),
-	local_dof_indices_neighbor(copydata.local_dof_indices_neighbor) {
-}
+	local_matrix(copydata.local_matrix),
+	local_dof_indices(copydata.local_dof_indices)
+{}
 
 }}
 ////////////////////////////////////////////////////////////////////////////////
@@ -243,9 +222,9 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::SparseMatrix<double> > _L,
+	std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > _L,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-    std::shared_ptr< dealii::Vector<double> > _u,
+    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _u,
 	bool _nonlin
 ) {
 	////////////////////////////////////////////////////////////////////////////
@@ -339,6 +318,7 @@ assemble(
 	FilteredIterator<const typename dealii::DoFHandler<dim>::active_cell_iterator>
 	CellFilter;
 	
+//	std::cout << "starting workstream" << std::endl;
 	// Using WorkStream to assemble.
 	dealii::WorkStream::
 	run(
@@ -377,6 +357,10 @@ assemble(
 			time.n_global_active_cells
 		)
 	);
+
+//	std::cout << "Workstream done, compressing" << std::endl;
+//	exit(EXIT_SUCCESS);
+	L->compress(dealii::VectorOperation::add);
 }
 
 
@@ -386,7 +370,10 @@ void Assembler<dim>::local_assemble_cell(
 	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
 	Assembly::Scratch::FluidAssembly<dim> &scratch,
 	Assembly::CopyData::FluidAssembly<dim> &copydata) {
+
+
 	cell->get_dof_indices(scratch.space_local_dof_indices);
+//	std::cout << "element " << cell->index() << std::endl;
 	scratch.space_fe_values.reinit(cell);
 	
 	auto cell_time = time.dof->begin_active();
@@ -394,24 +381,25 @@ void Assembler<dim>::local_assemble_cell(
 	
 // 	for (unsigned int n{0}; n < time.n_global_active_cells; ++n)
 	unsigned int n;
+	copydata.local_matrix = 0;
+//	unsigned int global_offset = time.fe->dofs_per_cell *space.dof->n_dofs();
+	unsigned int element_offset = time.fe->dofs_per_cell *space.fe->dofs_per_cell;
 	for ( ; cell_time != endc_time; ++cell_time) {
 		n=cell_time->index();
-		copydata.vi_ui_matrix[n] = 0;
 		
 		// dof mapping
 		cell_time->get_dof_indices(scratch.time_local_dof_indices);
 		for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
 		for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii) {
-			copydata.local_dof_indices[n][
-				i + ii*space.fe->dofs_per_cell
+			copydata.local_dof_indices[
+							i+ii*space.fe->dofs_per_cell+n*element_offset
 			] =
 				scratch.space_local_dof_indices[i]
 				+ scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
+
 		}
-		
 		// prefetch data
-		
-		
+
 		
 		
 		// assemble: volume
@@ -451,13 +439,6 @@ void Assembler<dim>::local_assemble_cell(
 										+ space.dof->n_dofs() *
 											scratch.time_local_dof_indices[ii]
 															  ];
-//							scratch.space_local_dof_indices[i]
-//								// time offset
-//								+ space.dof->n_dofs() *
-//								   (n * time.fe->dofs_per_cell)
-//								// local in time dof
-//								+ space.dof->n_dofs() * ii
-//								];
 
 						// all other evals use shape values in time, so multiply only once
 						u_i_ii *= scratch.time_fe_values.shape_value(ii,qt);
@@ -474,9 +455,9 @@ void Assembler<dim>::local_assemble_cell(
 					for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
 					for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
 					for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-						copydata.vi_ui_matrix[n](
-							i + ii*space.fe->dofs_per_cell,
-							j + jj*space.fe->dofs_per_cell
+						copydata.local_matrix(
+							i + ii*space.fe->dofs_per_cell + n*element_offset,
+							j + jj*space.fe->dofs_per_cell + n*element_offset
 						) +=
 							// convection C(u)_bb
 							(
@@ -499,10 +480,10 @@ void Assembler<dim>::local_assemble_cell(
 				for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
 				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
 				for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-					copydata.vi_ui_matrix[n](
-						i + ii*space.fe->dofs_per_cell,
-						j + jj*space.fe->dofs_per_cell
-					) += 
+					copydata.local_matrix(
+							i + ii*space.fe->dofs_per_cell + n*element_offset,
+							j + jj*space.fe->dofs_per_cell + n*element_offset
+					) +=
 						// convection M_bb: w^+(x,t) * \partial_t b^+(x,t)
 						(  scratch.space_fe_values[convection].value(i,q)
 								* scratch.time_fe_values.shape_value(ii,qt) *
@@ -574,10 +555,10 @@ void Assembler<dim>::local_assemble_cell(
  			for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
  			for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
  			for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
- 				copydata.vi_ui_matrix[n](
- 					i + ii*space.fe->dofs_per_cell,
- 					j + jj*space.fe->dofs_per_cell
- 				) +=
+				copydata.local_matrix(
+						i + ii*space.fe->dofs_per_cell + n*element_offset,
+						j + jj*space.fe->dofs_per_cell + n*element_offset
+				) +=
  					// trace operator:  w(x,t_0)^+ * u(x,t_0)^+
  					scratch.space_fe_values[convection].value(i,q)
  						* scratch.time_fe_face_values.shape_value(ii,0) *
@@ -592,18 +573,6 @@ void Assembler<dim>::local_assemble_cell(
 		
  		// assemble: face (w^+ * u^-)
  		if (n) {
- 			copydata.vi_ue_matrix[n-1] = 0;
-
- 			// dof mapping
- 			for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
- 			for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii) {
- 				copydata.local_dof_indices_neighbor[n-1][
- 					i + ii*space.fe->dofs_per_cell
- 				] =
- 					scratch.space_local_dof_indices[i]
- 					+ scratch.time_local_dof_indices_neighbor[ii]
- 						* space.dof->n_dofs();
- 			}}
 
  			// assemble: face (w^+ * u^-)
  			for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
@@ -611,10 +580,10 @@ void Assembler<dim>::local_assemble_cell(
  				for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
  				for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
  				for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
- 					copydata.vi_ue_matrix[n-1](
- 						i + ii*space.fe->dofs_per_cell,
- 						j + jj*space.fe->dofs_per_cell
- 					) -=
+					copydata.local_matrix(
+						i + ii*space.fe->dofs_per_cell + n*element_offset,
+						j + jj*space.fe->dofs_per_cell + (n-1)*element_offset
+					) -=
  						// trace operator: - w(x,t_0)^+ * u(x,t_0)^-
  						scratch.space_fe_values[convection].value(i,q)
  							* scratch.time_fe_face_values.shape_value(ii,0) *
@@ -644,39 +613,12 @@ void Assembler<dim>::local_assemble_cell(
 template<int dim>
 void Assembler<dim>::copy_local_to_global_cell(
 	const Assembly::CopyData::FluidAssembly<dim> &copydata) {
-	Assert(copydata.vi_ui_matrix.size(), dealii::ExcNotInitialized());
-	Assert(
-		(copydata.vi_ui_matrix.size()-1 == copydata.vi_ue_matrix.size()),
-		dealii::ExcInvalidState()
+
+	spacetime.constraints->distribute_local_to_global(
+		copydata.local_matrix,
+		copydata.local_dof_indices,
+		*L
 	);
-	Assert(
-		copydata.vi_ui_matrix.size() == copydata.local_dof_indices.size(),
-		dealii::ExcNotInitialized()
-	);
-	Assert(
-		copydata.vi_ue_matrix.size() == copydata.local_dof_indices_neighbor.size(),
-		dealii::ExcNotInitialized()
-	);
-	
-	for (unsigned int n{0}; n < copydata.vi_ui_matrix.size(); ++n) {
-		// volume ((w,u))_Q + trace (jump) (w^+,u^+)_Omega
-		spacetime.constraints->distribute_local_to_global(
-			copydata.vi_ui_matrix[n],
-			copydata.local_dof_indices[n],
-			copydata.local_dof_indices[n],
-			*L
-		);
-	}
-	
-	for (unsigned int n{1}; n <= copydata.vi_ue_matrix.size(); ++n) {
-		// trace (jump) - (w^+,u^-)_Omega
-		spacetime.constraints->distribute_local_to_global(
-			copydata.vi_ue_matrix[n-1],
-			copydata.local_dof_indices[n],
-			copydata.local_dof_indices_neighbor[n-1],
-			*L
-		);
-	}
 }
 
 }}}

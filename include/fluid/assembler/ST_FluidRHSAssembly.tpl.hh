@@ -62,7 +62,8 @@
 #include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/full_matrix.h>
-#include <deal.II/lac/sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/trilinos_vector.h>
 
 // C++ includes
 #include <memory>
@@ -170,9 +171,9 @@ public:
 	void set_time_quad_type(std::string quad_type);
 
 	void assemble(
-		std::shared_ptr< dealii::Vector<double> > Fu,  // output
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Fu,  // output
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	    std::shared_ptr< dealii::Vector<double> > _u,
+	    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _u,
 		bool _nonlin = false
 	);
 	
@@ -189,7 +190,7 @@ protected:
 	
 private:
 	////////////////////////////////////////////////////////////////////////////
-	std::shared_ptr< dealii::Vector<double> > Fu;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Fu;
 
 	bool nonlin;
 
@@ -222,7 +223,7 @@ private:
 	// FEValuesExtractors for the Tensor<1,dim> convection field and the pressure
 	dealii::FEValuesExtractors::Vector convection;
 	dealii::FEValuesExtractors::Scalar pressure;
-    std::shared_ptr< dealii::Vector<double> > u;
+    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u;
 };
 
 }}} // namespaces

@@ -59,12 +59,12 @@ struct s_slab {
 		   std::shared_ptr< dealii::FESystem<dim> > fe;
 		   std::shared_ptr< dealii::Mapping<dim> >  mapping;
 
-		   std::shared_ptr< dealii::IndexSet >
-				   locally_owned_dofs;
-		   std::shared_ptr< std::vector< dealii::IndexSet > >
-				   partitioning_locally_owned_dofs;
+		   std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+		   std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
 
+		   std::shared_ptr< dealii::AffineConstraints<double> > initial_constraints;
 		   std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+		   std::shared_ptr< dealii::AffineConstraints<double> > hanging_node_constraints;
 	};
 
 	struct ScalarFESpaceInfo {
@@ -72,10 +72,9 @@ struct s_slab {
 		   std::shared_ptr< dealii::FiniteElement<dim> > fe;
 		   std::shared_ptr< dealii::Mapping<dim> >  mapping;
 
-		   std::shared_ptr< dealii::IndexSet >
-				   locally_owned_dofs;
-		   std::shared_ptr< std::vector< dealii::IndexSet > >
-				   partitioning_locally_owned_dofs;
+		   std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+		   std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
+
 		   std::shared_ptr< std::vector< dealii::types::global_dof_index > >
 				   block_sizes;
 
@@ -84,7 +83,7 @@ struct s_slab {
 
 	struct {
 		/// deal.II Triangulation<dim> for \f$ \Omega_h \f$ on \f$ I_n \f$.
-		std::shared_ptr< dealii::Triangulation<dim> > tria;
+		std::shared_ptr< dealii::parallel::distributed::Triangulation<dim> > tria;
 		
 		// additional data for slab
 		struct {
@@ -97,8 +96,8 @@ struct s_slab {
  		struct {
 			std::shared_ptr< struct FESpaceInfo > fe_info;
 
- 			std::shared_ptr< dealii::SparsityPattern > sp_block_L;
- 			std::shared_ptr< dealii::SparsityPattern > sp_L;
+			std::shared_ptr< dealii::SparsityPattern > sp_block_L;
+			std::shared_ptr< dealii::SparsityPattern > sp_L;
  		} dual;
 
  		struct {
@@ -150,15 +149,28 @@ struct s_slab {
 	struct {
 		struct {
 			std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+			std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
+
 			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
-			std::shared_ptr< dealii::SparsityPattern > sp;
+			std::shared_ptr< dealii::AffineConstraints<double> > hanging_node_constraints;
+			std::shared_ptr< dealii::TrilinosWrappers::SparsityPattern > sp;
 		} primal;
 		
  		struct {
  			std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+ 			std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
+
  			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
- 			std::shared_ptr< dealii::SparsityPattern > sp;
+
+ 			std::shared_ptr< dealii::AffineConstraints<double> > hanging_node_constraints;
+ 			std::shared_ptr< dealii::TrilinosWrappers::SparsityPattern > sp;
  		} dual;
+
+ 		struct {
+ 			std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+ 			std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
+ 			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+ 		} pu;
 	} spacetime;
 	
 	double t_m; ///< left endpoint of \f$ I_n=(t_m, t_n) \f$

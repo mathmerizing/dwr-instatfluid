@@ -61,7 +61,7 @@
 #include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/full_matrix.h>
-#include <deal.II/lac/sparse_matrix.h>
+#include <deal.II/lac/trilinos_vector.h>
 
 // C++ includes
 #include <memory>
@@ -130,8 +130,8 @@ public:
 	~Assembler() = default;
 	
 	void assemble(
-		std::shared_ptr< dealii::Vector<double> > um,  // input
-		std::shared_ptr< dealii::Vector<double> > Mum, // output
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > um,  // input
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Mum, // output
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 	
@@ -148,8 +148,8 @@ protected:
 	
 private:
 	////////////////////////////////////////////////////////////////////////////
-	std::shared_ptr< dealii::Vector<double> > um;
-	std::shared_ptr< dealii::Vector<double> > Mum;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > um;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Mum;
 	
 	struct {
 		std::shared_ptr< dealii::DoFHandler<dim> > dof;

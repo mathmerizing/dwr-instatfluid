@@ -59,6 +59,9 @@ struct ParameterSet {
 	struct {
 		bool symmetric_stress;
 
+		std::string primal_projection_type;
+		std::string dual_projection_type;
+
 		struct FEDescription {
 			struct {
 				std::string space_type;
@@ -120,6 +123,7 @@ struct ParameterSet {
 			double T;
 			double tau_n;
 			unsigned int initial_time_tria_refinement;
+			unsigned int max_intervals_per_slab;
 		} fluid;
 	} time;
 	

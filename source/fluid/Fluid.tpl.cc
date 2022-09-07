@@ -107,6 +107,8 @@ using ProjectionRHSAssembler = projectionrhs::spacetime::Operator::Assembler<dim
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
+#include <ideal.II/dofs/SlabDoFTools.hh>
+
 namespace fluid {
 
 template<int dim>
@@ -279,22 +281,12 @@ run() {
 				grid->refine_global(1, 0); // refine grid in space
 			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global_time"))
 			{
-				// splitting each slab into two slabs
-				auto slab{grid->slabs.begin()};
-				auto ends{grid->slabs.end()};
-				for (; slab != ends; ++slab)
-					grid->refine_slab_in_time(slab);
+				grid->refine_global(0,1);
 			}
 			else if	(!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global"))
 			{
 				// refine grid in space
-				grid->refine_global(1, 0);
-
-				// splitting each slab into two slabs
-				auto slab{grid->slabs.begin()};
-				auto ends{grid->slabs.end()};
-				for (; slab != ends; ++slab)
-					grid->refine_slab_in_time(slab);
+				grid->refine_global(1, 1);
 			}
 			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
 				refine_and_coarsen_space_time_grid(dwr_loop-1); // do adaptive space-time mesh refinements and coarsenings
@@ -316,6 +308,7 @@ run() {
 		primal_reinit_storage();
 		primal_init_data_output();
 		primal_do_forward_TMS(dwr_loop, false);
+
 
 		// dual problem
 		dual_reinit_storage();
@@ -411,6 +404,10 @@ init_grid() {
 	DTM::pout
 		<< "grid: number of slabs = " << grid->slabs.size()
 		<< std::endl;
+
+
+	Assert(function.convection.dirichlet.use_count(), dealii::ExcNotInitialized());
+	grid->set_dirichlet_function(function.convection.dirichlet);
 }
 
 
@@ -477,6 +474,13 @@ init_newton_parameters() {
 			  << "\n\t\tmaximum # of steps = " << newton.line_search_steps
 			  << "\n\t\tdamping factor = " << newton.line_search_damping
 			  << std::endl << std::endl;
+
+
+	primal.sc = std::make_shared<dealii::SolverControl> (10000,newton.lower_bound*1.0e-08,false,false);
+	primal.ad = std::make_shared<dealii::TrilinosWrappers::SolverDirect::AdditionalData>(false,"Amesos_Mumps");
+
+	dual.sc = std::make_shared<dealii::SolverControl> (10000,newton.lower_bound*1.0e-08,false,false);
+	dual.ad = std::make_shared<dealii::TrilinosWrappers::SolverDirect::AdditionalData>(false,"Amesos_Mumps");
 }
 ////////////////////////////////////////////////////////////////////////////////
 // primal problem
@@ -495,14 +499,14 @@ primal_reinit_storage() {
 	Assert(grid.use_count(), dealii::ExcNotInitialized());
 	
 	primal.storage.u =
-		std::make_shared< DTM::types::storage_data_vectors<1> > ();
+		std::make_shared< DTM::types::storage_data_trilinos_vectors<1> > ();
 	
 	primal.storage.u->resize(
 		static_cast<unsigned int>(grid->slabs.size())
 	);
 
 	primal.storage.um =
-		std::make_shared< DTM::types::storage_data_vectors<1> > ();
+		std::make_shared< DTM::types::storage_data_trilinos_vectors<1> > ();
 
 	primal.storage.um->resize(
 		static_cast<unsigned int>(grid->slabs.size())
@@ -514,12 +518,12 @@ void
 Fluid<dim>::
 primal_reinit_storage_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &x,
-	const typename DTM::types::storage_data_vectors<1>::iterator &xm
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &xm
 ) {
 	for (unsigned int j{0}; j < x->x.size(); ++j) {
 		// x
-		x->x[j] = std::make_shared< dealii::Vector<double> > ();
+		x->x[j] = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 		Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
 
@@ -534,14 +538,18 @@ primal_reinit_storage_on_slab(
 		);
 
 		x->x[j]->reinit(
-			slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
+			*slab->spacetime.primal.locally_owned_dofs,
+			*slab->spacetime.primal.locally_relevant_dofs,
+			mpi_comm
 		);
 
 		// xm
-		xm->x[j] = std::make_shared< dealii::Vector<double> > ();
+		xm->x[j] = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 		xm->x[j]->reinit(
-			slab->space.primal.fe_info->dof->n_dofs()
+			*slab->space.primal.fe_info->locally_owned_dofs,
+			*slab->space.primal.fe_info->locally_relevant_dofs,
+			mpi_comm
 		);
 	}
 }
@@ -551,16 +559,10 @@ void
 Fluid<dim>::
 primal_assemble_system(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::shared_ptr< dealii::Vector<double > > u
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 ) {
 	// ASSEMBLY SPACE-TIME OPERATOR MATRIX /////////////////////////////////////
-	Assert(
-		slab->spacetime.primal.sp.use_count(),
-		dealii::ExcNotInitialized()
-	);
-	
-	primal.L = std::make_shared< dealii::SparseMatrix<double> > ();
-	primal.L->reinit(*slab->spacetime.primal.sp);
+
 	*primal.L = 0;
 	
 	{
@@ -597,11 +599,10 @@ void
 Fluid<dim>::
 primal_assemble_const_rhs(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &um,
-	std::map<dealii::types::global_dof_index, double> &boundary_values
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &um
 ) {
 	// ASSEMBLY SPACE-TIME OPERATOR: InitialValue VECTOR ///////////////////////
-	primal.Mum = std::make_shared< dealii::Vector<double> > ();
+	primal.Mum = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 	
 	Assert(
 		slab->space.primal.fe_info->dof.use_count(),
@@ -611,332 +612,101 @@ primal_assemble_const_rhs(
 		slab->time.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
 	);
-	
-	primal.projection_matrix = std::make_shared< dealii::SparseMatrix<double> > ();
-	primal.projection_matrix->reinit(*slab->space.primal.sp_L);
-	*primal.projection_matrix = 0;
 
-	primal.projection_rhs = std::make_shared< dealii::Vector<double> > ();
-	primal.projection_rhs->reinit(slab->space.primal.fe_info->dof->n_dofs());
-	*primal.projection_rhs = 0;
+	Assert(um->x[0].use_count(),dealii::ExcNotInitialized());
 
-	// use divergence-free projection on primal.um
-	{
-		DTM::pout << "dwr-instatfluid: divergence free projection (gradient=" << (use_gradient_projection ? "true" : "false") << ")...";
+//	*um->x[0] = *primal.um;
+	if (!parameter_set->fe.primal_projection_type.compare("none")){
+		*um->x[0] = *primal.um;
+	}
+	else { //do L2 or H1 projection
 
-		// 1. assemble projection matrix
-		ProjectionAssembler<dim> matrix_assembler;
-		matrix_assembler.set_gradient_projection(use_gradient_projection); // TRUE: use H^1_0 projection; FALSE: use L^2 projection
 
-		Assert(primal.projection_matrix.use_count(), dealii::ExcNotInitialized());
-		matrix_assembler.assemble(
-			primal.projection_matrix,
-			slab
-		);
+		*primal.projection_matrix = 0;
 
-		// 2. assemble projection rhs
-		ProjectionRHSAssembler<dim> rhs_assembler;
-		rhs_assembler.set_gradient_projection(use_gradient_projection); // TRUE: use H^1_0 projection; FALSE: use L^2 projection
 
-		Assert(primal.um.use_count(), dealii::ExcNotInitialized());
-		Assert(primal.projection_rhs.use_count(), dealii::ExcNotInitialized());
-		rhs_assembler.assemble(
-			primal.um,
-			primal.projection_rhs,
-			slab
-		);
+		primal.projection_rhs = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		primal.projection_rhs->reinit(*slab->space.primal.fe_info->locally_owned_dofs,mpi_comm);
+		*primal.projection_rhs = 0;
 
-		// 3. apply boundary values and hanging nodes to the linear system of the projection
-		// NOTE: primal_apply_bc(boundary_values, primal.projection_matrix, primal.um_projected, primal.projection_rhs);
-		// The above line doesn't work, because boundary_values is space-time and projection_matrix is only space, hence these are not the correct BC
+		primal.um_projected = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		primal.um_projected->reinit(*slab->space.primal.fe_info->locally_owned_dofs,mpi_comm);
+		*primal.um_projected = 0;
 
-		{
-			std::map<dealii::types::global_dof_index, double> boundary_values;
+		auto tmp_relevant = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		tmp_relevant->reinit(
+				*slab->space.primal.fe_info->locally_owned_dofs,
+				*slab->space.primal.fe_info->locally_relevant_dofs,
+				mpi_comm);
+		*tmp_relevant = *primal.um;
 
-			auto dirichlet_function =
-			std::make_shared< dealii::VectorFunctionFromTensorFunction<dim> > (
-				*function.convection.dirichlet,
-				0, (dim+1)
-			);
-
-			// get all boundary colours on the current triangulation
-			std::unordered_set< dealii::types::boundary_id > boundary_colours;
-			{
-				auto cell = slab->space.tria->begin_active();
-				auto endc = slab->space.tria->end();
-				for ( ; cell != endc; ++cell) {
-				if (cell->at_boundary()) {
-					// loop over all faces
-					for (unsigned int face_no{0};
-						face_no < dealii::GeometryInfo<dim>::faces_per_cell;
-						++face_no) {
-					if (cell->face(face_no)->at_boundary()) {
-						auto face = cell->face(face_no);
-						boundary_colours.insert(
-							static_cast< unsigned int > (face->boundary_id())
-						);
-					}}
-				}}
-			}
-
-			// process all found boundary colours
-			for (auto colour : boundary_colours) {
-				//////////////////////////////////////
-				// component wise convection dirichlet
-				//
-
-				auto component_mask_convection =
-				std::make_shared< dealii::ComponentMask > (
-					(dim+1), false
-				);
-
-				switch (dim) {
-				case 3:
-					if (colour & static_cast< dealii::types::boundary_id > (
-						fluid::types::space::boundary_id::prescribed_convection_c3)) {
-						component_mask_convection->set(2, true);
-					}
-
-					// NOTE: not to break switch here is indended
-					[[fallthrough]];
-
-				case 2:
-					if (colour & static_cast< dealii::types::boundary_id > (
-						fluid::types::space::boundary_id::prescribed_convection_c2)) {
-						component_mask_convection->set(1, true);
-					}
-
-					// NOTE: not to break switch here is indended
-					[[fallthrough]];
-
-				case 1:
-					if (colour & static_cast< dealii::types::boundary_id > (
-						fluid::types::space::boundary_id::prescribed_convection_c1)) {
-						component_mask_convection->set(0, true);
-					}
-
-					break;
-
-				default:
-					AssertThrow(false, dealii::ExcNotImplemented());
-				}
-
-				// create boundary_values as
-				// std::map<dealii::types::global_dof_index, double>
-				{
-					dirichlet_function->set_time(
-						slab->t_m
-					);
-
-					// pass through time to the actual function since it
-					// doesn't work through the wrapper from a tensor function
-					function.convection.dirichlet->set_time(
-						slab->t_m
-					);
-
-					std::map<dealii::types::global_dof_index,double>
-						boundary_values_qt;
-
-					dealii::VectorTools::interpolate_boundary_values (
-						*slab->space.primal.fe_info->dof,
-						static_cast< dealii::types::boundary_id > (
-							colour
-						),
-						*dirichlet_function,
-						boundary_values_qt,
-						*component_mask_convection
-					);
-
-					// boundary_values_qt -> boundary_values
-					for (auto &el : boundary_values_qt) {
-						boundary_values[el.first] = el.second;
-					}
-				}
-
-				///////////////////////////////////////////////////////////
-				// prescribed_no_slip: all convection components are homog.
-				//
-
-				for (unsigned int component{0}; component < (dim+1); ++component) {
-					component_mask_convection->set(component, false);
-				}
-
-				switch (dim) {
-				case 3:
-					if (colour & static_cast< dealii::types::boundary_id > (
-						fluid::types::space::boundary_id::prescribed_no_slip)) {
-						component_mask_convection->set(2, true);
-					}
-
-					// NOTE: not to break switch here is indended
-					[[fallthrough]];
-
-				case 2:
-					if (colour & static_cast< dealii::types::boundary_id > (
-						fluid::types::space::boundary_id::prescribed_no_slip)) {
-						component_mask_convection->set(1, true);
-					}
-
-					// NOTE: not to break switch here is indended
-					[[fallthrough]];
-
-				case 1:
-					if (colour & static_cast< dealii::types::boundary_id > (
-						fluid::types::space::boundary_id::prescribed_no_slip)) {
-						component_mask_convection->set(0, true);
-					}
-
-					break;
-
-				default:
-					AssertThrow(false, dealii::ExcNotImplemented());
-				}
-
-				// create boundary_values as
-				// std::map<dealii::types::global_dof_index, double>
-				{
-					std::map<dealii::types::global_dof_index,double>
-						boundary_values_qt;
-
-					dealii::VectorTools::interpolate_boundary_values (
-						*slab->space.primal.fe_info->dof,
-						static_cast< dealii::types::boundary_id > (
-							colour
-						),
-						dealii::ZeroFunction<dim>(dim+1),
-						boundary_values_qt,
-						*component_mask_convection
-					);
-
-					// boundary_values_qt -> boundary_values
-					for (auto &el : boundary_values_qt) {
-						boundary_values[el.first] = el.second;
-					}
-				}
-			}
-
-			// apply boundary values
-			if (boundary_values.size()) {
-				////////////////////////////////////////////////////////////////////
-				// prepare function header
-				std::shared_ptr< dealii::SparseMatrix<double> > A = primal.projection_matrix;
-				std::shared_ptr< dealii::Vector<double> > x = primal.um_projected;
-				std::shared_ptr< dealii::Vector<double> > b = primal.projection_rhs;
-
-				////////////////////////////////////////////////////////////////////
-				// internal checks
-				Assert(
-					A->m(),
-					dealii::ExcMessage(
-						"empty operator matrix A (rows: A.m() == 0)"
-					)
-				);
-
-				Assert(
-					A->n(),
-					dealii::ExcMessage(
-						"empty operator matrix A (cols: A.n() == 0)"
-					)
-				);
-
-				Assert(
-					(A->n() == x->size()),
-					dealii::ExcMessage(
-						"Internal dimensions error: "
-						"A->n() =/= x->size() of linear system A x = b"
-					)
-				);
-
-				Assert(
-					(A->m() == b->size()),
-					dealii::ExcMessage(
-						"Internal dimensions error: "
-						"A->m() =/= b->size() of linear system A x = b"
-					)
-				);
-
-				////////////////////////////////////////////////////////////////////
-				// apply boundary values to operator matrix A, vectors x and b
-
-				// preparation: eliminate constrained rows of operator A completely
-				for (auto &boundary_value : boundary_values) {
-					// on-the-fly check:
-					// validity of the given boundary value constraints
-					Assert(
-						(boundary_value.first < A->m()),
-						dealii::ExcMessage(
-							"constraining of dof index (as boundary value) "
-							"larger than (A.m()-1) is not valid"
-						)
-					);
-
-					// eliminate constrained row of operator matrix completely
-					auto el_in_row_i{A->begin(boundary_value.first)};
-					auto end_el_in_row_i{A->end(boundary_value.first)};
-
-					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-						el_in_row_i->value() = double(0.);
-					}
-				}
-
-				double diagonal_scaling_value{1.};
-
-				////////////////////////////////////////////////////////////////////
-				// apply boundary values:
-				// to the linear system (A x = b)
-				// without eliminating the corresponding column entries from
-				// the operator matrix A
-				//
-				for (auto &boundary_value : boundary_values) {
-					// set scaled identity operator
-					A->set(
-						boundary_value.first,  // i
-						boundary_value.first,  // i
-						diagonal_scaling_value // scaling factor or 1
-					);
-
-					// set constrained solution vector component (for iterative lss)
-					(*x)[boundary_value.first] = boundary_value.second;
-
-					// set constrained right hand side vector component
-					(*b)[boundary_value.first] =
-						diagonal_scaling_value * boundary_value.second;
-				}
-			}
+		// use divergence-free projection on primal.um
+		use_gradient_projection = false;
+		if (!parameter_set->fe.primal_projection_type.compare("H1")){
+			use_gradient_projection = true;
 		}
 
-		// condense hanging nodes in projection matrix
-		slab->space.primal.fe_info->constraints->condense(*primal.projection_matrix);
+		{
+			DTM::pout << "dwr-instatfluid: divergence free projection (gradient=" << (use_gradient_projection ? "true" : "false") << ")...";
 
-		// 4. solve projection linear system for primal.um_projected
-		dealii::SparseDirectUMFPACK iA;
-		iA.initialize(*primal.projection_matrix);
-		iA.vmult(*primal.um_projected, *primal.projection_rhs);
 
-		// distribute hanging node constraints on solution
-		slab->space.primal.fe_info->constraints->distribute(
-			*primal.um_projected
-		);
+			// 1. assemble projection matrix
+			ProjectionAssembler<dim> matrix_assembler;
+			matrix_assembler.set_gradient_projection(use_gradient_projection); // TRUE: use H^1_0 projection; FALSE: use L^2 projection
 
-		um->x[0] = primal.um_projected;
+			Assert(primal.projection_matrix.use_count(), dealii::ExcNotInitialized());
+			matrix_assembler.assemble(
+					primal.projection_matrix,
+					slab
+			);
 
-		DTM::pout << " (done)" << std::endl;
+
+			// 2. assemble projection rhs
+			ProjectionRHSAssembler<dim> rhs_assembler;
+			rhs_assembler.set_gradient_projection(use_gradient_projection); // TRUE: use H^1_0 projection; FALSE: use L^2 projection
+
+			Assert(primal.um.use_count(), dealii::ExcNotInitialized());
+			Assert(primal.projection_rhs.use_count(), dealii::ExcNotInitialized());
+			rhs_assembler.assemble(
+					tmp_relevant,
+					primal.projection_rhs,
+					slab
+			);
+
+
+			// 3. solve projection linear system for primal.um_projected
+			primal.projection_iA = std::make_shared<dealii::TrilinosWrappers::SolverDirect> (*primal.sc,*primal.ad);
+			primal.projection_iA->initialize(*primal.projection_matrix);
+			primal.projection_iA->solve(*primal.um_projected,*primal.projection_rhs);
+
+			primal.projection_iA = nullptr;
+			// distribute hanging node constraints on solution
+			slab->space.primal.fe_info->initial_constraints->distribute(
+					*primal.um_projected
+			);
+
+			*um->x[0] = *primal.um_projected;
+
+			DTM::pout << " (done)" << std::endl;
+		}
+
 	}
-
-
 	primal.Mum->reinit(
-		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
+		*slab->spacetime.primal.locally_owned_dofs,
+		mpi_comm
 	);
 	*primal.Mum = 0.;
 	
 	{
 		IVAssembler<dim> assembler;
 
+	    *primal.relevant_tmp = *primal.um;
+	    //*primal.relevant_tmp = *primal.um_projected;
 		DTM::pout << "dwr-instatfluid: assemble space-time slab initial value vector...";
 		Assert(primal.um.use_count(), dealii::ExcNotInitialized());
 		Assert(primal.Mum.use_count(), dealii::ExcNotInitialized());
 		assembler.assemble(
-			primal.um_projected,
+			um->x[0],
 			primal.Mum,
 			slab
 		);
@@ -945,7 +715,7 @@ primal_assemble_const_rhs(
 	}
 	
 //	// ASSEMBLY SPACE-TIME OPERATOR: FORCE VECTOR //////////////////////////////
-//	primal.f = std::make_shared< dealii::Vector<double> > ();
+//	primal.f = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 //
 //	Assert(
 //		slab->space.primal.fe_info->dof.use_count(),
@@ -986,12 +756,11 @@ void
 Fluid<dim>::
 primal_assemble_and_construct_Newton_rhs(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::map<dealii::types::global_dof_index, double> &boundary_values,
-	std::shared_ptr<dealii::Vector<double> > u
+	std::shared_ptr<dealii::TrilinosWrappers::MPI::Vector > u
 
 ) {
 	// ASSEMBLY SPACE-TIME OPERATOR: Rhs Bilinearform VECTOR ///////////////////////
-	primal.Fu = std::make_shared< dealii::Vector<double> > ();
+	primal.Fu = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 	Assert(
 		slab->space.primal.fe_info->dof.use_count(),
@@ -1003,7 +772,7 @@ primal_assemble_and_construct_Newton_rhs(
 	);
 
 	primal.Fu->reinit(
-		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
+		*slab->spacetime.primal.locally_owned_dofs,mpi_comm
 	);
 	*primal.b = 0.;
 	*primal.Fu = 0.;
@@ -1034,7 +803,9 @@ primal_assemble_and_construct_Newton_rhs(
 
 	*primal.b = *primal.Mum;
 	primal.b->add(-1., *primal.Fu);
-	primal_apply_bc(boundary_values, primal.b);
+	slab->spacetime.primal.constraints->distribute(
+		*primal.b
+	);
 }
 
 template<int dim>
@@ -1338,7 +1109,7 @@ void
 Fluid<dim>::
 primal_apply_bc(
 	std::map<dealii::types::global_dof_index, double> &boundary_values,
-	std::shared_ptr< dealii::Vector<double> > x
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > x
 ) {
 	////////////////////////////////////////////////////////////////////////
 	// MatrixTools::apply_boundary_values (number = double for A,x,b)
@@ -1350,14 +1121,18 @@ primal_apply_bc(
 	// NOTE: a spurious, but nicely scaled, singular value is introduced
 	//       in the operator matrix for each boundary value constraint
 	//
+
 	if (boundary_values.size()) {
 		////////////////////////////////////////////////////////////////////
 		// apply boundary values to vector x
 		for (auto &boundary_value : boundary_values) {
+			if (x->locally_owned_elements().is_element(boundary_value.first)){
 			// set constrained solution vector component (for iterative lss)
-			(*x)[boundary_value.first] = boundary_value.second;
+				(*x)[boundary_value.first] = boundary_value.second;
+			}
 		}
 	}
+	x->compress(dealii::VectorOperation::insert);
 }
 
 template<int dim>
@@ -1365,9 +1140,9 @@ void
 Fluid<dim>::
 primal_apply_bc(
 	std::map<dealii::types::global_dof_index, double> &boundary_values,
-	std::shared_ptr< dealii::SparseMatrix<double> > A,
-	std::shared_ptr< dealii::Vector<double> > x,
-	std::shared_ptr< dealii::Vector<double> > b
+	std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > A,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > x,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > b
 ) {
 	////////////////////////////////////////////////////////////////////////
 	// MatrixTools::apply_boundary_values (number = double for A,x,b)
@@ -1537,12 +1312,15 @@ void
 Fluid<dim>::
 primal_solve_slab_problem(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &u,
-	const typename DTM::types::storage_data_vectors<1>::iterator &um
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &um
 ) {
 	
-	primal.b  = std::make_shared< dealii::Vector<double> >();
-	primal.du = std::make_shared< dealii::Vector<double> >();
+	primal.b  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	primal.du = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	primal.relevant_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	primal.owned_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+
 	Assert(
 		slab->space.primal.fe_info->dof.use_count(),
 		dealii::ExcNotInitialized()
@@ -1553,12 +1331,18 @@ primal_solve_slab_problem(
 	);
 	
 	primal.b->reinit(
-		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
+		*slab->spacetime.primal.locally_owned_dofs,mpi_comm
 	);
 
 	primal.du->reinit(
-		slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs()
+			*slab->spacetime.primal.locally_owned_dofs,mpi_comm
 	);
+
+	primal.owned_tmp->reinit(
+			*slab->spacetime.primal.locally_owned_dofs,mpi_comm
+	);
+
+	primal.relevant_tmp->reinit(*slab->space.primal.fe_info->locally_owned_dofs,*slab->space.primal.fe_info->locally_relevant_dofs,mpi_comm);
 
 	////////////////////////////////////////////////////////////////////////////
 	// apply inhomogeneous Dirichlet boundary values
@@ -1568,35 +1352,54 @@ primal_solve_slab_problem(
 
 	std::map<dealii::types::global_dof_index, double> initial_bc;
 	primal_calculate_boundary_values(slab, initial_bc);
-    std::map<dealii::types::global_dof_index, double> zero_bc;
-    primal_calculate_boundary_values(slab, zero_bc, true);
+//    std::map<dealii::types::global_dof_index, double> zero_bc;
+//    primal_calculate_boundary_values(slab, zero_bc, true);
 
     DTM::pout << " (done)" << std::endl;
 
     DTM::pout << "dwr-instatfluid: apply previous solution as initial Newton guess..." ;
 
-    for (unsigned int i{0} ; i < slab->space.primal.fe_info->dof->n_dofs() ; i++) {
+//    DTM::pout << "relev tmp" << std::endl;
+//    primal.relevant_tmp->print(DTM::pout);
+    dealii::IndexSet::ElementIterator lri = slab->space.primal.fe_info->locally_owned_dofs->begin();
+    dealii::IndexSet::ElementIterator lre = slab->space.primal.fe_info->locally_owned_dofs->end();
+    for (; lri != lre ;lri++) {
     	for (unsigned int ii{0} ; ii < slab->time.primal.fe_info->dof->n_dofs() ; ii++) {
-    		(*u->x[0])[i+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[i];
+    		(*primal.owned_tmp)[*lri+slab->space.primal.fe_info->dof->n_dofs()*ii] = (*primal.um)[*lri];
     	}
     }
 
+//    primal_owned_tmp->compress(dealii::VectorOperation::insert);
+
+
+//    DTM::pout << "owned tmp" << std::endl;
+//    primal.owned_tmp->print(DTM::pout);
+
+
     DTM::pout << " (done)" << std::endl;
 
-    primal_apply_bc(initial_bc, u->x[0]);
-    slab->spacetime.primal.constraints->distribute(
-		*u->x[0]
-	);
+    DTM::pout << "dwr-instatfluid: apply bc's to initial Newton guess...";
+    primal_apply_bc(initial_bc, primal.owned_tmp);
+//    slab->spacetime.primal.constraints->distribute(
+//		*primal.owned_tmp
+//	);
 
+    DTM::pout << " (done)" << std::endl;
+//    primal.owned_tmp ->compress(dealii::VectorOperation::insert);
+//    DTM::pout << "u_1^0" << std::endl;
+    *u->x[0] = *primal.owned_tmp;
     // assemble slab problem const rhs
-	primal_assemble_const_rhs(slab, um, initial_bc);
 
+    *primal.relevant_tmp = *primal.um;
+    DTM::pout << "dwr-instatfluid: assemble const part of rhs...";
+	primal_assemble_const_rhs(slab, um);
+    DTM::pout << " (done)" << std::endl;
 	Assert(
 		primal.Mum.use_count(),
 		dealii::ExcNotInitialized()
 	);
 
-    primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+    primal_assemble_and_construct_Newton_rhs(slab, u->x[0]);
 
     DTM::pout << "dwr-instatfluid: starting Newton loop\n"
     		  << "It.\tResidual\tReduction\tRebuild\tLSrch"<< std::endl;
@@ -1613,7 +1416,7 @@ primal_solve_slab_problem(
     while (newton_residual > newton.lower_bound && newton_step <= newton.max_steps)
     {
     	old_newton_residual = newton_residual;
-    	primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
+    	primal_assemble_and_construct_Newton_rhs(slab, u->x[0]);
     	newton_residual = primal.b->linfty_norm();
 
     	if (newton_residual < newton.lower_bound)
@@ -1626,55 +1429,52 @@ primal_solve_slab_problem(
 			// NOTE: for Stokes without adaptive refinement the system matrix needs only to be inverted on the first slab
 			if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_m == parameter_set->time.fluid.t0)
 			{
+
 				primal_assemble_system(slab, u->x[0]);
+
+				primal.iA = nullptr;
+//
+				primal.iA = std::make_shared<dealii::TrilinosWrappers::SolverDirect> (*primal.sc,*primal.ad);
+				primal.iA->initialize(*primal.L);
 			}
-			else
-			{
-				// system matrix doesn't need to be assembled, since it hasn't changed
-				// hence also primal.iA stays the same
-				primal.L = std::make_shared< dealii::SparseMatrix<double> > ();
-				primal.L->reinit(*slab->spacetime.primal.sp);
-				*primal.L = 0;
-			}
-
-			primal_apply_bc(zero_bc, primal.L, primal.du, primal.b);
-
-			////////////////////////////////////////////////////////////////////////////
-			// condense hanging nodes in system matrix, if any
-			//
-			slab->spacetime.primal.constraints->condense(*primal.L);
-
-			// NOTE: for Stokes without adaptive refinement the system matrix needs only to be inverted on the first slab
-			if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_m == parameter_set->time.fluid.t0)
-				primal.iA.initialize(*primal.L);
 		}
 
 		////////////////////////////////////////////////////////////////////////////
 		// solve linear system with direct solver
 		//
-		primal.iA.vmult(*primal.du, *primal.b);
+		primal.iA->solve(*primal.du, *primal.b);
+//		primal.b->print(DTM::pout);
+//		DTM::pout << "du" << std::endl;
+//		primal.du->print(DTM::pout);
+
 
 		slab->spacetime.primal.constraints->distribute(
 			*primal.du
 		);
 
+//		exit(EXIT_SUCCESS);
+		*primal.owned_tmp = *u->x[0];
 		for (line_search_step = 0; line_search_step < newton.line_search_steps; line_search_step++) {
-			u->x[0]->add(1.0,*primal.du);
+			*primal.owned_tmp += *primal.du;
+			*u->x[0] = *primal.owned_tmp;
+//			DTM::pout << "u at ls step " << line_search_step << std::endl;
+//		    u->x[0]->print(DTM::pout);
+//			u->x[0]->add(1.0,*primal.du);
 
-			primal_assemble_and_construct_Newton_rhs(slab, zero_bc, u->x[0]);
-			slab->spacetime.primal.constraints->distribute(
-				*primal.b
-			);
+			primal_assemble_and_construct_Newton_rhs(slab, u->x[0]);
+
 
 			new_newton_residual = primal.b->linfty_norm();
 
 			if (new_newton_residual < newton_residual)
 				break;
 			else
-				u->x[0]->add(-1.0, *primal.du);
+				*primal.owned_tmp -= *primal.du;
+
 			*primal.du *= newton.line_search_damping;
 		}
 
+		*primal.owned_tmp = *u->x[0];
 		DTM::pout << std::setprecision(5) << newton_step << "\t"
 				  << std::scientific << newton_residual << "\t"
 				  << std::scientific << newton_residual/old_newton_residual << "\t";
@@ -1694,90 +1494,6 @@ primal_solve_slab_problem(
     }
 }
 
-template<int dim>
-void
-Fluid<dim>::
-primal_subtract_pressure_mean(
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::shared_ptr< dealii::Vector<double> > x
-) {
-	std::vector< dealii::types::global_dof_index > dofs_per_component(
-			slab->space.primal.fe_info->dof->get_fe_collection().n_components(), 0
-	);
-
-
-	dofs_per_component = dealii::DoFTools::count_dofs_per_fe_component(
-			*slab->space.primal.fe_info->dof,
-			true
-	);
-
-	// set specific values of dof counts
-	dealii::types::global_dof_index N_b; // convection
-
-	// dof count convection: vector-valued primitive FE
-	N_b = 0;
-	for (unsigned int d{0}; d < dim; ++d) {
-		N_b += dofs_per_component[0*dim+d];
-	}
-
-	dealii::FEValues<1> fe_values_time(
-			*slab->time.primal.fe_info->mapping,
-			*slab->time.primal.fe_info->fe,
-			dealii::QGauss<1>(parameter_set->fe.primal.convection.r + 1),
-			dealii::update_quadrature_points
-	);
-
-	std::vector< dealii::types::global_dof_index > local_dof_indices(
-			slab->time.primal.fe_info->fe->dofs_per_cell
-	);
-
-	dealii::types::global_dof_index n_dofs_space =
-			slab->space.primal.fe_info->dof->n_dofs();
-
-	auto cell_time = slab->time.primal.fe_info->dof->begin_active();
-	auto endc_time = slab->time.primal.fe_info->dof->end();
-	for ( ; cell_time != endc_time ; ++cell_time) {
-		fe_values_time.reinit(cell_time);
-
-		cell_time ->get_dof_indices(local_dof_indices);
-
-		for ( unsigned int local_time_dof{0} ;
-				local_time_dof < fe_values_time.n_quadrature_points;
-				++local_time_dof
-		){
-			//extract current qp solution
-			dealii::Vector<double> uk;
-			uk.reinit(n_dofs_space);
-			//					uk.clear();
-			for (dealii::types::global_dof_index i{0} ; i < n_dofs_space ; i++)
-			{
-				dealii::types::global_dof_index ii =
-						n_dofs_space*(local_dof_indices[local_time_dof])+i;
-
-				uk[i] = x->operator()(ii);
-			}
-
-			const double mean_pressure = dealii::VectorTools::compute_mean_value(
-					*slab->space.primal.fe_info->dof,
-					dealii::QGauss<dim> (parameter_set->fe.primal.convection.p+2),
-					uk,
-					dim
-			);
-
-//			std::cout << "mean pressure correction: " << mean_pressure << std::endl;
-			for ( dealii::types::global_dof_index i{N_b} ; i < n_dofs_space ; i++)
-			{
-				dealii::types::global_dof_index ii =
-						n_dofs_space*(local_dof_indices[local_time_dof])+i;
-
-
-				x->operator()(ii) -= mean_pressure;
-			}
-
-		}
-	}
-
-}
 template<int dim>
 void
 Fluid<dim>::
@@ -1803,7 +1519,7 @@ primal_do_forward_TMS(
 	auto slab = grid->slabs.begin();
 	
 	////////////////////////////////////////////////////////////////////////////
-	// storage: init iterators to storage_data_vectors
+	// storage: init iterators to storage_data_trilinos_vectors
 	//          corresponding to first space-time slab: Omega x I_1
 	//
 	
@@ -1829,7 +1545,7 @@ primal_do_forward_TMS(
 		<< "*************" << std::endl
 		<< "primal: solving forward TMS problem..." << std::endl
 		<< std::endl;
-	
+
 	unsigned int n{1};
 	while (slab != grid->slabs.end()) {
 		DTM::pout
@@ -1851,9 +1567,72 @@ primal_do_forward_TMS(
 		else
 			AssertThrow(false, dealii::ExcNotImplemented());
 
-		grid->create_sparsity_pattern_primal_on_slab(slab);
+
+		// primal dof partitioning
+		{
+			slab->spacetime.primal.locally_owned_dofs =
+				std::make_shared<dealii::IndexSet> (
+					idealii::SlabDoFTools::extract_locally_owned_dofs(
+							slab->space.primal.fe_info->dof,
+							slab->time.primal.fe_info->dof
+					)
+				);
+
+			slab->spacetime.primal.locally_relevant_dofs =
+				std::make_shared<dealii::IndexSet> (
+					idealii::SlabDoFTools::extract_locally_relevant_dofs(
+							slab->space.primal.fe_info->dof,
+							slab->time.primal.fe_info->dof
+					)
+				);
+		}
+
+		{
+			slab->spacetime.primal.constraints =
+				std::make_shared< dealii::AffineConstraints<double> > ();
+
+			idealii::SlabDoFTools::make_spacetime_constraints(
+				slab->space.primal.fe_info->locally_relevant_dofs,
+				slab->space.primal.fe_info->constraints, // space constraints
+				slab->space.primal.fe_info->dof->n_dofs(),
+				slab->time.primal.fe_info->dof->n_dofs(),
+				slab->spacetime.primal.locally_relevant_dofs,
+				slab->spacetime.primal.constraints
+			);
+
+			slab->spacetime.primal.constraints->close();
+		}
+
+		{
+			slab->spacetime.primal.hanging_node_constraints =
+				std::make_shared< dealii::AffineConstraints<double> > ();
+
+			idealii::SlabDoFTools::make_spacetime_constraints(
+				slab->space.primal.fe_info->locally_relevant_dofs,
+				slab->space.primal.fe_info->hanging_node_constraints, // space constraints
+				slab->space.primal.fe_info->dof->n_dofs(),
+				slab->time.primal.fe_info->dof->n_dofs(),
+				slab->spacetime.primal.locally_relevant_dofs,
+				slab->spacetime.primal.hanging_node_constraints
+			);
+
+			slab->spacetime.primal.hanging_node_constraints->close();
+		}
+
+		if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_m == parameter_set->time.fluid.t0)
+		{
+//			primal.L = nullptr;
+			primal.iA = std::make_shared<dealii::TrilinosWrappers::SolverDirect> (*primal.sc,*primal.ad);
+			primal.L = std::make_shared<dealii::TrilinosWrappers::SparseMatrix >();
+			primal.projection_matrix = std::make_shared< dealii::TrilinosWrappers::SparseMatrix > ();
+
+			grid->create_sparsity_pattern_primal_on_slab(slab,primal.L,primal.projection_matrix);
+		}
 		primal_reinit_storage_on_slab(slab, u, um);
 
+		primal.um = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		primal.um->reinit(*slab->space.primal.fe_info->locally_owned_dofs,mpi_comm);
+		*primal.um = 0.;
 		if (slab == grid->slabs.begin()) {
 			////////////////////////////////////////////////////////////////////////////
 			// interpolate (or project) initial value(s)
@@ -1867,13 +1646,6 @@ primal_do_forward_TMS(
 			dirichlet_function->set_time(0);
 			function.convection.dirichlet->set_time(0);
 
-			primal.um = std::make_shared< dealii::Vector<double> > ();
-			primal.um->reinit(slab->space.primal.fe_info->dof->n_dofs());
-			*primal.um = 0.;
-
-			primal.um_projected = std::make_shared< dealii::Vector<double> > ();
-			primal.um_projected->reinit(slab->space.primal.fe_info->dof->n_dofs());
-			*primal.um_projected = 0.;
 
 //			Assert(function.u_0.use_count(), dealii::ExcNotInitialized());
 //			function.u_0->set_time(slab->t_m);
@@ -1890,52 +1662,51 @@ primal_do_forward_TMS(
 				*primal.um
 			);
 
-			// NOTE: after the first dwr-loop the initial triangulation could have
-			//       hanging nodes. Therefore,
-			// distribute hanging node constraints to make the result continuous again:
-			slab->space.primal.fe_info->constraints->distribute(
-				*primal.um
-			);
+
 		}
 		else {
 			// not the first slab: transfer un solution to um solution
 			Assert(primal.un.use_count(), dealii::ExcNotInitialized());
 
-			primal.um = std::make_shared< dealii::Vector<double> > ();
-			primal.um->reinit(slab->space.primal.fe_info->dof->n_dofs());
-			*primal.um = 0.;
 
-			primal.um_projected = std::make_shared< dealii::Vector<double> > ();
-			primal.um_projected->reinit(slab->space.primal.fe_info->dof->n_dofs());
-			*primal.um_projected = 0.;
+//			primal.um_projected = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+//			primal.um_projected->reinit(slab->space.primal.fe_info->dof->n_dofs());
+//			*primal.um_projected = 0.;
+			auto un_rel = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+			un_rel->reinit(*slab->space.primal.fe_info->locally_owned_dofs,*slab->space.primal.fe_info->locally_relevant_dofs,mpi_comm);
+			*un_rel = *primal.un;
+
+
 
 			// for n > 1 interpolate between two (different) spatial meshes
 			// the solution u(t_n)|_{I_{n-1}}  to  u(t_m)|_{I_n}
 			dealii::VectorTools::interpolate_to_different_mesh(
 				// solution on I_{n-1}:
 				*std::prev(slab)->space.primal.fe_info->dof,
-				*primal.un,
+				*un_rel,
 				// solution on I_n:
 				*slab->space.primal.fe_info->dof,
-				*slab->space.primal.fe_info->constraints,
+				*slab->space.primal.fe_info->hanging_node_constraints,
 				*primal.um
 			);
 
-			slab->space.primal.fe_info->constraints->distribute(
-				*primal.um
-			);
 		}
-		
+		// NOTE: after the first dwr-loop the initial triangulation could have
+		//       hanging nodes. Therefore,
+		// distribute hanging node constraints to make the result continuous again:
+		slab->space.primal.fe_info->hanging_node_constraints->distribute(
+			*primal.um
+		);
+
 		// solve slab problem (i.e. apply boundary values and solve for u0)
 		primal_solve_slab_problem(slab, u, um);
 		
 		////////////////////////////////////////////////////////////////////////
 		// do postprocessings on the solution
 		//
-		
 		// evaluate solution u(t_n)
-		primal.un = std::make_shared< dealii::Vector<double> > ();
-		primal.un->reinit(slab->space.primal.fe_info->dof->n_dofs());
+		primal.un = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		primal.un->reinit(*slab->space.primal.fe_info->locally_owned_dofs);
 		*primal.un = 0.;
 
 		{
@@ -1962,19 +1733,23 @@ primal_do_forward_TMS(
 				// evaluate solution for t_n of Q_n
 				for (unsigned int jj{0};
 					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj)
-				for (dealii::types::global_dof_index i{0};
-					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
-					(*primal.un)[i] += (*u->x[0])[
-						i
-						// time offset
-						+ slab->space.primal.fe_info->dof->n_dofs() *
-							(cell_time->index() * slab->time.primal.fe_info->fe->dofs_per_cell)
-						// local in time dof
-						+ slab->space.primal.fe_info->dof->n_dofs() * jj
-					] * fe_face_values_time.shape_value(jj,1);
+				{
+				    dealii::IndexSet::ElementIterator lri = slab->space.primal.fe_info->locally_owned_dofs->begin();
+				    dealii::IndexSet::ElementIterator lre = slab->space.primal.fe_info->locally_owned_dofs->end();
+					for (; lri!= lre ; lri++) {
+						(*primal.un)[*lri] += (*u->x[0])[
+							*lri
+							// time offset
+							+ slab->space.primal.fe_info->dof->n_dofs() *
+								(cell_time->index() * slab->time.primal.fe_info->fe->dofs_per_cell)
+							// local in time dof
+							+ slab->space.primal.fe_info->dof->n_dofs() * jj
+						] * fe_face_values_time.shape_value(jj,1);
+					}
 				}
 			}
 		}
+
 
 		// output data
 		primal_do_data_output(slab, u, dwr_loop, last);
@@ -1988,7 +1763,7 @@ primal_do_forward_TMS(
 		// allow garbage collector to clean up memory
 		//
 		
-		primal.L = nullptr;
+//		primal.L = nullptr;
 		primal.b = nullptr;
 // 		primal.f = nullptr;
 		primal.Mum = nullptr;
@@ -2148,151 +1923,153 @@ void
 Fluid<dim>::
 primal_do_data_output_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &u,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
 	const unsigned int dwr_loop) {
 	// triggered output mode
+	std::cout << "output used in non Qn mode!" << std::endl;
 	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.primal.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
-	primal.data_output->set_DoF_data(
-		slab->space.primal.fe_info->dof,
-		slab->space.primal.fe_info->partitioning_locally_owned_dofs
-	);
-	
- 	auto u_trigger = std::make_shared< dealii::Vector<double> > ();
- 	u_trigger->reinit(slab->space.primal.fe_info->dof->n_dofs());
-	
+	Assert(u->x[0].use_count(),dealii::ExcNotInitialized());
+
+//	primal.data_output->set_DoF_data(
+//		slab->space.primal.fe_info->dof,
+//		slab->space.primal.fe_info->partitioning_locally_owned_dofs
+//	);
+//
+// 	auto u_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+// 	u_trigger->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
+// 					  *slab->space.primal.fe_info->locally_relevant_dofs,
+//					  mpi_comm
+// 	);
+
 	std::ostringstream filename;
 	filename
 		<< "solution-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
-	
-	{
-		// fe face values time: time face (I_n) information
-		dealii::FEValues<1> fe_face_values_time(
-			*slab->time.primal.fe_info->mapping,
-			*slab->time.primal.fe_info->fe,
-			dealii::QGaussLobatto<1>(2),
-			dealii::update_quadrature_points
-		);
-		
-		Assert(
-			slab->time.primal.fe_info->dof.use_count(),
-			dealii::ExcNotInitialized()
-		);
-		
-		auto cell_time = slab->time.primal.fe_info->dof->begin_active();
-		auto endc_time = slab->time.primal.fe_info->dof->end();
-		
-		for ( ; cell_time != endc_time; ++cell_time) {
-			fe_face_values_time.reinit(cell_time);
-			
-			////////////////////////////////////////////////////////////////////
-			// construct quadrature for data output,
-			// if triggered output time values are inside this time element
-			//
-			
-			auto t_m = fe_face_values_time.quadrature_point(0)[0];
-			auto t_n = fe_face_values_time.quadrature_point(1)[0];
-			auto tau = t_n-t_m;
-			
-			std::list<double> output_times;
-			
-			if (primal.data_output_time_value < t_m) {
-				primal.data_output_time_value = t_m;
-			}
-			
-			for ( ; (primal.data_output_time_value <= t_n) ||
-				(
-					(primal.data_output_time_value > t_n) &&
-					(std::abs(primal.data_output_time_value - t_n) < tau*1e-12)
-				); ) {
-				output_times.push_back(primal.data_output_time_value);
-				primal.data_output_time_value += primal.data_output_trigger;
-			}
-			
-			if (output_times.size() && output_times.back() > t_n) {
-				output_times.back() = t_n;
-			}
-			
-			if ((output_times.size() > 1) &&
-				(output_times.back() == *std::next(output_times.rbegin()))) {
-				// remove the last entry, iff doubled
-				output_times.pop_back();
-			}
-			
-			// convert container
-			if (!output_times.size()) {
-				continue;
-			}
-			
-			std::vector< dealii::Point<1> > output_time_points(output_times.size());
-			{
-				auto time{output_times.begin()};
-				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
-					double t_trigger{*time};
-					output_time_points[q][0] = (t_trigger-t_m)/tau;
-				}
-				
-				if (output_time_points[0][0] < 0) {
-					output_time_points[0][0] = 0;
-				}
-				
-				if (output_time_points[output_time_points.size()-1][0] > 1) {
-					output_time_points[output_time_points.size()-1][0] = 1;
-				}
-			}
-			
-			dealii::Quadrature<1> quad_time(output_time_points);
-			
-			// create fe values
-			dealii::FEValues<1> fe_values_time(
-				*slab->time.primal.fe_info->mapping,
-				*slab->time.primal.fe_info->fe,
-				quad_time,
-				dealii::update_values |
-				dealii::update_quadrature_points
-			);
-			
-			fe_values_time.reinit(cell_time);
-			
-			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.primal.fe_info->fe->dofs_per_cell);
-			cell_time->get_dof_indices(local_dof_indices);
-			
-			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
- 				*u_trigger = 0.;
- 				
- 				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
- 					(*u_trigger)[i] += (*u->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.primal.fe_info->dof->n_dofs() *
- 							local_dof_indices[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
-				
-//				std::cout
-//					<< "output generated for t = "
-//					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
-//					<< std::endl;
-				
-				primal.data_output->write_data(
-					filename.str(),
-					u_trigger,
-					primal.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
-				);
-			}
-		}
-	}
+//
+//	{
+//		// fe face values time: time face (I_n) information
+//		dealii::FEValues<1> fe_face_values_time(
+//			*slab->time.primal.fe_info->mapping,
+//			*slab->time.primal.fe_info->fe,
+//			dealii::QGaussLobatto<1>(2),
+//			dealii::update_quadrature_points
+//		);
+//
+//		Assert(
+//			slab->time.primal.fe_info->dof.use_count(),
+//			dealii::ExcNotInitialized()
+//		);
+//
+//		auto cell_time = slab->time.primal.fe_info->dof->begin_active();
+//		auto endc_time = slab->time.primal.fe_info->dof->end();
+//
+//		for ( ; cell_time != endc_time; ++cell_time) {
+//			fe_face_values_time.reinit(cell_time);
+//
+//			////////////////////////////////////////////////////////////////////
+//			// construct quadrature for data output,
+//			// if triggered output time values are inside this time element
+//			//
+//
+//			auto t_m = fe_face_values_time.quadrature_point(0)[0];
+//			auto t_n = fe_face_values_time.quadrature_point(1)[0];
+//			auto tau = t_n-t_m;
+//
+//			std::list<double> output_times;
+//
+//			if (primal.data_output_time_value < t_m) {
+//				primal.data_output_time_value = t_m;
+//			}
+//
+//			for ( ; (primal.data_output_time_value <= t_n) ||
+//				(
+//					(primal.data_output_time_value > t_n) &&
+//					(std::abs(primal.data_output_time_value - t_n) < tau*1e-12)
+//				); ) {
+//				output_times.push_back(primal.data_output_time_value);
+//				primal.data_output_time_value += primal.data_output_trigger;
+//			}
+//
+//			if (output_times.size() && output_times.back() > t_n) {
+//				output_times.back() = t_n;
+//			}
+//
+//			if ((output_times.size() > 1) &&
+//				(output_times.back() == *std::next(output_times.rbegin()))) {
+//				// remove the last entry, iff doubled
+//				output_times.pop_back();
+//			}
+//
+//			// convert container
+//			if (!output_times.size()) {
+//				continue;
+//			}
+//
+//			std::vector< dealii::Point<1> > output_time_points(output_times.size());
+//			{
+//				auto time{output_times.begin()};
+//				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
+//					double t_trigger{*time};
+//					output_time_points[q][0] = (t_trigger-t_m)/tau;
+//				}
+//
+//				if (output_time_points[0][0] < 0) {
+//					output_time_points[0][0] = 0;
+//				}
+//
+//				if (output_time_points[output_time_points.size()-1][0] > 1) {
+//					output_time_points[output_time_points.size()-1][0] = 1;
+//				}
+//			}
+//
+//			dealii::Quadrature<1> quad_time(output_time_points);
+//
+//			// create fe values
+//			dealii::FEValues<1> fe_values_time(
+//				*slab->time.primal.fe_info->mapping,
+//				*slab->time.primal.fe_info->fe,
+//				quad_time,
+//				dealii::update_values |
+//				dealii::update_quadrature_points
+//			);
+//
+//			fe_values_time.reinit(cell_time);
+//
+//			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.primal.fe_info->fe->dofs_per_cell);
+//			cell_time->get_dof_indices(local_dof_indices);
+//
+//			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
+// 				*u_trigger = 0.;
+//
+// 				// evaluate solution for t_q
+// 				for (
+// 					unsigned int jj{0};
+// 					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj) {
+// 				for (
+// 					dealii::types::global_dof_index i{0};
+// 					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
+// 					(*u_trigger)[i] += (*u->x[0])[
+// 						i
+// 						// time offset
+// 						+ slab->space.primal.fe_info->dof->n_dofs() *
+// 							local_dof_indices[jj]
+// 					] * fe_values_time.shape_value(jj,qt);
+// 				}}
+//
+////				std::cout
+////					<< "output generated for t = "
+////					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
+////					<< std::endl;
+//
+//				primal.data_output->write_data(
+//					filename.str(),
+//					u_trigger,
+//					primal.data_postprocessor,
+//					fe_values_time.quadrature_point(qt)[0] // t_trigger
+//				);
+//			}
+//		}
+//	}
 	
 	// check if data for t=T was written
 }
@@ -2303,125 +2080,119 @@ void
 Fluid<dim>::
 primal_do_data_output_on_slab_Qn_mode(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &u,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
 	const unsigned int dwr_loop) {
 	// natural output of solutions on Q_n in their support points in time
 	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.primal.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
+
 	primal.data_output->set_DoF_data(
-		slab->space.primal.fe_info->dof,
-		slab->space.primal.fe_info->partitioning_locally_owned_dofs
+		slab->space.primal.fe_info->dof
 	);
-	
-	auto u_trigger = std::make_shared< dealii::Vector<double> > ();
- 	u_trigger->reinit(slab->space.primal.fe_info->dof->n_dofs());
- 	
+
+	auto u_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+ 	u_trigger->reinit(
+ 			*slab->space.primal.fe_info->locally_owned_dofs,
+ 			*slab->space.primal.fe_info->locally_relevant_dofs,
+ 			mpi_comm);
+
+	auto owned_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	owned_tmp->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
+			*slab->space.primal.fe_info->locally_owned_dofs,
+			mpi_comm);
+
 	std::ostringstream filename;
 	filename
 		<< "solution-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
-	
+
 	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
 		// create fe values
+		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time;
+		if ( !(parameter_set->
+				fe.primal.convection.time_type_support_points
+				.compare("Gauss")) ) {
+
+			fe_quad_time =
+					std::make_shared< dealii::QGauss<1> > (
+							(parameter_set->fe.primal.convection.r + 1)
+					);
+
+		} else if ( !(parameter_set->
+				fe.primal.convection.time_type_support_points
+				.compare("Gauss-Lobatto")) ){
+
+			if (parameter_set->fe.primal.convection.r < 1){
+				fe_quad_time =
+						std::make_shared< QRightBox<1> > ();
+			} else {
+				fe_quad_time =
+						std::make_shared< dealii::QGaussLobatto<1> > (
+								(parameter_set->fe.primal.convection.r + 1)
+						);
+			}
+		}
+
+		AssertThrow(
+			fe_quad_time.use_count(),
+			dealii::ExcMessage(
+				"FE time: (primal) convection b support points invalid"
+			)
+		);
+
 		dealii::FEValues<1> fe_values_time(
 			*slab->time.primal.fe_info->mapping,
 			*slab->time.primal.fe_info->fe,
-			dealii::QGauss<1>(slab->time.primal.fe_info->fe->tensor_degree()+1), // here
+			*fe_quad_time,
 			dealii::update_values |
 			dealii::update_quadrature_points
 		);
-		
+
 		auto cell_time = slab->time.primal.fe_info->dof->begin_active();
 		auto endc_time = slab->time.primal.fe_info->dof->end();
-		
+
 		for ( ; cell_time != endc_time; ++cell_time) {
 			fe_values_time.reinit(cell_time);
-			
+
 			std::vector< dealii::types::global_dof_index > local_dof_indices_time(
 				slab->time.primal.fe_info->fe->dofs_per_cell
 			);
-			
+
 			cell_time->get_dof_indices(local_dof_indices_time);
-			
+
 			for (
 				unsigned int qt{0};
 				qt < fe_values_time.n_quadrature_points;
 				++qt) {
  				*u_trigger = 0.;
- 				
+ 				*owned_tmp = 0.;
+
  				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
- 					(*u_trigger)[i] += (*u->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.primal.fe_info->dof->n_dofs() *
- 							local_dof_indices_time[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
-				
-// 				std::cout
-// 					<< "output generated for t = "
-// 					<< fe_values_time.quadrature_point(qt)[0]
-// 					<< std::endl;
-				
+
+ 				dealii::IndexSet::ElementIterator lri = slab->space.primal.fe_info->locally_owned_dofs->begin();
+ 				dealii::IndexSet::ElementIterator lre = slab->space.primal.fe_info->locally_owned_dofs->end();
+
+ 				for (; lri!= lre; lri++) {
+ 					for ( unsigned int jj{0}; jj < slab->time.primal.fe_info->fe->dofs_per_cell; jj++){
+ 						(*owned_tmp)[*lri] +=
+ 							(*u->x[0])[*lri
+									   // time offset
+									   + slab->space.primal.fe_info->dof->n_dofs() *
+									   local_dof_indices_time[jj]
+									  ] * fe_values_time.shape_value(jj,qt);
+					}
+ 				}
+
+ 				owned_tmp->compress(dealii::VectorOperation::add);
+ 				slab->space.primal.fe_info->hanging_node_constraints->distribute(*owned_tmp);
+
+ 				*u_trigger = *owned_tmp;
+
  				primal.data_output->write_data(
 					filename.str(),
 					u_trigger,
-					primal.data_postprocessor,
+//					primal.data_postprocessor,
 					fe_values_time.quadrature_point(qt)[0] // t_trigger
 				);
-
-//				// TODO: delete vtk output
-//				{
-//					// get slab number
-//					int slab_number = 0;
-//					auto tmp_slab = grid->slabs.begin();
-//					while (slab != tmp_slab)
-//					{
-//						slab_number++;
-//						tmp_slab++;
-//					}
-//
-//					std::vector<std::string> solution_names;
-//					solution_names.push_back("x_velo");
-//					solution_names.push_back("y_velo");
-//					solution_names.push_back("p_fluid");
-//
-//					std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
-//						data_component_interpretation(dim + 1, dealii::DataComponentInterpretation::component_is_scalar);
-//
-//					dealii::DataOut<dim> data_out;
-//					data_out.attach_dof_handler(*slab->space.low.fe_info->dof);
-//
-//					data_out.add_data_vector(*u_trigger, solution_names,
-//											 dealii::DataOut<dim>::type_dof_data,
-//											 data_component_interpretation);
-//
-//					data_out.build_patches();
-//					data_out.set_flags(
-//							dealii::DataOutBase::VtkFlags(
-//									slab->t_n,
-//									slab_number
-//							)
-//					);
-//
-//					// save VTK files
-//					const std::string filename =
-//						"interpolated_solution-" + dealii::Utilities::int_to_string(slab_number, 6) + ".vtk";
-//					std::ofstream output(filename);
-//					data_out.write_vtk(output);
-//				}
 			}
 		}
 	}
@@ -2433,7 +2204,7 @@ void
 Fluid<dim>::
 primal_do_data_output(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &x,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
 	const unsigned int dwr_loop,
 	bool last
 ) {
@@ -2509,7 +2280,7 @@ dual_reinit_storage() {
 	Assert(grid.use_count(), dealii::ExcNotInitialized());
 
 	dual.storage.z =
-		std::make_shared< DTM::types::storage_data_vectors<1> > ();
+		std::make_shared< DTM::types::storage_data_trilinos_vectors<1> > ();
 
 	dual.storage.z->resize(
 		static_cast<unsigned int>(grid->slabs.size())
@@ -2522,10 +2293,10 @@ void
 Fluid<dim>::
 dual_reinit_storage_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &z
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z
 ) {
 	for (unsigned int j{0}; j < z->x.size(); ++j) {
-		z->x[j] = std::make_shared< dealii::Vector<double> > ();
+		z->x[j] = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 		Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
 
@@ -2540,7 +2311,9 @@ dual_reinit_storage_on_slab(
 		);
 
 		z->x[j]->reinit(
-			slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
+			*slab->spacetime.dual.locally_owned_dofs,
+			*slab->spacetime.dual.locally_relevant_dofs,
+			mpi_comm
 		);
 	}
 }
@@ -2551,16 +2324,10 @@ void
 Fluid<dim>::
 dual_assemble_system(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::shared_ptr< dealii::Vector<double > > u
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 ) {
 	// ASSEMBLY SPACE-TIME OPERATOR MATRIX /////////////////////////////////////
-	Assert(
-		slab->spacetime.dual.sp.use_count(),
-		dealii::ExcNotInitialized()
-	);
 
-	dual.L = std::make_shared< dealii::SparseMatrix<double> > ();
-	dual.L->reinit(*slab->spacetime.dual.sp);
 	*dual.L = 0;
 
 	{
@@ -2603,7 +2370,7 @@ dual_assemble_rhs(
 	// NOTE: for nonlinear goal functionals, we need also the primal solution u for this function
 
 	// ASSEMBLY SPACE-TIME OPERATOR: FinalValue VECTOR ///////////////////////
-	dual.Mzn = std::make_shared< dealii::Vector<double> > ();
+	dual.Mzn = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 	Assert(
 		slab->space.dual.fe_info->dof.use_count(),
@@ -2615,10 +2382,13 @@ dual_assemble_rhs(
 	);
 
 	dual.Mzn->reinit(
-		slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
+		*slab->spacetime.dual.locally_owned_dofs,
+		mpi_comm
 	);
 	*dual.Mzn = 0.;
 
+	Assert(dual.relevant_tmp.use_count(),dealii::ExcNotInitialized());
+	*dual.relevant_tmp = *dual.zn;
 	{
 		FVDualAssembler<dim> dual_assembler;
 
@@ -2626,7 +2396,7 @@ dual_assemble_rhs(
 		Assert(dual.zn.use_count(), dealii::ExcNotInitialized());
 		Assert(dual.Mzn.use_count(), dealii::ExcNotInitialized());
 		dual_assembler.assemble(
-			dual.zn,
+			dual.relevant_tmp,
 			dual.Mzn,
 			slab
 		);
@@ -2635,7 +2405,7 @@ dual_assemble_rhs(
 	}
 
 	// ASSEMBLY SPACE-TIME OPERATOR: GOAL FUNCTIONAL VECTOR //////////////////////////////
-	dual.Je = std::make_shared< dealii::Vector<double> > ();
+	dual.Je = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 	Assert(
 		slab->space.dual.fe_info->dof.use_count(),
@@ -2647,7 +2417,8 @@ dual_assemble_rhs(
 	);
 
 	dual.Je->reinit(
-		slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
+		*slab->spacetime.dual.locally_owned_dofs,
+		mpi_comm
 	);
 	*dual.Je = 0.;
 
@@ -2677,13 +2448,13 @@ void
 Fluid<dim>::
 dual_solve_slab_problem(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &z
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z
 ) {
 	Assert(dual.L.use_count(), dealii::ExcNotInitialized());
 	Assert(dual.Mzn.use_count(), dealii::ExcNotInitialized());
 	Assert(dual.Je.use_count(), dealii::ExcNotInitialized());
 
-	dual.b = std::make_shared< dealii::Vector<double> > ();
+	dual.b = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 	Assert(
 		slab->space.dual.fe_info->dof.use_count(),
@@ -2695,400 +2466,14 @@ dual_solve_slab_problem(
 	);
 
 	dual.b->reinit(
-		slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
+		*slab->spacetime.dual.locally_owned_dofs,
+		mpi_comm
 	);
+
 	*dual.b = 0.;
 
 	dual.b->add(1., *dual.Mzn);
 	dual.b->add(1., *dual.Je);
-
-	////////////////////////////////////////////////////////////////////////////
-	// apply (in)homogeneous Dirichlet boundary values
-	//
-
-	DTM::pout << "dwr-instatfluid: dealii::MatrixTools::apply_boundary_values...";
-	{
-		std::map<dealii::types::global_dof_index, double> boundary_values;
-
-		// get all boundary colours on the current triangulation
-		std::unordered_set< dealii::types::boundary_id > boundary_colours;
-		{
-			auto cell = slab->space.tria->begin_active();
-			auto endc = slab->space.tria->end();
-			for ( ; cell != endc; ++cell) {
-			if (cell->at_boundary()) {
-				// loop over all faces
-				for (unsigned int face_no{0};
-					face_no < dealii::GeometryInfo<dim>::faces_per_cell;
-					++face_no) {
-				if (cell->face(face_no)->at_boundary()) {
-					auto face = cell->face(face_no);
-					boundary_colours.insert(
-						static_cast< unsigned int > (face->boundary_id())
-					);
-				}}
-			}}
-		}
-
-		// process all found boundary colours
-		for (auto colour : boundary_colours) {
-			//////////////////////////////////////
-			// component wise convection dirichlet
-			//
-
-			auto component_mask_convection =
-			std::make_shared< dealii::ComponentMask > (
-				(dim+1), false
-			);
-
-			switch (dim) {
-			case 3:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_convection_c3)) {
-					component_mask_convection->set(2, true);
-				}
-
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-
-			case 2:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_convection_c2)) {
-					component_mask_convection->set(1, true);
-				}
-
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-
-			case 1:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_convection_c1)) {
-					component_mask_convection->set(0, true);
-				}
-
-				break;
-
-			default:
-				AssertThrow(false, dealii::ExcNotImplemented());
-			}
-
-			// create boundary_values as
-			// std::map<dealii::types::global_dof_index, double>
-			{
-				const dealii::QGauss<1> support_points(
-					slab->time.dual.fe_info->fe->tensor_degree()+1
-				);
-
-				auto cell_time = slab->time.dual.fe_info->dof->begin_active();
-				auto endc_time = slab->time.dual.fe_info->dof->end();
-
-				dealii::FEValues<1> time_fe_values(
-					*slab->time.dual.fe_info->mapping,
-					*slab->time.dual.fe_info->fe,
-					support_points,
-					dealii::update_quadrature_points
-				);
-
-				for ( ; cell_time != endc_time; ++cell_time) {
-					time_fe_values.reinit(cell_time);
-
-					for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
-						std::map<dealii::types::global_dof_index,double>
-							boundary_values_qt;
-
-						dealii::VectorTools::interpolate_boundary_values (
-							*slab->space.dual.fe_info->dof,
-							static_cast< dealii::types::boundary_id > (
-								colour
-							),
-							dealii::ZeroFunction<dim>(dim+1),
-							boundary_values_qt,
-							*component_mask_convection
-						);
-
-						// boundary_values_qt -> boundary_values
-						for (auto &el : boundary_values_qt) {
-							dealii::types::global_dof_index idx =
-								el.first
-								// time offset
-								+ slab->space.dual.fe_info->dof->n_dofs() *
-									(cell_time->index()
-									* slab->time.dual.fe_info->fe->dofs_per_cell)
-								// local in time dof
-								+ slab->space.dual.fe_info->dof->n_dofs() * qt
-							;
-
-							boundary_values[idx] = el.second;
-						}
-					}
-				}
-			}
-
-			///////////////////////////////////////////////////////////
-			// prescribed_no_slip: all convection components are homog.
-			//
-
-			for (unsigned int component{0}; component < (dim+1); ++component) {
-				component_mask_convection->set(component, false);
-			}
-
-			switch (dim) {
-			case 3:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_no_slip)) {
-					component_mask_convection->set(2, true);
-				}
-
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-
-			case 2:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_no_slip)) {
-					component_mask_convection->set(1, true);
-				}
-
-				// NOTE: not to break switch here is indended
-				[[fallthrough]];
-
-			case 1:
-				if (colour & static_cast< dealii::types::boundary_id > (
-					fluid::types::space::boundary_id::prescribed_no_slip)) {
-					component_mask_convection->set(0, true);
-				}
-
-				break;
-
-			default:
-				AssertThrow(false, dealii::ExcNotImplemented());
-			}
-
-			// create boundary_values as
-			// std::map<dealii::types::global_dof_index, double>
-			{
-				const dealii::QGauss<1> support_points(
-					slab->time.dual.fe_info->fe->tensor_degree()+1
-				);
-
-				auto cell_time = slab->time.dual.fe_info->dof->begin_active();
-				auto endc_time = slab->time.dual.fe_info->dof->end();
-
-				dealii::FEValues<1> time_fe_values(
-					*slab->time.dual.fe_info->mapping,
-					*slab->time.dual.fe_info->fe,
-					support_points,
-					dealii::update_quadrature_points
-				);
-
-				for ( ; cell_time != endc_time; ++cell_time) {
-					time_fe_values.reinit(cell_time);
-
-					for (unsigned int qt{0}; qt < support_points.size(); ++qt) {
-						std::map<dealii::types::global_dof_index,double>
-							boundary_values_qt;
-
-						dealii::VectorTools::interpolate_boundary_values (
-							*slab->space.dual.fe_info->dof,
-							static_cast< dealii::types::boundary_id > (
-								colour
-							),
-							dealii::ZeroFunction<dim>(dim+1),
-							boundary_values_qt,
-							*component_mask_convection
-						);
-
-						// boundary_values_qt -> boundary_values
-						for (auto &el : boundary_values_qt) {
-							dealii::types::global_dof_index idx =
-								el.first
-								// time offset
-								+ slab->space.dual.fe_info->dof->n_dofs() *
-									(cell_time->index()
-									* slab->time.dual.fe_info->fe->dofs_per_cell)
-								// local in time dof
-								+ slab->space.dual.fe_info->dof->n_dofs() * qt
-							;
-
-							boundary_values[idx] = el.second;
-						}
-					}
-				} // no slip
-			}
-		} // for each (boundary) colour
-
-		////////////////////////////////////////////////////////////////////////
-		// MatrixTools::apply_boundary_values (number = double for A,x,b)
-		// input: A sparse matrix: IR^(m,n)
-		//        x vector: IR^n
-		//        b vector: IR^m
-		//
-		//        boundary_values: map< dof, double >
-		//
-		// NOTE: constrained rows (and columns) are not removed
-		//       (not condensed) from the sparsity pattern due to
-		//       memory efficiency reasons (this avoids the expensive
-		//       reallocation and copying of the operator and vectors)
-		//
-		// NOTE: a spurious, but nicely scaled, singular value is introduced
-		//       in the operator matrix for each boundary value constraint
-		//
-		if (boundary_values.size()) {
-			////////////////////////////////////////////////////////////////////
-			// prepare function header
-			std::shared_ptr< dealii::SparseMatrix<double> > A = dual.L;
-			std::shared_ptr< dealii::Vector<double> > x = z->x[0];
-			std::shared_ptr< dealii::Vector<double> > b = dual.b;
-
-			////////////////////////////////////////////////////////////////////
-			// internal checks
-			Assert(
-				A->m(),
-				dealii::ExcMessage(
-					"empty operator matrix A (rows: A.m() == 0)"
-				)
-			);
-
-			Assert(
-				A->n(),
-				dealii::ExcMessage(
-					"empty operator matrix A (cols: A.n() == 0)"
-				)
-			);
-
-			Assert(
-				(A->n() == x->size()),
-				dealii::ExcMessage(
-					"Internal dimensions error: "
-					"A->n() =/= x->size() of linear system A x = b"
-				)
-			);
-
-			Assert(
-				(A->m() == b->size()),
-				dealii::ExcMessage(
-					"Internal dimensions error: "
-					"A->m() =/= b->size() of linear system A x = b"
-				)
-			);
-
-			////////////////////////////////////////////////////////////////////
-			// apply boundary values to operator matrix A, vectors x and b
-
-			// preparation: eliminate constrained rows of operator A completely
-			for (auto &boundary_value : boundary_values) {
-				// on-the-fly check:
-				// validity of the given boundary value constraints
-				Assert(
-					(boundary_value.first < A->m()),
-					dealii::ExcMessage(
-						"constraining of dof index (as boundary value) "
-						"larger than (A.m()-1) is not valid"
-					)
-				);
-
-				// eliminate constrained row of operator matrix completely
-				auto el_in_row_i{A->begin(boundary_value.first)};
-				auto end_el_in_row_i{A->end(boundary_value.first)};
-
-				for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-					el_in_row_i->value() = double(0.);
-				}
-			}
-
-			// find (absolute) maximum of all remaining diagonal elements
-			// as scaling parameter for the boundary values identity operator
-			//
-			// NOTE: this is (a bit) more expensive then simply using the
-			//       first non-zero diagonal element (for the case that in
-			//       a constrained row the diagonal element is zero).
-			//       The advantage is, that the spurious singular values of
-			//       all boundary value constraints are identical, i.e.
-			//       a fixed and nicely scaled value.
-			//
-//			double diagonal_scaling_value{0.};
-//
-//			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-//				if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value)) {
-//					diagonal_scaling_value = A->el(i,i);
-//				}
-//			}
-//
-//			if (diagonal_scaling_value == double(0.)) {
-//				diagonal_scaling_value = double(1.);
-//			}
-//
-//			Assert(
-//				(diagonal_scaling_value != double(0.)),
-//				dealii::ExcInternalError()
-//			);
-			double diagonal_scaling_value{1.};
-
-			////////////////////////////////////////////////////////////////////
-			// apply boundary values:
-			// to the linear system (A x = b)
-			// without eliminating the corresponding column entries from
-			// the operator matrix A
-			//
-			for (auto &boundary_value : boundary_values) {
-				// set scaled identity operator
-				A->set(
-					boundary_value.first,  // i
-					boundary_value.first,  // i
-					diagonal_scaling_value // scaling factor or 1
-				);
-
-				// set constrained solution vector component (for iterative lss)
-				(*x)[boundary_value.first] = boundary_value.second;
-
-				// set constrained right hand side vector component
-				(*b)[boundary_value.first] =
-					diagonal_scaling_value * boundary_value.second;
-			}
-
-// 			////////////////////////////////////////////////////////////////////
-// 			// eliminate constrained column entries
-// 			//
-// 			// NOTE: this is quite expensive, but helps iterative lss
-// 			//       since the boundary value entries are shifted to the
-// 			//       right hand side.
-// 			//
-// 			// NOTE: there is no symmetry assumption on the sparsity pattern,
-// 			//       which is necessary for space-time operators
-// 			//
-// 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-// 				// if the row i of the operator A is not constrained,
-// 				// check if constrained columns need to be eliminated
-// 				if (boundary_values.find(i) == boundary_values.end()) {
-// 					// row i of A is not constrained
-// 					auto el_in_row_i{A->begin(i)};
-// 					auto end_el_in_row_i{A->end(i)};
-//
-// 					// check if a_ij needs to be eliminated
-// 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i) {
-// 						// get iterator of a_ij
-// 						auto boundary_value =
-// 							boundary_values.find(el_in_row_i->column());
-//
-// 						// if a_ij is constrained
-// 						if (boundary_value != boundary_values.end()) {
-// 							// shift constraint to rhs
-// 							(*b)[i] -=
-// 								el_in_row_i->value()*boundary_value->second;
-//
-// 							// eliminate a_ij
-// 							el_in_row_i->value() = 0.;
-// 						}
-// 					}
-// 				}
-// 			}
-		}
-	}
-	DTM::pout << " (done)" << std::endl;
-
-	////////////////////////////////////////////////////////////////////////////
-	// condense hanging nodes in system matrix, if any
-	//
-	slab->spacetime.dual.constraints->condense(*dual.L);
 
 	////////////////////////////////////////////////////////////////////////////
 	// solve linear system with direct solver
@@ -3096,9 +2481,17 @@ dual_solve_slab_problem(
 
 	DTM::pout << "dwr-instatfluid: setup direct lss and solve...";
 
-	if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_n == parameter_set->time.fluid.T)
-		dual.iA.initialize(*dual.L);
-	dual.iA.vmult(*z->x[0], *dual.b);
+	if (!parameter_set->problem.compare("Navier-Stokes") ||
+		!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") ||
+		std::abs(slab->t_n-parameter_set->time.fluid.T) < 0.5*slab->tau_n())
+	{
+		dual.iA = nullptr;
+		dual.iA = std::make_shared<dealii::TrilinosWrappers::SolverDirect> (*dual.sc,*dual.ad);
+
+		dual.iA->initialize(*dual.L);
+	}
+
+	dual.iA->solve(*dual.owned_tmp, *dual.b);
 
 	DTM::pout << " (done)" << std::endl;
 
@@ -3107,9 +2500,12 @@ dual_solve_slab_problem(
 	//
 
 	slab->spacetime.dual.constraints->distribute(
-		*z->x[0]
+		*dual.owned_tmp
 	);
+
+	*z->x[0] = *dual.owned_tmp;
 }
+
 
 
 template<int dim>
@@ -3133,7 +2529,7 @@ dual_do_backward_TMS(
 	auto slab = std::prev(grid->slabs.end());
 
 	////////////////////////////////////////////////////////////////////////////
-	// storage: init iterators to storage_data_vectors
+	// storage: init iterators to storage_data_trilinos_vectors
 	//          corresponding to last space-time slab: Omega x I_N
 	//
 
@@ -3220,13 +2616,93 @@ dual_do_backward_TMS(
 				AssertThrow(false, dealii::ExcNotImplemented());
 		}
 
-		grid->create_sparsity_pattern_dual_on_slab(slab);
+		//dual dof partitioning
+		{
+			slab->spacetime.dual.locally_owned_dofs =
+					std::make_shared<dealii::IndexSet> (
+							idealii::SlabDoFTools::extract_locally_owned_dofs(
+									slab->space.dual.fe_info->dof,
+									slab->time.dual.fe_info->dof
+							)
+					);
+
+			slab->spacetime.dual.locally_relevant_dofs =
+					std::make_shared<dealii::IndexSet> (
+							idealii::SlabDoFTools::extract_locally_relevant_dofs(
+									slab->space.dual.fe_info->dof,
+									slab->time.dual.fe_info->dof
+							)
+					);
+		}
+
+
+		{
+			slab->spacetime.dual.constraints =
+				std::make_shared< dealii::AffineConstraints<double> > ();
+
+			idealii::SlabDoFTools::make_spacetime_constraints(
+				slab->space.dual.fe_info->locally_relevant_dofs,
+				slab->space.dual.fe_info->constraints, // space constraints
+				slab->space.dual.fe_info->dof->n_dofs(),
+				slab->time.dual.fe_info->dof->n_dofs(),
+				slab->spacetime.dual.locally_relevant_dofs,
+				slab->spacetime.dual.constraints
+			);
+
+			slab->spacetime.dual.constraints->close();
+		}
+
+		if (!parameter_set->problem.compare("Navier-Stokes") ||
+			!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") ||
+			std::abs(slab->t_n-parameter_set->time.fluid.T) < 0.5*slab->tau_n())
+		{
+			dual.iA = std::make_shared<dealii::TrilinosWrappers::SolverDirect> (*dual.sc,*dual.ad);
+			dual.L = std::make_shared<dealii::TrilinosWrappers::SparseMatrix> ();
+			grid->create_sparsity_pattern_dual_on_slab(slab,dual.L);
+		}
+
 		dual_reinit_storage_on_slab(slab, z);
+
 
 		{
 			// error indicators
 			grid->initialize_pu_grid_components_on_slab(slab);
 			grid->distribute_pu_on_slab(slab);
+			// pu dof partitioning
+			{
+				slab->spacetime.pu.locally_owned_dofs =
+						std::make_shared<dealii::IndexSet> (
+								idealii::SlabDoFTools::extract_locally_owned_dofs(
+										slab->space.pu.fe_info->dof,
+										slab->time.pu.fe_info->dof
+								)
+						);
+
+				slab->spacetime.pu.locally_relevant_dofs =
+						std::make_shared<dealii::IndexSet> (
+								idealii::SlabDoFTools::extract_locally_relevant_dofs(
+										slab->space.pu.fe_info->dof,
+										slab->time.pu.fe_info->dof
+								)
+						);
+			}
+
+			{
+				slab->spacetime.pu.constraints =
+					std::make_shared< dealii::AffineConstraints<double> > ();
+
+				idealii::SlabDoFTools::make_spacetime_constraints(
+					slab->space.pu.fe_info->locally_relevant_dofs,
+					slab->space.pu.fe_info->constraints, // space constraints
+					slab->space.pu.fe_info->dof->n_dofs(),
+					slab->time.pu.fe_info->dof->n_dofs(),
+					slab->spacetime.pu.locally_relevant_dofs,
+					slab->spacetime.pu.constraints
+				);
+
+				slab->spacetime.dual.constraints->close();
+			}
+
 
 			eta_reinit_storage_on_slab(
 				slab,
@@ -3237,6 +2713,7 @@ dual_do_backward_TMS(
 			error_estimator.pu_dwr = std::make_shared< fluid::cGp_dGr::cGq_dGs::ErrorEstimator<dim> > ();
 			// set the important variables for the error estimator
 			error_estimator.pu_dwr->init(
+				mpi_comm,
 				function.viscosity,
 				grid,
 				parameter_set->fe.symmetric_stress,
@@ -3249,14 +2726,22 @@ dual_do_backward_TMS(
 		}
 
 
+		dual.zn = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		dual.zn->reinit(*slab->space.dual.fe_info->locally_owned_dofs,mpi_comm);
+		*dual.zn = 0.;
+
+
+		dual.relevant_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		dual.relevant_tmp->reinit(*slab->space.dual.fe_info->locally_owned_dofs,
+							   *slab->space.dual.fe_info->locally_relevant_dofs,
+							   mpi_comm);
+
+		dual.owned_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		dual.owned_tmp->reinit(*slab->spacetime.dual.locally_owned_dofs,mpi_comm);
 		if (n == N) {
 			////////////////////////////////////////////////////////////////////////////
 			// interpolate (or project) initial value(s)
 			//
-
-			dual.zn = std::make_shared< dealii::Vector<double> > ();
-			dual.zn->reinit(slab->space.dual.fe_info->dof->n_dofs());
-			*dual.zn = 0.;
 
 			Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
 			Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
@@ -3280,16 +2765,16 @@ dual_do_backward_TMS(
 			// not the last slab: transfer zm solution to zn solution
 			Assert(dual.zm.use_count(), dealii::ExcNotInitialized());
 
-			dual.zn = std::make_shared< dealii::Vector<double> > ();
-			dual.zn->reinit(slab->space.dual.fe_info->dof->n_dofs());
-			*dual.zn = 0.;
+			auto zm_rel = std::make_shared< dealii::TrilinosWrappers::MPI::Vector> ();
+			zm_rel->reinit(*slab->space.dual.fe_info->locally_owned_dofs,*slab->space.dual.fe_info->locally_relevant_dofs,mpi_comm);
 
+			*zm_rel = *dual.zm;
 			// for n < N interpolate between two (different) spatial meshes
 			// the solution z(t_m)|_{I_{n+1}}  to  z(t_n)|_{I_n}
 			dealii::VectorTools::interpolate_to_different_mesh(
 				// solution on I_{n+1}:
 				*std::next(slab)->space.dual.fe_info->dof,
-				*dual.zm,
+				*zm_rel,
 				// solution on I_n:
 				*slab->space.dual.fe_info->dof,
 				*slab->space.dual.fe_info->constraints,
@@ -3304,17 +2789,11 @@ dual_do_backward_TMS(
 		// assemble slab problem
 
 		// NOTE: for Stokes without adaptive refinement the dual system matrix needs only to be inverted on the last slab
-		if (!parameter_set->problem.compare("Navier-Stokes") || !parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") || slab->t_n == parameter_set->time.fluid.T)
+		if (!parameter_set->problem.compare("Navier-Stokes") ||
+			!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive") ||
+			std::abs(slab->t_n-parameter_set->time.fluid.T) < 0.5*slab->tau_n())
 		{
 			dual_assemble_system(slab, u->x[0]);
-		}
-		else
-		{
-			// dual system matrix doesn't need to be assembled, since it hasn't changed
-			// hence also dual.iA stays the same
-			dual.L = std::make_shared< dealii::SparseMatrix<double> > ();
-			dual.L->reinit(*slab->spacetime.dual.sp);
-			*dual.L = 0;
 		}
 		dual_assemble_rhs(slab);
 
@@ -3334,40 +2813,97 @@ dual_do_backward_TMS(
 		{
 			error_estimator.pu_dwr->estimate_on_slab(std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
 
-			// apply B. Endtmayer's post processing of the error indicators
-			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
-			for (auto line : std::next(slab)->space.pu.fe_info->constraints->get_lines())
-			{
-				// spatial error indicators
-				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-					(*std::next(eta_space)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_space)->x[0])[line.index];
-				(*std::next(eta_space)->x[0])[line.index] = 0.;
-
-				// temporal error indicators
-				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-					(*std::next(eta_time)->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*std::next(eta_time)->x[0])[line.index];
-				(*std::next(eta_time)->x[0])[line.index] = 0.;
-			}
+			//TODO: some Segfault here, no idea why
+//			// apply B. Endtmayer's post processing of the error indicators
+//			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
+//			auto space_relevant = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+//			auto time_relevant = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+//
+//			space_relevant ->reinit(
+//					*std::next(slab)->spacetime.pu.locally_owned_dofs,
+//					*std::next(slab)->spacetime.pu.locally_relevant_dofs,
+//					mpi_comm
+//			);
+//			time_relevant ->reinit(
+//					*std::next(slab)->spacetime.pu.locally_owned_dofs,
+//					*std::next(slab)->spacetime.pu.locally_relevant_dofs,
+//					mpi_comm
+//			);
+//
+//			*space_relevant = *std::next(eta_space)->x[0];
+//			*time_relevant = *std::next(eta_time)->x[0];
+//
+//			for (auto line : std::next(slab)->spacetime.pu.constraints->get_lines())
+//			{
+//				//go over all line entries
+//				for (unsigned int i=0; i<std::pow(2, dim-1); ++i){
+//					if (std::next(slab)->spacetime.pu.locally_owned_dofs->is_element(line.entries[i].first)){
+//						(*std::next(eta_space)->x[0])[line.entries[i].first]
+//						  += (1. / std::pow(2, dim-1))*(*space_relevant)[line.index];
+//
+//						(*std::next(eta_time)->x[0])[line.entries[i].first]
+//						  += (1. / std::pow(2, dim-1))*(*time_relevant)[line.index];
+//
+//					}
+//				}
+//				if (std::next(slab)->spacetime.pu.locally_owned_dofs->is_element(line.index)){
+//					(*std::next(eta_space)->x[0])[line.index] = 0.;
+//					(*std::next(eta_time)->x[0])[line.index] = 0.;
+//				}
+//			}
 		}
 		// evaluate error on first slab
 		if (n == 1)
 		{
+
 			error_estimator.pu_dwr->estimate_on_slab(slab, u, um, z, eta_space, eta_time);
-
-			// apply B. Endtmayer's post processing of the error indicators
-			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
-			for (auto line : slab->space.pu.fe_info->constraints->get_lines())
-			{
-				// spatial error indicators
-				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-					(*eta_space->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*eta_space->x[0])[line.index];
-				(*eta_space->x[0])[line.index] = 0.;
-
-				// temporal error indicators
-				for (unsigned int i=0; i<std::pow(2, dim-1); ++i)
-					(*eta_time->x[0])[line.entries[i].first] += (1. / std::pow(2, dim-1)) * (*eta_time->x[0])[line.index];
-				(*eta_time->x[0])[line.index] = 0.;
-			}
+//			// apply B. Endtmayer's post processing of the error indicators
+//			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
+//			auto space_relevant = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+//			auto time_relevant = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+//
+//			std::cout << "reiniting relevant vectors" << std::endl;
+//			space_relevant ->reinit(
+//					*slab->spacetime.pu.locally_owned_dofs,
+//					*slab->spacetime.pu.locally_relevant_dofs,
+//					mpi_comm
+//			);
+//			time_relevant ->reinit(
+//					*slab->spacetime.pu.locally_owned_dofs,
+//					*slab->spacetime.pu.locally_relevant_dofs,
+//					mpi_comm
+//			);
+//
+//			std::cout << "communicating estimators" << std::endl;
+//			*space_relevant = *eta_space->x[0];
+//			*time_relevant = *eta_time->x[0];
+//
+//			std::cout << "Starting B.E. postprocessing" << std::endl;
+//			for (auto line : slab->spacetime.pu.constraints->get_lines())
+//			{
+//				std::cout << "line " << line.index << " on rank "
+//						  << dealii::Utilities::MPI::this_mpi_process(mpi_comm)
+//						  << std::endl;
+//				//go over all line entries
+//				for (unsigned int i=0; i<std::pow(2, dim-1); ++i){
+//					if (slab->spacetime.pu.locally_owned_dofs->is_element(
+//							line.entries[i].first)){
+//						(*eta_space->x[0])[line.entries[i].first]
+//						  += (1. / std::pow(2, dim-1))*(*space_relevant)[line.index];
+//
+//						(*eta_time->x[0])[line.entries[i].first]
+//						  += (1. / std::pow(2, dim-1))*(*time_relevant)[line.index];
+//
+//					}
+//				}
+//				std::cout << "entries done, zeroing index on rank "
+//						  << dealii::Utilities::MPI::this_mpi_process(mpi_comm)
+//						  << std::endl;
+//				if (slab->spacetime.pu.locally_owned_dofs->is_element(line.index)){
+//					(*eta_space->x[0])[line.index] = 0.;
+//					(*eta_time->x[0])[line.index] = 0.;
+//				}
+//			}
 		}
 
 		////////////////////////////////////////////////////////////////////////
@@ -3375,8 +2911,9 @@ dual_do_backward_TMS(
 		//
 
 		// evaluate solution z(t_m)
-		dual.zm = std::make_shared< dealii::Vector<double> > ();
-		dual.zm->reinit(slab->space.dual.fe_info->dof->n_dofs());
+		dual.zm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+
+		dual.zm->reinit(*slab->space.dual.fe_info->locally_owned_dofs,mpi_comm);
 		*dual.zm = 0.;
 
 		{
@@ -3403,20 +2940,24 @@ dual_do_backward_TMS(
 				// evaluate solution for t_m of Q_n
 				for (unsigned int jj{0};
 					jj < slab->time.dual.fe_info->fe->dofs_per_cell; ++jj)
-				for (dealii::types::global_dof_index i{0};
-					i < slab->space.dual.fe_info->dof->n_dofs(); ++i) {
-					(*dual.zm)[i] += (*z->x[0])[
-						i
-						// time offset
-						+ slab->space.dual.fe_info->dof->n_dofs() *
+				{
+					dealii::IndexSet::ElementIterator lri = slab->space.dual.fe_info->locally_owned_dofs->begin();
+					dealii::IndexSet::ElementIterator lre = slab->space.dual.fe_info->locally_owned_dofs->end();
+
+					for (; lri != lre ; lri++ ){
+						(*dual.zm)[*lri] += (*z->x[0])[
+							*lri
+							// time offset
+							+ slab->space.dual.fe_info->dof->n_dofs() *
 							(cell_time->index() * slab->time.dual.fe_info->fe->dofs_per_cell)
-						// local in time dof
-						+ slab->space.dual.fe_info->dof->n_dofs() * jj
-					] * fe_face_values_time.shape_value(jj,0);
+							// local in time dof
+							+ slab->space.dual.fe_info->dof->n_dofs() * jj
+							] * fe_face_values_time.shape_value(jj,0);
+					}
+
 				}
 			}
 		}
-
 		// output data
 		dual_do_data_output(slab, z, dwr_loop, last);
 		if (n < N)
@@ -3424,11 +2965,12 @@ dual_do_backward_TMS(
 		if (n == 1)
 			eta_do_data_output(slab, eta_space, eta_time, dwr_loop, last);
 
+
 		////////////////////////////////////////////////////////////////////////
 		// allow garbage collector to clean up memory
 		//
 
-		dual.L = nullptr;
+//		dual.L = nullptr;
 		dual.b = nullptr;
 
 		dual.Mzn = nullptr;
@@ -3558,155 +3100,154 @@ void
 Fluid<dim>::
 dual_do_data_output_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &z,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 	const unsigned int dwr_loop) {
 	// TODO: might need to be debugged; adapted from primal_do_data_output_on_slab()
-
-	// triggered output mode
+	std::cout << "output used in non Qn mode!" << std::endl;
+//
+//	// triggered output mode
 	Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.dual.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
-	dual.data_output->set_DoF_data(
-		slab->space.dual.fe_info->dof,
-		slab->space.dual.fe_info->partitioning_locally_owned_dofs
-	);
-
- 	auto z_trigger = std::make_shared< dealii::Vector<double> > ();
- 	z_trigger->reinit(
- 		slab->space.dual.fe_info->dof->n_dofs()
- 	);
-
+	Assert(z->x[0].use_count(),dealii::ExcNotInitialized());
+//
+//	dual.data_output->set_DoF_data(
+//		slab->space.dual.fe_info->dof,
+//		slab->space.dual.fe_info->partitioning_locally_owned_dofs
+//	);
+//
+// 	auto z_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+// 	z_trigger->reinit(
+// 		slab->space.dual.fe_info->dof->n_dofs()
+// 	);
+//
 	std::ostringstream filename;
 	filename
 		<< "dual-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
-
-	{
-		// fe face values time: time face (I_n) information
-		dealii::FEValues<1> fe_face_values_time(
-			*slab->time.dual.fe_info->mapping,
-			*slab->time.dual.fe_info->fe,
-			dealii::QGaussLobatto<1>(2),
-			dealii::update_quadrature_points
-		);
-
-		Assert(
-			slab->time.dual.fe_info->dof.use_count(),
-			dealii::ExcNotInitialized()
-		);
-
-		auto cell_time = slab->time.dual.fe_info->dof->begin_active();
-		auto endc_time = slab->time.dual.fe_info->dof->end();
-
-		for ( ; cell_time != endc_time; ++cell_time) {
-			fe_face_values_time.reinit(cell_time);
-
-			////////////////////////////////////////////////////////////////////
-			// construct quadrature for data output,
-			// if triggered output time values are inside this time element
-			//
-
-			auto t_m = fe_face_values_time.quadrature_point(0)[0];
-			auto t_n = fe_face_values_time.quadrature_point(1)[0];
-			auto tau = t_n-t_m;
-
-			std::list<double> output_times;
-
-			if (dual.data_output_time_value < t_m) {
-				dual.data_output_time_value = t_m;
-			}
-
-			for ( ; (dual.data_output_time_value <= t_n) ||
-				(
-					(dual.data_output_time_value > t_n) &&
-					(std::abs(dual.data_output_time_value - t_n) < tau*1e-12)
-				); ) {
-				output_times.push_back(dual.data_output_time_value);
-				dual.data_output_time_value += dual.data_output_trigger;
-			}
-
-			if (output_times.size() && output_times.back() > t_n) {
-				output_times.back() = t_n;
-			}
-
-			if ((output_times.size() > 1) &&
-				(output_times.back() == *std::next(output_times.rbegin()))) {
-				// remove the last entry, iff doubled
-				output_times.pop_back();
-			}
-
-			// convert container
-			if (!output_times.size()) {
-				continue;
-			}
-
-			std::vector< dealii::Point<1> > output_time_points(output_times.size());
-			{
-				auto time{output_times.begin()};
-				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
-					double t_trigger{*time};
-					output_time_points[q][0] = (t_trigger-t_m)/tau;
-				}
-
-				if (output_time_points[0][0] < 0) {
-					output_time_points[0][0] = 0;
-				}
-
-				if (output_time_points[output_time_points.size()-1][0] > 1) {
-					output_time_points[output_time_points.size()-1][0] = 1;
-				}
-			}
-
-			dealii::Quadrature<1> quad_time(output_time_points);
-
-			// create fe values
-			dealii::FEValues<1> fe_values_time(
-				*slab->time.dual.fe_info->mapping,
-				*slab->time.dual.fe_info->fe,
-				quad_time,
-				dealii::update_values |
-				dealii::update_quadrature_points
-			);
-
-			fe_values_time.reinit(cell_time);
-
-			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.dual.fe_info->fe->dofs_per_cell);
-			cell_time->get_dof_indices(local_dof_indices);
-
-			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
- 				*z_trigger = 0.;
-
- 				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.dual.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.dual.fe_info->dof->n_dofs(); ++i) {
- 					(*z_trigger)[i] += (*z->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.dual.fe_info->dof->n_dofs() *
- 							local_dof_indices[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
-
-//				std::cout
-//					<< "dual output generated for t = "
-//					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
-//					<< std::endl;
-
-				dual.data_output->write_data(
-					filename.str(),
-					z_trigger,
-					dual.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
-				);
-			}
-		}
-	}
+//
+//	{
+//		// fe face values time: time face (I_n) information
+//		dealii::FEValues<1> fe_face_values_time(
+//			*slab->time.dual.fe_info->mapping,
+//			*slab->time.dual.fe_info->fe,
+//			dealii::QGaussLobatto<1>(2),
+//			dealii::update_quadrature_points
+//		);
+//
+//		Assert(
+//			slab->time.dual.fe_info->dof.use_count(),
+//			dealii::ExcNotInitialized()
+//		);
+//
+//		auto cell_time = slab->time.dual.fe_info->dof->begin_active();
+//		auto endc_time = slab->time.dual.fe_info->dof->end();
+//
+//		for ( ; cell_time != endc_time; ++cell_time) {
+//			fe_face_values_time.reinit(cell_time);
+//
+//			////////////////////////////////////////////////////////////////////
+//			// construct quadrature for data output,
+//			// if triggered output time values are inside this time element
+//			//
+//
+//			auto t_m = fe_face_values_time.quadrature_point(0)[0];
+//			auto t_n = fe_face_values_time.quadrature_point(1)[0];
+//			auto tau = t_n-t_m;
+//
+//			std::list<double> output_times;
+//
+//			if (dual.data_output_time_value < t_m) {
+//				dual.data_output_time_value = t_m;
+//			}
+//
+//			for ( ; (dual.data_output_time_value <= t_n) ||
+//				(
+//					(dual.data_output_time_value > t_n) &&
+//					(std::abs(dual.data_output_time_value - t_n) < tau*1e-12)
+//				); ) {
+//				output_times.push_back(dual.data_output_time_value);
+//				dual.data_output_time_value += dual.data_output_trigger;
+//			}
+//
+//			if (output_times.size() && output_times.back() > t_n) {
+//				output_times.back() = t_n;
+//			}
+//
+//			if ((output_times.size() > 1) &&
+//				(output_times.back() == *std::next(output_times.rbegin()))) {
+//				// remove the last entry, iff doubled
+//				output_times.pop_back();
+//			}
+//
+//			// convert container
+//			if (!output_times.size()) {
+//				continue;
+//			}
+//
+//			std::vector< dealii::Point<1> > output_time_points(output_times.size());
+//			{
+//				auto time{output_times.begin()};
+//				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
+//					double t_trigger{*time};
+//					output_time_points[q][0] = (t_trigger-t_m)/tau;
+//				}
+//
+//				if (output_time_points[0][0] < 0) {
+//					output_time_points[0][0] = 0;
+//				}
+//
+//				if (output_time_points[output_time_points.size()-1][0] > 1) {
+//					output_time_points[output_time_points.size()-1][0] = 1;
+//				}
+//			}
+//
+//			dealii::Quadrature<1> quad_time(output_time_points);
+//
+//			// create fe values
+//			dealii::FEValues<1> fe_values_time(
+//				*slab->time.dual.fe_info->mapping,
+//				*slab->time.dual.fe_info->fe,
+//				quad_time,
+//				dealii::update_values |
+//				dealii::update_quadrature_points
+//			);
+//
+//			fe_values_time.reinit(cell_time);
+//
+//			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.dual.fe_info->fe->dofs_per_cell);
+//			cell_time->get_dof_indices(local_dof_indices);
+//
+//			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
+// 				*z_trigger = 0.;
+//
+// 				// evaluate solution for t_q
+// 				for (
+// 					unsigned int jj{0};
+// 					jj < slab->time.dual.fe_info->fe->dofs_per_cell; ++jj) {
+// 				for (
+// 					dealii::types::global_dof_index i{0};
+// 					i < slab->space.dual.fe_info->dof->n_dofs(); ++i) {
+// 					(*z_trigger)[i] += (*z->x[0])[
+// 						i
+// 						// time offset
+// 						+ slab->space.dual.fe_info->dof->n_dofs() *
+// 							local_dof_indices[jj]
+// 					] * fe_values_time.shape_value(jj,qt);
+// 				}}
+//
+////				std::cout
+////					<< "dual output generated for t = "
+////					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
+////					<< std::endl;
+//
+//				dual.data_output->write_data(
+//					filename.str(),
+//					z_trigger,
+//					dual.data_postprocessor,
+//					fe_values_time.quadrature_point(qt)[0] // t_trigger
+//				);
+//			}
+//		}
+//	}
 }
 
 
@@ -3715,23 +3256,24 @@ void
 Fluid<dim>::
 dual_do_data_output_on_slab_Qn_mode(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &z,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 	const unsigned int dwr_loop) {
 	// natural output of solutions on Q_n in their support points in time
 	Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.dual.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
 	dual.data_output->set_DoF_data(
-		slab->space.dual.fe_info->dof,
-		slab->space.dual.fe_info->partitioning_locally_owned_dofs
+		slab->space.dual.fe_info->dof
 	);
 
-	auto z_trigger = std::make_shared< dealii::Vector<double> > ();
+	auto z_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
  	z_trigger->reinit(
- 		slab->space.dual.fe_info->dof->n_dofs()
- 	);
+ 			*slab->space.dual.fe_info->locally_owned_dofs,
+			*slab->space.dual.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+	auto owned_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+ 	owned_tmp->reinit(
+ 			*slab->space.dual.fe_info->locally_owned_dofs,
+			mpi_comm);
 
 	std::ostringstream filename;
 	filename
@@ -3739,10 +3281,40 @@ dual_do_data_output_on_slab_Qn_mode(
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 
 	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
 		// create fe values
+		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time;
+		if ( !(parameter_set->
+				fe.dual.convection.time_type_support_points
+				.compare("Gauss")) ) {
+
+			fe_quad_time =
+					std::make_shared< dealii::QGauss<1> > (
+							(parameter_set->fe.primal.convection.r + 1)
+					);
+
+		} else if ( !(parameter_set->
+				fe.dual.convection.time_type_support_points
+				.compare("Gauss-Lobatto")) ){
+
+			if (parameter_set->fe.dual.convection.r < 1){
+				fe_quad_time =
+						std::make_shared< QRightBox<1> > ();
+			} else {
+				fe_quad_time =
+						std::make_shared< dealii::QGaussLobatto<1> > (
+								(parameter_set->fe.dual.convection.r + 1)
+						);
+			}
+		}
+
+		AssertThrow(
+			fe_quad_time.use_count(),
+			dealii::ExcMessage(
+				"FE time: (dual) convection b support points invalid"
+			)
+		);
+
+
 		dealii::FEValues<1> fe_values_time(
 			*slab->time.dual.fe_info->mapping,
 			*slab->time.dual.fe_info->fe,
@@ -3768,31 +3340,34 @@ dual_do_data_output_on_slab_Qn_mode(
 				qt < fe_values_time.n_quadrature_points;
 				++qt) {
  				*z_trigger = 0.;
+ 				*owned_tmp = 0.;
 
  				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.dual.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.dual.fe_info->dof->n_dofs(); ++i) {
- 					(*z_trigger)[i] += (*z->x[0])[
- 						i
+
+
+ 				dealii::IndexSet::ElementIterator lri = slab->space.dual.fe_info->locally_owned_dofs->begin();
+ 				dealii::IndexSet::ElementIterator lre = slab->space.dual.fe_info->locally_owned_dofs->end();
+
+
+ 				for (; lri!= lre; lri++) {
+ 					for (
+ 							unsigned int jj{0};
+ 							jj < slab->time.dual.fe_info->fe->dofs_per_cell; ++jj) {
+ 					(*owned_tmp)[*lri] += (*z->x[0])[
+ 						*lri
  						// time offset
  						+ slab->space.dual.fe_info->dof->n_dofs() *
  							local_dof_indices_time[jj]
  					] * fe_values_time.shape_value(jj,qt);
- 				}}
+ 					}
+ 				}
 
-// 				std::cout
-// 					<< "output generated for t = "
-// 					<< fe_values_time.quadrature_point(qt)[0]
-// 					<< std::endl;
+ 				*z_trigger = *owned_tmp;
 
 				dual.data_output->write_data(
 					filename.str(),
 					z_trigger,
-					primal.data_postprocessor,
+					dual.data_postprocessor,
 					fe_values_time.quadrature_point(qt)[0] // t_trigger
 				);
 			}
@@ -3806,7 +3381,7 @@ void
 Fluid<dim>::
 dual_do_data_output(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &z,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 	const unsigned int dwr_loop,
 	bool last
 ) {
@@ -3871,92 +3446,95 @@ Fluid<dim>::
 dual_sort_xdmf_by_time(
 		const unsigned int dwr_loop
 ) {
-	// name of xdmf file to be sorted by time of the snapshots
-	std::ostringstream filename;
-	filename
-		<< "dual-dwr_loop-"
-		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop
-		<< ".xdmf";
 
-	// read the current xdmf file and save it line by line in a std::vector
-	std::ifstream old_xdmf_file(filename.str());
-	if (!old_xdmf_file.good()) // exit this function, if there is no xdmf file
-		return;
+	if (dealii::Utilities::MPI::this_mpi_process(mpi_comm)==0) {
+		// name of xdmf file to be sorted by time of the snapshots
+		std::ostringstream filename;
+		filename
+			<< "dual-dwr_loop-"
+			<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop
+			<< ".xdmf";
 
-	std::vector< std::string > old_lines;
+		// read the current xdmf file and save it line by line in a std::vector
+		std::ifstream old_xdmf_file(filename.str());
+		if (!old_xdmf_file.good()) // exit this function, if there is no xdmf file
+			return;
 
-	std::string current_line;
-	while (getline (old_xdmf_file, current_line))
-		old_lines.push_back(current_line);
+		std::vector< std::string > old_lines;
 
-	old_xdmf_file.close();
+		std::string current_line;
+		while (getline (old_xdmf_file, current_line))
+			old_lines.push_back(current_line);
 
-	// create a std::vector for the new lines where the grids are sorted in ascending order by the time
-	std::vector< std::string > new_lines;
+		old_xdmf_file.close();
 
-	// the first 5 lines remain unchanged
-	for (unsigned int i = 0; i <= 4; ++i)
-		new_lines.push_back(old_lines[i]);
+		// create a std::vector for the new lines where the grids are sorted in ascending order by the time
+		std::vector< std::string > new_lines;
 
-	//////////////////////////////////////////
-	// reorder the grids by time
-	//
-	std::vector< std::vector< std::string > > grids;
-	std::vector< std::string > current_grid;
+		// the first 5 lines remain unchanged
+		for (unsigned int i = 0; i <= 4; ++i)
+			new_lines.push_back(old_lines[i]);
 
-	// each grid consists of 23 lines
-	for (unsigned int i = 5; i < old_lines.size()-3; ++i)
-	{
-		current_grid.push_back(old_lines[i]);
-		if (current_grid.size() == 23)
+		//////////////////////////////////////////
+		// reorder the grids by time
+		//
+		std::vector< std::vector< std::string > > grids;
+		std::vector< std::string > current_grid;
+
+		// each grid consists of 23 lines
+		for (unsigned int i = 5; i < old_lines.size()-3; ++i)
 		{
-			grids.push_back(current_grid);
-			current_grid.clear();
+			current_grid.push_back(old_lines[i]);
+			if (current_grid.size() == 23)
+			{
+				grids.push_back(current_grid);
+				current_grid.clear();
+			}
 		}
+
+		// get time of grid
+		auto get_time = [](std::vector< std::string > grid)
+		{
+			Assert(grid.size() == 23, dealii::ExcInvalidState());
+			// the second line contains the time
+			std::string line = grid[1];
+			// get the number between the double quotes
+			std::string delimiter = "\"";
+			std::string token = line.substr(line.find(delimiter)+1, line.size());
+			token = token.substr(0, token.find(delimiter));
+			return std::stod(token);
+		};
+
+		// sort the grids by time
+		std::sort(std::begin(grids),
+				  std::end(grids),
+				  [&](std::vector< std::string > & a, std::vector< std::string > & b)
+		{
+			return get_time(a) < get_time(b);
+		});
+
+		// append sorted grid to new_lines
+		for (auto grid : grids)
+		{
+			for (auto line : grid)
+			{
+				new_lines.push_back(line);
+			}
+		}
+
+		// the last 3 lines remain unchanged
+		for (unsigned int i = old_lines.size()-3; i < old_lines.size(); ++i)
+		{
+			new_lines.push_back(old_lines[i]);
+		}
+
+		// write to file
+		std::ofstream new_xdmf_file;
+		new_xdmf_file.open(filename.str());
+		for (auto line : new_lines)
+			new_xdmf_file << line << std::endl;
+		new_xdmf_file.close();
 	}
-
-	// get time of grid
-    auto get_time = [](std::vector< std::string > grid)
-    {
-    	Assert(grid.size() == 23, dealii::ExcInvalidState());
-        // the second line contains the time
-    	std::string line = grid[1];
-    	// get the number between the double quotes
-        std::string delimiter = "\"";
-        std::string token = line.substr(line.find(delimiter)+1, line.size());
-        token = token.substr(0, token.find(delimiter));
-        return std::stod(token);
-    };
-
-    // sort the grids by time
-    std::sort(std::begin(grids),
-              std::end(grids),
-              [&](std::vector< std::string > & a, std::vector< std::string > & b)
-	{
-    	return get_time(a) < get_time(b);
-	});
-
-    // append sorted grid to new_lines
-    for (auto grid : grids)
-    {
-    	for (auto line : grid)
-    	{
-    		new_lines.push_back(line);
-    	}
-    }
-
-	// the last 3 lines remain unchanged
-	for (unsigned int i = old_lines.size()-3; i < old_lines.size(); ++i)
-	{
-		new_lines.push_back(old_lines[i]);
-	}
-
-	// write to file
-	std::ofstream new_xdmf_file;
-	new_xdmf_file.open(filename.str());
-	for (auto line : new_lines)
-		new_xdmf_file << line << std::endl;
-	new_xdmf_file.close();
 }
 
 
@@ -3967,15 +3545,25 @@ template<int dim>
 void
 Fluid<dim>::
 compute_functional_values(
-		const typename DTM::types::storage_data_vectors<1>::iterator &u,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	Assert(dim==2, dealii::ExcNotImplemented());
 	
 	// un := u at quadrature point, i.e. un = u(.,t_n)
-	std::shared_ptr< dealii::Vector<double> > un = std::make_shared< dealii::Vector<double> >(
-			slab->space.primal.fe_info->dof->n_dofs()
-	);
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un =
+			std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+
+	un->reinit(*slab->space.primal.fe_info->locally_owned_dofs,mpi_comm);
+
+
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un_rel =
+			std::make_shared< dealii::TrilinosWrappers::MPI::Vector>();
+
+	un_rel->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
+				   *slab->space.primal.fe_info->locally_relevant_dofs,
+				   mpi_comm);
+
 
 	// create vectors with functional values at quadrature points
 	// format: (time, value)
@@ -4026,15 +3614,17 @@ compute_functional_values(
 
 		for (unsigned int ii{0}; ii < slab->time.primal.fe_info->fe->dofs_per_cell; ++ii)
 		{
-			un->reinit(slab->space.primal.fe_info->dof->n_dofs());
+			un->reinit(*slab->space.primal.fe_info->locally_owned_dofs,mpi_comm);
 
 			double tn = fe_values_time.quadrature_point(ii)[0];
 
 			// compute solution un at time tn
-			for (dealii::types::global_dof_index i{0}; i < slab->space.primal.fe_info->dof->n_dofs(); ++i)
+		    dealii::IndexSet::ElementIterator lri = slab->space.primal.fe_info->locally_owned_dofs->begin();
+		    dealii::IndexSet::ElementIterator lre = slab->space.primal.fe_info->locally_owned_dofs->end();
+			for (; lri != lre ;lri++)
 			{
-				(*un)[i] += (*u->x[0])[
-					i
+				(*un)[*lri] += (*u->x[0])[
+					*lri
 					// time offset
 					+ slab->space.primal.fe_info->dof->n_dofs() *
 						(cell_time->index() * slab->time.primal.fe_info->fe->dofs_per_cell)
@@ -4043,9 +3633,9 @@ compute_functional_values(
 				];
 			}
 
+			un_rel = un;
 			////////////////////////////////////
 			// compute functional values of un
-
 			////////////////////////////////////
 			// pressure
 			dealii::Point<dim> M;
@@ -4057,9 +3647,10 @@ compute_functional_values(
 
 			double pressure_front = compute_pressure(
 				M,
-				un,
+				un_rel,
 				slab
 			); // pressure - left  point on circle
+
 
 			if (dim==2) {
 				M[0] = 0.25;
@@ -4068,7 +3659,7 @@ compute_functional_values(
 
 			double pressure_back = compute_pressure(
 				M,
-				un,
+				un_rel,
 				slab
 			); // pressure - right point on circle
 
@@ -4079,10 +3670,11 @@ compute_functional_values(
 			////////////////////////////////////
 			// drag and lift
 
+			DTM::pout << "calculating drag lift tensor " << std::endl;
 			// Compute drag and lift via line integral
 			dealii::Tensor<1, dim> drag_lift_value;
 			compute_drag_lift_tensor(
-				un,
+				un_rel,
 				slab,
 				drag_lift_value
 			);
@@ -4096,6 +3688,7 @@ compute_functional_values(
 		}
 	}
 
+
 	//////////////////////////////////////////////////////
 	// output goal functionals
 
@@ -4105,52 +3698,70 @@ compute_functional_values(
 
 	// pressure
 	DTM::pout << "Pressure difference:" << std::endl;
-
 	std::ofstream p_out;
-	// append instead pressure difference to text file (ios_base::app):
-	p_out.open("pressure.log", std::ios_base::app);
-
+	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+		// append instead pressure difference to text file (ios_base::app):
+		p_out.open("pressure.log", std::ios_base::app);
+	}
 	for (auto &item : pressure_values)
 	{
 		DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
 		DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
 
 		// save to txt file
-		p_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			p_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+		}
 	}
-	p_out.close();
 
+	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+	p_out.close();
+	}
 	// drag
 	DTM::pout << "Face drag:" << std::endl;
 
 	std::ofstream d_out;
-	d_out.open("drag.log", std::ios_base::app);
 
+	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+		d_out.open("drag.log", std::ios_base::app);
+	}
 	for (auto &item : drag_values)
 	{
 		DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
 		DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
 
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
 		// save to txt file
-		d_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			d_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+		}
 	}
-	d_out.close();
+
+	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+		d_out.close();
+	}
 
 	// lift
 	DTM::pout << "Face lift:" << std::endl;
 
 	std::ofstream l_out;
-	l_out.open("lift.log", std::ios_base::app);
+	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+		l_out.open("lift.log", std::ios_base::app);
+	}
 
 	for (auto &item : lift_values)
 	{
 		DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
 		DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
 
-		// save to txt file
-		l_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			// save to txt file
+			l_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+		}
 	}
-	l_out.close();
+
+	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+		l_out.close();
+	}
 }
 
 template<int dim>
@@ -4158,28 +3769,38 @@ double
 Fluid<dim>::
 compute_pressure(
 	dealii::Point<dim> x,
-	std::shared_ptr< dealii::Vector<double> > un,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	// evaluate the fe system solution as x_h for a given point x
 	dealii::Vector<double> x_h(dim + 1);
-	
-	dealii::VectorTools::point_value(
-		*slab->space.primal.fe_info->dof,
-		*un, // input dof vector at t_n
-		x, // evaluation point
-		x_h
-	);
-	
-	// return the pressure component of the fe solution evaluation
-	return x_h[dim];
+	try
+	{
+		dealii::VectorTools::point_value(
+				*slab->space.primal.fe_info->dof,
+				*un, // input dof vector at t_n
+				x, // evaluation point
+				x_h
+		);
+	}
+	catch (typename dealii::VectorTools::ExcPointNotAvailableHere e)
+	{}
+
+
+	auto minmax = dealii::Utilities::MPI::min_max_avg(x_h[dim], mpi_comm);
+	if ( std::abs(minmax.min) > minmax.max){
+		return minmax.min;
+	}
+	else {
+		return minmax.max;
+	}
 }
 
 template<int dim>
 void
 Fluid<dim>::
 compute_drag_lift_tensor(
-		std::shared_ptr< dealii::Vector<double> > un,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		dealii::Tensor<1, dim> &drag_lift_value
 ) {
@@ -4211,44 +3832,49 @@ compute_drag_lift_tensor(
 		endc = slab->space.primal.fe_info->dof->end();
 
 	for (; cell != endc; ++cell)
-	{
-	  // First, we are going to compute the forces that
-	  // act on the cylinder. We notice that only the fluid
-	  // equations are defined here.
-	  for (unsigned int face = 0; face < dealii::GeometryInfo<dim>::faces_per_cell; ++face)
-		if (cell->face(face)->at_boundary() &&
-			cell->face(face)->boundary_id() == fluid::types::space::boundary_id::prescribed_obstacle)
+		if (cell->is_locally_owned())
 		{
-		  fe_face_values.reinit(cell, face);
-		  fe_face_values.get_function_values(*un, face_solution_values);
-		  fe_face_values.get_function_gradients(*un, face_solution_grads);
+			// First, we are going to compute the forces that
+			// act on the cylinder. We notice that only the fluid
+			// equations are defined here.
+			for (unsigned int face = 0; face < dealii::GeometryInfo<dim>::faces_per_cell; ++face)
+				if (cell->face(face)->at_boundary() &&
+						cell->face(face)->boundary_id() == fluid::types::space::boundary_id::prescribed_obstacle)
+				{
+					fe_face_values.reinit(cell, face);
+					fe_face_values.get_function_values(*un, face_solution_values);
+					fe_face_values.get_function_gradients(*un, face_solution_grads);
 
-		  for (unsigned int q = 0; q < n_face_q_points; ++q)
-		  {
+					for (unsigned int q = 0; q < n_face_q_points; ++q)
+					{
 
-			dealii::Tensor<2, dim> pI;
-			pI.clear(); // reset all values to zero
-			for (unsigned int l = 0; l < dim; l++)
-			  pI[l][l] = face_solution_values[q](dim);
+						dealii::Tensor<2, dim> pI;
+						pI.clear(); // reset all values to zero
+						for (unsigned int l = 0; l < dim; l++)
+							pI[l][l] = face_solution_values[q](dim);
 
-			dealii::Tensor<2, dim> grad_v;
-			for (unsigned int l = 0; l < dim; l++)
-			  for (unsigned int m = 0; m < dim; m++)
-				grad_v[l][m] = face_solution_grads[q][l][m];
+						dealii::Tensor<2, dim> grad_v;
+						for (unsigned int l = 0; l < dim; l++)
+							for (unsigned int m = 0; m < dim; m++)
+								grad_v[l][m] = face_solution_grads[q][l][m];
 
-			double _viscosity = function.viscosity->value(
-				fe_face_values.quadrature_point(q),0
-			);
+						double _viscosity = function.viscosity->value(
+								fe_face_values.quadrature_point(q),0
+						);
 
-			dealii::Tensor<2, dim> sigma_fluid = -pI + _viscosity * grad_v;
-			if (parameter_set->fe.symmetric_stress)
-				sigma_fluid += _viscosity * transpose(grad_v);
+						dealii::Tensor<2, dim> sigma_fluid = -pI + _viscosity * grad_v;
+						if (parameter_set->fe.symmetric_stress)
+							sigma_fluid += _viscosity * transpose(grad_v);
 
-			drag_lift_value -= sigma_fluid * fe_face_values.normal_vector(q) * fe_face_values.JxW(q);
-		  }
-		} // end boundary stokes::types::space::boundary_id::prescribed_obstacle for fluid
-	} // end cell
+						drag_lift_value -= sigma_fluid * fe_face_values.normal_vector(q) * fe_face_values.JxW(q);
+					}
+				} // end boundary stokes::types::space::boundary_id::prescribed_obstacle for fluid
+		} // end cell
 
+	double tmp = dealii::Utilities::MPI::sum(drag_lift_value[0],mpi_comm);
+	drag_lift_value[0] = tmp;
+	tmp = dealii::Utilities::MPI::sum(drag_lift_value[1],mpi_comm);
+	drag_lift_value[1] = tmp;
 	// 2D-1: 500; 2D-2 and 2D-3: 20 (see Schaefer/Turek 1996)
 	double max_velocity = function.convection.dirichlet->value(
 					dealii::Point<dim>(0.0, 0.205) // maximal velocity in the middle of the boundary
@@ -4284,14 +3910,14 @@ eta_reinit_storage() {
 	Assert(grid.use_count(), dealii::ExcNotInitialized());
 
 	error_estimator.storage.eta_space =
-		std::make_shared< DTM::types::storage_data_vectors<1> > ();
+		std::make_shared< DTM::types::storage_data_trilinos_vectors<1> > ();
 
 	error_estimator.storage.eta_space->resize(
 		static_cast<unsigned int>(grid->slabs.size())
 	);
 
 	error_estimator.storage.eta_time =
-		std::make_shared< DTM::types::storage_data_vectors<1> > ();
+		std::make_shared< DTM::types::storage_data_trilinos_vectors<1> > ();
 
 	error_estimator.storage.eta_time->resize(
 		static_cast<unsigned int>(grid->slabs.size())
@@ -4303,12 +3929,12 @@ void
 Fluid<dim>::
 eta_reinit_storage_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta_t
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_t
 ) {
 	// spatial error indicators
 	for (unsigned int j{0}; j < eta_s->x.size(); ++j) {
-		eta_s->x[j] = std::make_shared< dealii::Vector<double> > ();
+		eta_s->x[j] = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 		Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
 
@@ -4323,13 +3949,14 @@ eta_reinit_storage_on_slab(
 		);
 
 		eta_s->x[j]->reinit(
-			slab->space.pu.fe_info->dof->n_dofs() * slab->time.pu.fe_info->dof->n_dofs()
+				*slab->spacetime.pu.locally_owned_dofs,
+				mpi_comm
 		);
 	}
 
 	// temporal error indicators
 	for (unsigned int j{0}; j < eta_t->x.size(); ++j) {
-		eta_t->x[j] = std::make_shared< dealii::Vector<double> > ();
+		eta_t->x[j] = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 
 		Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
 
@@ -4344,7 +3971,8 @@ eta_reinit_storage_on_slab(
 		);
 
 		eta_t->x[j]->reinit(
-			slab->space.pu.fe_info->dof->n_dofs() * slab->time.pu.fe_info->dof->n_dofs()
+				*slab->spacetime.pu.locally_owned_dofs,
+				mpi_comm
 		);
 	}
 }
@@ -4356,11 +3984,11 @@ compute_effectivity_index() {
 	// sum up error estimator
 	double value_eta_k = 0.;
 	for (auto &element : *error_estimator.storage.eta_time)
-		value_eta_k += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
+		value_eta_k += element.x[0]->mean_value()*element.x[0]->size();
 
 	double value_eta_h = 0.;
 	for (auto &element : *error_estimator.storage.eta_space)
-		value_eta_h += std::accumulate(element.x[0]->begin(), element.x[0]->end(), 0.);
+		value_eta_h += element.x[0]->mean_value()*element.x[0]->size();
 
 	const double value_eta = std::abs(value_eta_k + value_eta_h);
 
@@ -4400,99 +4028,200 @@ refine_and_coarsen_space_time_grid(
 			dealii::ExcInternalError()
 	);
 
-	const unsigned int N{static_cast<unsigned int>(grid->slabs.size())};
-	std::vector<double> eta_k(N);
+	const unsigned int N_slabs{static_cast<unsigned int>(grid->slabs.size())};
+	std::vector<unsigned int> ints_per_slab(N_slabs);
+	//determine number of temporal intervals
+	unsigned int N_int =0 ;
+	{
+		auto slab{grid->slabs.begin()};
+		auto ends{grid->slabs.end()};
+		for (unsigned int n = 0; slab != ends; ++slab, ++n) {
+            ints_per_slab[n] =slab->time.tria->n_active_cells();
+			N_int+= ints_per_slab[n];
+		}
+	}
+
+	std::vector<double> eta_k(N_int);
 
 	double eta_k_global {0.};
 	double eta_h_global {0.};
 
-	// compute eta^n on I_n for n=1..N as well as global estimators
+	// compute eta_k^n on I_n for n=1..N as well as global estimators
 	{
-		auto eta_it{error_estimator.storage.eta_time->begin()};
-		for (unsigned n{0}; n < N; ++n, ++eta_it) {
+		auto eta_it_k{error_estimator.storage.eta_time->begin()};
+		auto eta_it_h{error_estimator.storage.eta_space->begin()};
+
+		auto slab{grid->slabs.begin()};
+
+		auto eta_k_local = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+		auto eta_h_local = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+		unsigned int n_in{0};
+		for (unsigned n_sl{0}; n_sl < N_slabs;
+				++n_sl, ++eta_it_k, ++eta_it_h, ++slab) {
 			Assert(
-				(eta_it != error_estimator.storage.eta_time->end()),
+				(eta_it_k != error_estimator.storage.eta_time->end()),
 				dealii::ExcInternalError()
 			);
-
-			double eta_k_K = std::accumulate(
-				eta_it->x[0]->begin(),
-				eta_it->x[0]->end(),
-				0.
+			Assert(
+				(eta_it_h != error_estimator.storage.eta_space->end()),
+				dealii::ExcInternalError()
 			);
-			eta_k[n] = std::abs(eta_k_K);
-			eta_k_global += eta_k_K;
+			eta_k_local->reinit(*slab->space.pu.fe_info->locally_owned_dofs,
+					          mpi_comm);
+
+			eta_h_local->reinit(*slab->space.pu.fe_info->locally_owned_dofs,
+					          mpi_comm);
+			//get local pu's
+			//TODO: if using something else than dG(0) in time for pu this should be changed!
+
+			for (auto &cell : slab->time.tria->active_cell_iterators() ){
+				*eta_k_local = 0.;
+				*eta_h_local = 0.;
+				dealii::IndexSet::ElementIterator loi = slab->space.pu.fe_info->locally_owned_dofs->begin();
+				dealii::IndexSet::ElementIterator loe = slab->space.pu.fe_info->locally_owned_dofs->end();
+				for (; loi != loe ; loi++){
+					(*eta_k_local)[*loi] = (*eta_it_k->x[0])[
+						*loi
+						//time offset
+						+slab->space.pu.fe_info->dof->n_dofs() *
+						cell->index()
+					 ];
+
+					(*eta_h_local)[*loi] = (*eta_it_h->x[0])[
+						*loi
+						//time offset
+						+slab->space.pu.fe_info->dof->n_dofs() *
+						cell->index()
+					 ];
+				}
+				double eta_k_K = eta_k_local->mean_value()*eta_k_local->size();
+				double eta_h_K = eta_h_local->mean_value()*eta_h_local->size();
+				eta_k[n_in] = std::abs(eta_k_K);
+				eta_k_global += eta_k_K;
+
+				double k_n = cell->bounding_box().side_length(0);
+				eta_h_global +=
+						eta_h_K*
+						parameter_set->time.fluid.T/
+						(N_int*k_n);
+
+				n_in++;
+			}
 		}
 	}
 
 	// Per definition eta_k[0] is 0 for the primal problem, so just set it to the next time step
-	//eta_k[0] = eta_k[1];
+	eta_k[0] = eta_k[1];
 	if (eta_k[0] == 0.)
 		DTM::pout << "eta_k[0] = " << eta_k[0] << std::endl;
-
-	// TODO: output is slab-wise and NOT timecell-wise
 
 	///////////////////////////////
 	// output eta_k for each slab
 
-	std::ostringstream filename;
-	filename
-		<< "slabwise_eta_k-dwr_loop-"
-		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop << ".log";
-
-	std::ofstream eta_k_out;
-	eta_k_out.open(filename.str());
-
-	unsigned int _i = 0;
-	for (auto &slab : grid->slabs)
-	{
-		// save to txt file
-		eta_k_out << slab.t_m << "," << eta_k[_i] << std::endl;
-		eta_k_out << slab.t_n << "," << eta_k[_i] << std::endl;
-		_i++;
-	}
-	eta_k_out.close();
-
-	/////////////////////////////
-	// output k_n for each slab
-
-	// reset filename
-	filename.str("");
-	filename.clear();
-
-	filename
-			<< "slabwise_k_n-dwr_loop-"
+	if (dealii::Utilities::MPI::this_mpi_process(mpi_comm)==0){
+		std::ostringstream filename;
+		filename
+			<< "slabwise_eta_k-dwr_loop-"
 			<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop << ".log";
 
-	std::ofstream k_n_out;
-	k_n_out.open(filename.str());
+		std::ofstream eta_k_out;
+		eta_k_out.open(filename.str());
 
-	for (auto &slab : grid->slabs)
-	{
-		// save to txt file
-		k_n_out << slab.t_m << "," << slab.tau_n() << std::endl;
-		k_n_out << slab.t_n << "," << slab.tau_n() << std::endl;
-	}
-	k_n_out.close();
+		unsigned int _i = 0;
+		unsigned int n_sl = 0;
+		unsigned int n_in = 0;
+		double eta_k_slab = 0.;
+		for (auto &slab : grid->slabs)
+		{
+			eta_k_slab = 0.;
+			for (unsigned int ii = 0 ; ii < ints_per_slab[n_sl] ; ii++){
+				eta_k_slab += eta_k[n_in];
+				n_in++;
+			}
 
-	{
-		auto eta_it{error_estimator.storage.eta_space->begin()};
-		auto slab{grid->slabs.begin()};
-		auto ends{grid->slabs.end()};
-		for (unsigned n{0}; n < N; ++n, ++eta_it, ++slab) {
-			Assert(
-				(eta_it != error_estimator.storage.eta_space->end()),
-				dealii::ExcInternalError()
-			);
-
-			eta_h_global += parameter_set->time.fluid.T/(N*slab->tau_n())*
-				std::accumulate(
-						eta_it->x[0]->begin(),
-						eta_it->x[0]->end(),
-						0.
-				);
+			// save to txt file
+			eta_k_out << slab.t_m << "," << eta_k_slab << std::endl;
+			eta_k_out << slab.t_n << "," << eta_k_slab<< std::endl;
+			_i++;
+			n_sl++;
 		}
+		eta_k_out.close();
+
+		/////////////////////////////
+		// output k_n for each slab
+
+		// reset filename
+		filename.str("");
+		filename.clear();
+
+		filename
+				<< "slabwise_k_n-dwr_loop-"
+				<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop << ".log";
+
+		std::ofstream k_n_out;
+		k_n_out.open(filename.str());
+
+		for (auto &slab : grid->slabs)
+		{
+			// save to txt file
+			k_n_out << slab.t_m << "," << slab.tau_n() << std::endl;
+			k_n_out << slab.t_n << "," << slab.tau_n() << std::endl;
+		}
+		k_n_out.close();
 	}
+
+	///////////////////////////////
+	// output eta_k for each temporal interval
+
+	if (dealii::Utilities::MPI::this_mpi_process(mpi_comm)==0){
+		std::ostringstream filename;
+		filename
+			<< "intervalwise_eta_k-dwr_loop-"
+			<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop << ".log";
+
+		std::ofstream eta_k_out;
+		eta_k_out.open(filename.str());
+
+		// reset filename
+		filename.str("");
+		filename.clear();
+
+		filename
+				<< "intervalwise_k_n-dwr_loop-"
+				<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop << ".log";
+
+		std::ofstream k_n_out;
+		k_n_out.open(filename.str());
+
+		unsigned int n_in = 0;
+		for (auto &slab : grid->slabs)
+		{
+			for (auto &cell : slab.time.tria->active_cell_iterators()){
+				const dealii::BoundingBox<1> bbox = cell->bounding_box ();
+				eta_k_out << bbox.get_boundary_points().first << ","
+						  << eta_k[n_in]
+					      << std::endl;
+
+				eta_k_out << bbox.get_boundary_points().second << ","
+						  << eta_k[n_in]
+					      << std::endl;
+
+
+				k_n_out << bbox.get_boundary_points().first << ","
+						<< bbox.side_length(0)
+						<< std::endl;
+
+				k_n_out << bbox.get_boundary_points().second << ","
+						<< bbox.side_length(0)
+						<< std::endl;
+				n_in++;
+			}
+
+		}
+		eta_k_out.close();
+		k_n_out.close();
+	}
+
 
 	// Choose if temporal or spatial discretization should be refined
 	// according to Algorithm 4.1 in Schmich & Vexler
@@ -4526,18 +4255,18 @@ refine_and_coarsen_space_time_grid(
 				) * parameter_set->dwr.refine_and_coarsen.time.top_fraction;
 
 				double D_sum = 0.;
-				for ( unsigned int n{0} ; n < N ; n++ )
+				for ( unsigned int n{0} ; n < N_int ; n++ )
 				{
 					D_sum += eta_sorted[n];
 					if ( D_sum >= D_goal ){
 						threshold = eta_sorted[n];
-						n = N;
+						n = N_int;
 					}
 				}
 
 			} else if (parameter_set->dwr.refine_and_coarsen.time.strategy.compare("fixed_number") == 0) {
 				// check if index for eta_criterium_for_mark_time_refinement is valid
-				Assert(static_cast<int>(std::ceil(static_cast<double>(N)
+				Assert(static_cast<int>(std::ceil(static_cast<double>(N_int)
 						* parameter_set->dwr.refine_and_coarsen.time.top_fraction)) >= 0,
 					dealii::ExcInternalError()
 				);
@@ -4545,26 +4274,35 @@ refine_and_coarsen_space_time_grid(
 				unsigned int index_for_mark_time_refinement {
 					static_cast<unsigned int> (
 						static_cast<int>(std::ceil(
-							static_cast<double>(N)
+							static_cast<double>(N_int)
 							* parameter_set->dwr.refine_and_coarsen.time.top_fraction
 						))
 					)
 				};
 
-				threshold = eta_sorted[ index_for_mark_time_refinement < N ?
-											index_for_mark_time_refinement : N-1 ];
+				threshold = eta_sorted[ index_for_mark_time_refinement < N_int ?
+											index_for_mark_time_refinement : N_int-1 ];
 
 			}
 
 			auto slab{grid->slabs.begin()};
 			auto ends{grid->slabs.end()};
-			for (unsigned int n{0} ; slab != ends; ++slab, ++n) {
-				Assert((n < N), dealii::ExcInternalError());
+			unsigned int n_in {0};
+			for (unsigned int n_sl{0} ; slab != ends; ++slab, ++n_sl) {
+				Assert((n_sl < N_slabs), dealii::ExcInternalError());
 
-				if (eta_k[n] >= threshold) {
-					slab->set_refine_in_time_flag();
-					DTM::pout << "Marked slab " << n << " for temporal refinement" << std::endl;
+				for ( auto &cell : slab->time.tria->active_cell_iterators()){
+					if (eta_k[n_in] >= threshold){
+						cell->set_refine_flag();
+						DTM::pout << "Marked interval " << n_in
+								  << " for temporal refinement"
+								  << std::endl;
+
+						slab->set_refine_in_time_flag();
+					}
+					n_in++;
 				}
+
 			}
 		}
 	}
@@ -4573,16 +4311,20 @@ refine_and_coarsen_space_time_grid(
 	// spatial refinement
 	if (std::abs(eta_k_global) <= equilibration_factor*std::abs(eta_h_global))
 	{
-		for (auto &eta_In : *error_estimator.storage.eta_space) {
-			for (auto &eta_K : *eta_In.x[0] ) {
-				eta_K = std::abs(eta_K);
-				Assert(eta_K >= 0., dealii::ExcInternalError());
-			}
-		}
+//		for (auto &eta_In : *error_estimator.storage.eta_space) {
+//			for (auto &eta_K : *eta_In.x[0] ) {
+//				eta_K = std::abs(eta_K);
+//				Assert(eta_K >= 0., dealii::ExcInternalError());
+//			}
+//		}
 		unsigned int K_max{0};
 		auto slab{grid->slabs.begin()};
 		auto ends{grid->slabs.end()};
 		auto eta_it{error_estimator.storage.eta_space->begin()};
+
+		auto eta_local = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+		auto eta_relevant = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+
 		for (unsigned int n{0} ; slab != ends; ++slab, ++eta_it, ++n) {
 
 			Assert(
@@ -4590,9 +4332,9 @@ refine_and_coarsen_space_time_grid(
 				dealii::ExcInternalError()
 			);
 
-			DTM::pout << "\tn = " << n << std::endl;
+			DTM::pout << "\tslab = " << n << std::endl;
 
-			const auto n_active_cells_on_slab{slab->space.tria->n_global_active_cells()};
+			const auto n_active_cells_on_slab{slab->space.tria->n_active_cells()};
 			DTM::pout << "\t#K = " << n_active_cells_on_slab << std::endl;
 			K_max = (K_max > n_active_cells_on_slab) ? K_max : n_active_cells_on_slab;
 
@@ -4601,28 +4343,62 @@ refine_and_coarsen_space_time_grid(
 				slab->space.tria->refine_global(1);
 			}
 			else {
-				const unsigned int dofs_per_cell_pu = slab->space.pu.fe_info->fe->dofs_per_cell;
-				std::vector< unsigned int > local_dof_indices(dofs_per_cell_pu);
-				unsigned int max_n = n_active_cells_on_slab *
-										parameter_set->dwr.refine_and_coarsen.space.max_growth_factor_n_active_cells;
+				eta_local->reinit(*slab->space.pu.fe_info->locally_owned_dofs,
+								  mpi_comm);
 
-				typename dealii::DoFHandler<dim>::active_cell_iterator
-					cell{slab->space.pu.fe_info->dof->begin_active()},
-					endc{slab->space.pu.fe_info->dof->end()};
+				eta_relevant->reinit(*slab->space.pu.fe_info->locally_owned_dofs,
+								  *slab->space.pu.fe_info->locally_relevant_dofs,
+								  mpi_comm);
 
-				dealii::Vector<double> indicators(n_active_cells_on_slab);
-				indicators= 0.;
+				*eta_local = 0.;
 
-				for ( unsigned int cell_no{0} ; cell!= endc; ++cell, ++cell_no){
-					cell->get_dof_indices(local_dof_indices);
-
-					for ( unsigned int i = 0 ; i < dofs_per_cell_pu ; i++) {
-						indicators[cell_no] += (*eta_it->x[0])(local_dof_indices[i])/dofs_per_cell_pu;
+				//Go over each locally owned spatial DoF
+				dealii::IndexSet::ElementIterator loi = slab->space.pu.fe_info->locally_owned_dofs->begin();
+				dealii::IndexSet::ElementIterator loe = slab->space.pu.fe_info->locally_owned_dofs->end();
+				for (; loi != loe ; loi++){
+					//Sum up over all temporal intervals
+					for (auto &cell : slab->time.tria->active_cell_iterators()){
+						(*eta_local)[*loi] += (*eta_it->x[0])[
+												*loi
+												//time offset
+												+slab->space.pu.fe_info->dof->n_dofs() *
+												cell->index()
+											 ];
 					}
 				}
 
+				//For cell indicators we need communication over ghost cells
+				*eta_relevant = *eta_local;
+
+
+
+				const unsigned int dofs_per_cell_pu = slab->space.pu.fe_info->fe->dofs_per_cell;
+				std::vector< unsigned int > local_dof_indices(dofs_per_cell_pu);
+				unsigned int max_n = n_active_cells_on_slab *
+						parameter_set->dwr.refine_and_coarsen.space.max_growth_factor_n_active_cells;
+
+
+				typename dealii::DoFHandler<dim>::active_cell_iterator
+				cell{slab->space.pu.fe_info->dof->begin_active()},
+				endc{slab->space.pu.fe_info->dof->end()};
+
+				dealii::Vector<double> indicators(n_active_cells_on_slab);
+				indicators = 0.;
+				//Go over each locally owned spatial cell
+				for ( unsigned int cell_no{0}; cell!= endc ; ++cell, ++cell_no){
+					if ( cell->is_locally_owned()){
+						cell->get_dof_indices(local_dof_indices);
+
+						for (unsigned int i = 0 ; i < dofs_per_cell_pu ; i++){
+							indicators[cell_no] += (*eta_relevant)(local_dof_indices[i])/dofs_per_cell_pu;
+						}
+					}
+					indicators[cell_no ] = std::abs(indicators[cell_no]);
+				}
+
+
 				if (parameter_set->dwr.refine_and_coarsen.space.strategy.compare("RichterWick") == 0){
-					double threshold = eta_it->x[0]->mean_value()*
+					double threshold = eta_local->mean_value()*
 							parameter_set->dwr.refine_and_coarsen.space.riwi_alpha;
 
 					dealii::GridRefinement::refine(
@@ -4661,15 +4437,15 @@ refine_and_coarsen_space_time_grid(
 
 				}
 
-				// count which percentage of spatial cells have been marked for refinement
-				unsigned int marked_cells = 0;
-
-				for (const auto &cell : slab->space.tria->active_cell_iterators())
-					if (cell->refine_flag_set())
-						marked_cells++;
-
-				DTM::pout << "\tSpace top fraction = " << std::setprecision(5) << ((double)marked_cells) / slab->space.tria->n_active_cells() << std::endl;
-
+//				// count which percentage of spatial cells have been marked for refinement
+//				unsigned int marked_cells = 0;
+//
+//				for (const auto &cell : slab->space.tria->active_cell_iterators())
+//					if (cell->refine_flag_set())
+//						marked_cells++;
+//
+//				DTM::pout << "\tSpace top fraction = " << std::setprecision(5) << ((double)marked_cells) / slab->space.tria->n_active_cells() << std::endl;
+//
 				// execute refinement in space under the conditions of mesh smoothing
 				slab->space.tria->execute_coarsening_and_refinement();
 			}
@@ -4682,16 +4458,24 @@ refine_and_coarsen_space_time_grid(
 		auto slab{grid->slabs.begin()};
 		auto ends{grid->slabs.end()};
 		for (; slab != ends; ++slab) {
-			if (slab->refine_in_time) {
-				//slab->time.tria->refine_global(1);
-				grid->refine_slab_in_time(slab); // splitting slab into two slabs
-				slab->refine_in_time = false;
+			slab->time.tria->execute_coarsening_and_refinement();
+
+		}
+	}
+	//TODO: go over slabs and check if they should be split into two
+	{
+		auto slab{grid->slabs.begin()};
+		auto ends{grid->slabs.end()};
+		for (; slab != ends; ++slab) {
+			if (slab->refine_in_time){
+				slab->clear_refine_in_time_flag();
+				grid->split_slab_in_time(slab);
 			}
 		}
 	}
 	DTM::pout << "refined in time" << std::endl;
 }
-
+//
 ////////////////////////////////////////////////////////////////////////////////
 // eta data output
 //
@@ -4775,345 +4559,211 @@ eta_init_data_output() {
 template<int dim>
 void
 Fluid<dim>::
-eta_space_do_data_output_on_slab(
+eta_do_data_output_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta,
-	const unsigned int dwr_loop) {
-	// TODO: might need to be debugged; adapted from primal_do_data_output_on_slab() & copied form dual_do_data_output_on_slab()
-
-	// triggered output mode
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta,
+	const unsigned int dwr_loop,
+	std::string eta_type) {
 	Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
-	error_estimator.data_output_space->set_DoF_data(
-		slab->space.pu.fe_info->dof,
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs
-	);
-
- 	auto eta_trigger = std::make_shared< dealii::Vector<double> > ();
- 	eta_trigger->reinit(
- 		slab->space.pu.fe_info->dof->n_dofs()
- 	);
-
+    Assert(eta->x[0].use_count(), dealii::ExcNotInitialized());
+	// TODO: might need to be debugged; adapted from primal_do_data_output_on_slab() & copied form dual_do_data_output_on_slab()
+//
+//	// triggered output mode
+//	Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+//	Assert(
+//		slab->space.pu.fe_info->partitioning_locally_owned_dofs.use_count(),
+//		dealii::ExcNotInitialized()
+//	);
+//	error_estimator.data_output_space->set_DoF_data(
+//		slab->space.pu.fe_info->dof,
+//		slab->space.pu.fe_info->partitioning_locally_owned_dofs
+//	);
+//
+// 	auto eta_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+// 	eta_trigger->reinit(
+// 		slab->space.pu.fe_info->dof->n_dofs()
+// 	);
+//
 	std::ostringstream filename;
 	filename
-		<< "error-indicators-space-dwr_loop-"
+		<< eta_type << "-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
-
-	{
-		// fe face values time: time face (I_n) information
-		dealii::FEValues<1> fe_face_values_time(
-			*slab->time.pu.fe_info->mapping,
-			*slab->time.pu.fe_info->fe,
-			dealii::QGaussLobatto<1>(2),
-			dealii::update_quadrature_points
-		);
-
-		Assert(
-			slab->time.pu.fe_info->dof.use_count(),
-			dealii::ExcNotInitialized()
-		);
-
-		auto cell_time = slab->time.pu.fe_info->dof->begin_active();
-		auto endc_time = slab->time.pu.fe_info->dof->end();
-
-		for ( ; cell_time != endc_time; ++cell_time) {
-			fe_face_values_time.reinit(cell_time);
-
-			////////////////////////////////////////////////////////////////////
-			// construct quadrature for data output,
-			// if triggered output time values are inside this time element
-			//
-
-			auto t_m = fe_face_values_time.quadrature_point(0)[0];
-			auto t_n = fe_face_values_time.quadrature_point(1)[0];
-			auto tau = t_n-t_m;
-
-			std::list<double> output_times;
-
-			if (error_estimator.data_output_time_value < t_m) {
-				error_estimator.data_output_time_value = t_m;
-			}
-
-			for ( ; (error_estimator.data_output_time_value <= t_n) ||
-				(
-					(error_estimator.data_output_time_value > t_n) &&
-					(std::abs(error_estimator.data_output_time_value - t_n) < tau*1e-12)
-				); ) {
-				output_times.push_back(error_estimator.data_output_time_value);
-				error_estimator.data_output_time_value += error_estimator.data_output_trigger;
-			}
-
-			if (output_times.size() && output_times.back() > t_n) {
-				output_times.back() = t_n;
-			}
-
-			if ((output_times.size() > 1) &&
-				(output_times.back() == *std::next(output_times.rbegin()))) {
-				// remove the last entry, iff doubled
-				output_times.pop_back();
-			}
-
-			// convert container
-			if (!output_times.size()) {
-				continue;
-			}
-
-			std::vector< dealii::Point<1> > output_time_points(output_times.size());
-			{
-				auto time{output_times.begin()};
-				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
-					double t_trigger{*time};
-					output_time_points[q][0] = (t_trigger-t_m)/tau;
-				}
-
-				if (output_time_points[0][0] < 0) {
-					output_time_points[0][0] = 0;
-				}
-
-				if (output_time_points[output_time_points.size()-1][0] > 1) {
-					output_time_points[output_time_points.size()-1][0] = 1;
-				}
-			}
-
-			dealii::Quadrature<1> quad_time(output_time_points);
-
-			// create fe values
-			dealii::FEValues<1> fe_values_time(
-				*slab->time.pu.fe_info->mapping,
-				*slab->time.pu.fe_info->fe,
-				quad_time,
-				dealii::update_values |
-				dealii::update_quadrature_points
-			);
-
-			fe_values_time.reinit(cell_time);
-
-			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.pu.fe_info->fe->dofs_per_cell);
-			cell_time->get_dof_indices(local_dof_indices);
-
-			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
- 				*eta_trigger = 0.;
-
- 				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.pu.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.pu.fe_info->dof->n_dofs(); ++i) {
- 					(*eta_trigger)[i] += (*eta->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.pu.fe_info->dof->n_dofs() *
- 							local_dof_indices[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
-
-//				std::cout
-//					<< "error indicator output generated for t = "
-//					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
-//					<< std::endl;
-
-				error_estimator.data_output_space->write_data(
-					filename.str(),
-					eta_trigger,
-					// error_estimator.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
-				);
-			}
-		}
-	}
+//
+//	{
+//		// fe face values time: time face (I_n) information
+//		dealii::FEValues<1> fe_face_values_time(
+//			*slab->time.pu.fe_info->mapping,
+//			*slab->time.pu.fe_info->fe,
+//			dealii::QGaussLobatto<1>(2),
+//			dealii::update_quadrature_points
+//		);
+//
+//		Assert(
+//			slab->time.pu.fe_info->dof.use_count(),
+//			dealii::ExcNotInitialized()
+//		);
+//
+//		auto cell_time = slab->time.pu.fe_info->dof->begin_active();
+//		auto endc_time = slab->time.pu.fe_info->dof->end();
+//
+//		for ( ; cell_time != endc_time; ++cell_time) {
+//			fe_face_values_time.reinit(cell_time);
+//
+//			////////////////////////////////////////////////////////////////////
+//			// construct quadrature for data output,
+//			// if triggered output time values are inside this time element
+//			//
+//
+//			auto t_m = fe_face_values_time.quadrature_point(0)[0];
+//			auto t_n = fe_face_values_time.quadrature_point(1)[0];
+//			auto tau = t_n-t_m;
+//
+//			std::list<double> output_times;
+//
+//			if (error_estimator.data_output_time_value < t_m) {
+//				error_estimator.data_output_time_value = t_m;
+//			}
+//
+//			for ( ; (error_estimator.data_output_time_value <= t_n) ||
+//				(
+//					(error_estimator.data_output_time_value > t_n) &&
+//					(std::abs(error_estimator.data_output_time_value - t_n) < tau*1e-12)
+//				); ) {
+//				output_times.push_back(error_estimator.data_output_time_value);
+//				error_estimator.data_output_time_value += error_estimator.data_output_trigger;
+//			}
+//
+//			if (output_times.size() && output_times.back() > t_n) {
+//				output_times.back() = t_n;
+//			}
+//
+//			if ((output_times.size() > 1) &&
+//				(output_times.back() == *std::next(output_times.rbegin()))) {
+//				// remove the last entry, iff doubled
+//				output_times.pop_back();
+//			}
+//
+//			// convert container
+//			if (!output_times.size()) {
+//				continue;
+//			}
+//
+//			std::vector< dealii::Point<1> > output_time_points(output_times.size());
+//			{
+//				auto time{output_times.begin()};
+//				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
+//					double t_trigger{*time};
+//					output_time_points[q][0] = (t_trigger-t_m)/tau;
+//				}
+//
+//				if (output_time_points[0][0] < 0) {
+//					output_time_points[0][0] = 0;
+//				}
+//
+//				if (output_time_points[output_time_points.size()-1][0] > 1) {
+//					output_time_points[output_time_points.size()-1][0] = 1;
+//				}
+//			}
+//
+//			dealii::Quadrature<1> quad_time(output_time_points);
+//
+//			// create fe values
+//			dealii::FEValues<1> fe_values_time(
+//				*slab->time.pu.fe_info->mapping,
+//				*slab->time.pu.fe_info->fe,
+//				quad_time,
+//				dealii::update_values |
+//				dealii::update_quadrature_points
+//			);
+//
+//			fe_values_time.reinit(cell_time);
+//
+//			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.pu.fe_info->fe->dofs_per_cell);
+//			cell_time->get_dof_indices(local_dof_indices);
+//
+//			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
+// 				*eta_trigger = 0.;
+//
+// 				// evaluate solution for t_q
+// 				for (
+// 					unsigned int jj{0};
+// 					jj < slab->time.pu.fe_info->fe->dofs_per_cell; ++jj) {
+// 				for (
+// 					dealii::types::global_dof_index i{0};
+// 					i < slab->space.pu.fe_info->dof->n_dofs(); ++i) {
+// 					(*eta_trigger)[i] += (*eta->x[0])[
+// 						i
+// 						// time offset
+// 						+ slab->space.pu.fe_info->dof->n_dofs() *
+// 							local_dof_indices[jj]
+// 					] * fe_values_time.shape_value(jj,qt);
+// 				}}
+//
+////				std::cout
+////					<< "error indicator output generated for t = "
+////					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
+////					<< std::endl;
+//
+//				error_estimator.data_output_space->write_data(
+//					filename.str(),
+//					eta_trigger,
+//					// error_estimator.data_postprocessor,
+//					fe_values_time.quadrature_point(qt)[0] // t_trigger
+//				);
+//			}
+//		}
+//	}
 }
-
 
 template<int dim>
 void
 Fluid<dim>::
-eta_time_do_data_output_on_slab(
+eta_do_data_output_on_slab_Qn_mode(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta,
-	const unsigned int dwr_loop) {
-	// TODO: might need to be debugged; adapted from primal_do_data_output_on_slab() & copied form dual_do_data_output_on_slab()
-
-	// triggered output mode
-	Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
-	error_estimator.data_output_time->set_DoF_data(
-		slab->space.pu.fe_info->dof,
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs
-	);
-
- 	auto eta_trigger = std::make_shared< dealii::Vector<double> > ();
- 	eta_trigger->reinit(
- 		slab->space.pu.fe_info->dof->n_dofs()
- 	);
-
-	std::ostringstream filename;
-	filename
-		<< "error-indicators-time-dwr_loop-"
-		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
-
-	{
-		// fe face values time: time face (I_n) information
-		dealii::FEValues<1> fe_face_values_time(
-			*slab->time.pu.fe_info->mapping,
-			*slab->time.pu.fe_info->fe,
-			dealii::QGaussLobatto<1>(2),
-			dealii::update_quadrature_points
-		);
-
-		Assert(
-			slab->time.pu.fe_info->dof.use_count(),
-			dealii::ExcNotInitialized()
-		);
-
-		auto cell_time = slab->time.pu.fe_info->dof->begin_active();
-		auto endc_time = slab->time.pu.fe_info->dof->end();
-
-		for ( ; cell_time != endc_time; ++cell_time) {
-			fe_face_values_time.reinit(cell_time);
-
-			////////////////////////////////////////////////////////////////////
-			// construct quadrature for data output,
-			// if triggered output time values are inside this time element
-			//
-
-			auto t_m = fe_face_values_time.quadrature_point(0)[0];
-			auto t_n = fe_face_values_time.quadrature_point(1)[0];
-			auto tau = t_n-t_m;
-
-			std::list<double> output_times;
-
-			if (error_estimator.data_output_time_value < t_m) {
-				error_estimator.data_output_time_value = t_m;
-			}
-
-			for ( ; (error_estimator.data_output_time_value <= t_n) ||
-				(
-					(error_estimator.data_output_time_value > t_n) &&
-					(std::abs(error_estimator.data_output_time_value - t_n) < tau*1e-12)
-				); ) {
-				output_times.push_back(error_estimator.data_output_time_value);
-				error_estimator.data_output_time_value += error_estimator.data_output_trigger;
-			}
-
-			if (output_times.size() && output_times.back() > t_n) {
-				output_times.back() = t_n;
-			}
-
-			if ((output_times.size() > 1) &&
-				(output_times.back() == *std::next(output_times.rbegin()))) {
-				// remove the last entry, iff doubled
-				output_times.pop_back();
-			}
-
-			// convert container
-			if (!output_times.size()) {
-				continue;
-			}
-
-			std::vector< dealii::Point<1> > output_time_points(output_times.size());
-			{
-				auto time{output_times.begin()};
-				for (unsigned int q{0}; q < output_time_points.size(); ++q,++time) {
-					double t_trigger{*time};
-					output_time_points[q][0] = (t_trigger-t_m)/tau;
-				}
-
-				if (output_time_points[0][0] < 0) {
-					output_time_points[0][0] = 0;
-				}
-
-				if (output_time_points[output_time_points.size()-1][0] > 1) {
-					output_time_points[output_time_points.size()-1][0] = 1;
-				}
-			}
-
-			dealii::Quadrature<1> quad_time(output_time_points);
-
-			// create fe values
-			dealii::FEValues<1> fe_values_time(
-				*slab->time.pu.fe_info->mapping,
-				*slab->time.pu.fe_info->fe,
-				quad_time,
-				dealii::update_values |
-				dealii::update_quadrature_points
-			);
-
-			fe_values_time.reinit(cell_time);
-
-			std::vector< dealii::types::global_dof_index > local_dof_indices(slab->time.pu.fe_info->fe->dofs_per_cell);
-			cell_time->get_dof_indices(local_dof_indices);
-
-			for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
- 				*eta_trigger = 0.;
-
- 				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.pu.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.pu.fe_info->dof->n_dofs(); ++i) {
- 					(*eta_trigger)[i] += (*eta->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.pu.fe_info->dof->n_dofs() *
- 							local_dof_indices[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
-
-//				std::cout
-//					<< "error indicator output generated for t = "
-//					<< fe_values_time.quadrature_point(qt)[0] // t_trigger
-//					<< std::endl;
-
-				error_estimator.data_output_time->write_data(
-					filename.str(),
-					eta_trigger,
-					// error_estimator.data_postprocessor,
-					fe_values_time.quadrature_point(qt)[0] // t_trigger
-				);
-			}
-		}
-	}
-}
-
-
-template<int dim>
-void
-Fluid<dim>::
-eta_space_do_data_output_on_slab_Qn_mode(
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta,
-	const unsigned int dwr_loop) {
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_space,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_time,
+	const unsigned int dwr_loop ){
 	// natural output of solutions on Q_n in their support points in time
 	Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
+
 	error_estimator.data_output_space->set_DoF_data(
-		slab->space.pu.fe_info->dof,
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs
+		slab->space.pu.fe_info->dof
 	);
 
-	auto eta_trigger = std::make_shared< dealii::Vector<double> > ();
+	error_estimator.data_output_time->set_DoF_data(
+		slab->space.pu.fe_info->dof
+	);
+
+	auto eta_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 	eta_trigger->reinit(
-		slab->space.pu.fe_info->dof->n_dofs()
+		*slab->space.pu.fe_info->locally_owned_dofs,
+		*slab->space.pu.fe_info->locally_relevant_dofs,
+		mpi_comm
 	);
 
-	std::ostringstream filename;
-	filename
+	auto
+	owned_tmp_space = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	owned_tmp_space->reinit(
+		*slab->space.pu.fe_info->locally_owned_dofs,
+		mpi_comm
+	);
+
+	auto
+	owned_tmp_time = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	owned_tmp_time->reinit(
+		*slab->space.pu.fe_info->locally_owned_dofs,
+		mpi_comm
+	);
+
+	std::ostringstream filename_space;
+	filename_space
 		<< "error-indicators-space-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 
+	std::ostringstream filename_time;
+	filename_time
+		<< "error-indicators-time-dwr_loop-"
+		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 	{
 		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
 		//       from input or generated fe<1>
@@ -5144,120 +4794,54 @@ eta_space_do_data_output_on_slab_Qn_mode(
 				qt < fe_values_time.n_quadrature_points;
 				++qt) {
  				*eta_trigger = 0.;
+ 				*owned_tmp_space = 0.;
+ 				*owned_tmp_time = 0.;
+
+ 				dealii::IndexSet::ElementIterator lri = slab->space.pu.fe_info->locally_owned_dofs->begin();
+ 				dealii::IndexSet::ElementIterator lre = slab->space.pu.fe_info->locally_owned_dofs->end();
+
 
  				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.pu.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.pu.fe_info->dof->n_dofs(); ++i) {
- 					(*eta_trigger)[i] += (*eta->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.pu.fe_info->dof->n_dofs() *
- 							local_dof_indices_time[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
+ 				for (; lri!= lre; lri++) {
+ 					for (
+ 							unsigned int jj{0};
+ 							jj < slab->time.pu.fe_info->fe->dofs_per_cell; ++jj) {
 
+						(*owned_tmp_space)[*lri] += (*eta_space->x[0])[
+							*lri
+							// time offset
+							+ slab->space.pu.fe_info->dof->n_dofs() *
+								local_dof_indices_time[jj]
+						] * fe_values_time.shape_value(jj,qt);
+
+						(*owned_tmp_time)[*lri] += (*eta_time->x[0])[
+							*lri
+							// time offset
+							+ slab->space.pu.fe_info->dof->n_dofs() *
+								local_dof_indices_time[jj]
+						] * fe_values_time.shape_value(jj,qt);
+
+
+					}
+ 				}
+
+ 				*eta_trigger = *owned_tmp_space;
 // 				std::cout
 // 					<< "output generated for t = "
 // 					<< fe_values_time.quadrature_point(qt)[0]
 // 					<< std::endl;
 
 				error_estimator.data_output_space->write_data(
-					filename.str(),
+					filename_space.str(),
 					eta_trigger,
 					// error_estimator.data_postprocessor,
 					fe_values_time.quadrature_point(qt)[0] // t_trigger
 				);
-			}
-		}
-	}
-}
 
-
-template<int dim>
-void
-Fluid<dim>::
-eta_time_do_data_output_on_slab_Qn_mode(
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta,
-	const unsigned int dwr_loop) {
-	// natural output of solutions on Q_n in their support points in time
-	Assert(slab->space.pu.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs.use_count(),
-		dealii::ExcNotInitialized()
-	);
-	error_estimator.data_output_time->set_DoF_data(
-		slab->space.pu.fe_info->dof,
-		slab->space.pu.fe_info->partitioning_locally_owned_dofs
-	);
-
-	auto eta_trigger = std::make_shared< dealii::Vector<double> > ();
-	eta_trigger->reinit(
-		slab->space.pu.fe_info->dof->n_dofs()
-	);
-
-	std::ostringstream filename;
-	filename
-		<< "error-indicators-time-dwr_loop-"
-		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
-
-	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
-		// create fe values
-		dealii::FEValues<1> fe_values_time(
-			*slab->time.pu.fe_info->mapping,
-			*slab->time.pu.fe_info->fe,
-			dealii::QGauss<1>(slab->time.pu.fe_info->fe->tensor_degree()+1), // here
-			dealii::update_values |
-			dealii::update_quadrature_points
-		);
-
-		auto cell_time = slab->time.pu.fe_info->dof->begin_active();
-		auto endc_time = slab->time.pu.fe_info->dof->end();
-
-		for ( ; cell_time != endc_time; ++cell_time) {
-			fe_values_time.reinit(cell_time);
-
-			std::vector< dealii::types::global_dof_index > local_dof_indices_time(
-				slab->time.pu.fe_info->fe->dofs_per_cell
-			);
-
-			cell_time->get_dof_indices(local_dof_indices_time);
-
-			for (
-				unsigned int qt{0};
-				qt < fe_values_time.n_quadrature_points;
-				++qt) {
- 				*eta_trigger = 0.;
-
- 				// evaluate solution for t_q
- 				for (
- 					unsigned int jj{0};
- 					jj < slab->time.pu.fe_info->fe->dofs_per_cell; ++jj) {
- 				for (
- 					dealii::types::global_dof_index i{0};
- 					i < slab->space.pu.fe_info->dof->n_dofs(); ++i) {
- 					(*eta_trigger)[i] += (*eta->x[0])[
- 						i
- 						// time offset
- 						+ slab->space.pu.fe_info->dof->n_dofs() *
- 							local_dof_indices_time[jj]
- 					] * fe_values_time.shape_value(jj,qt);
- 				}}
-
-// 				std::cout
-// 					<< "output generated for t = "
-// 					<< fe_values_time.quadrature_point(qt)[0]
-// 					<< std::endl;
+				*eta_trigger = *owned_tmp_time;
 
 				error_estimator.data_output_time->write_data(
-					filename.str(),
+					filename_time.str(),
 					eta_trigger,
 					// error_estimator.data_postprocessor,
 					fe_values_time.quadrature_point(qt)[0] // t_trigger
@@ -5273,8 +4857,8 @@ void
 Fluid<dim>::
 eta_do_data_output(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_space,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_time,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_space,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_time,
 		const unsigned int dwr_loop,
 		bool last
 ) {
@@ -5325,13 +4909,12 @@ eta_do_data_output(
 
 	if (!error_estimator.data_output_trigger_type_fixed) {
 		// I_n output mode (output on natural Q_n support points in time)
-		eta_space_do_data_output_on_slab_Qn_mode(slab, eta_space, dwr_loop);
-		eta_time_do_data_output_on_slab_Qn_mode(slab, eta_time, dwr_loop);
+		eta_do_data_output_on_slab_Qn_mode(slab, eta_space,eta_time, dwr_loop);
 	}
 	else {
 		// fixed trigger output mode
-		eta_space_do_data_output_on_slab(slab, eta_space, dwr_loop);
-		eta_time_do_data_output_on_slab(slab, eta_time, dwr_loop);
+		eta_do_data_output_on_slab(slab, eta_space, dwr_loop, "error-indicators-space");
+		eta_do_data_output_on_slab(slab, eta_time,  dwr_loop, "error-indicators-time");
 	}
 }
 
@@ -5342,100 +4925,102 @@ Fluid<dim>::
 eta_sort_xdmf_by_time(
 	const unsigned int dwr_loop
 ) {
-	// name of xdmf file to be sorted by time of the snapshots
-	std::ostringstream filename_space;
-	filename_space
-		<< "error-indicators-space-dwr_loop-"
-		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop
-		<< ".xdmf";
+	if (dealii::Utilities::MPI::this_mpi_process(mpi_comm)==0) {
+		// name of xdmf file to be sorted by time of the snapshots
+		std::ostringstream filename_space;
+		filename_space
+			<< "error-indicators-space-dwr_loop-"
+			<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop
+			<< ".xdmf";
 
-	std::ostringstream filename_time;
-	filename_time
-		<< "error-indicators-time-dwr_loop-"
-		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop
-		<< ".xdmf";
+		std::ostringstream filename_time;
+		filename_time
+			<< "error-indicators-time-dwr_loop-"
+			<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop
+			<< ".xdmf";
 
-	for (auto filename_str : {filename_space.str(), filename_time.str()})
-	{
-		// read the current xdmf file and save it line by line in a std::vector
-		std::ifstream old_xdmf_file(filename_str);
-		if (!old_xdmf_file.good()) // exit this function, if there is no xdmf file
-			return;
-
-		std::vector< std::string > old_lines;
-
-		std::string current_line;
-		while (getline (old_xdmf_file, current_line))
-			old_lines.push_back(current_line);
-
-		old_xdmf_file.close();
-
-		// create a std::vector for the new lines where the grids are sorted in ascending order by the time
-		std::vector< std::string > new_lines;
-
-		// the first 5 lines remain unchanged
-		for (unsigned int i = 0; i <= 4; ++i)
-			new_lines.push_back(old_lines[i]);
-
-		//////////////////////////////////////////
-		// reorder the grids by time
-		//
-		std::vector< std::vector< std::string > > grids;
-		std::vector< std::string > current_grid;
-
-		// each grid consists of 18 lines
-		for (unsigned int i = 5; i < old_lines.size()-3; ++i)
+		for (auto filename_str : {filename_space.str(), filename_time.str()})
 		{
-			current_grid.push_back(old_lines[i]);
-			if (current_grid.size() == 18)
+			// read the current xdmf file and save it line by line in a std::vector
+			std::ifstream old_xdmf_file(filename_str);
+			if (!old_xdmf_file.good()) // exit this function, if there is no xdmf file
+				return;
+
+			std::vector< std::string > old_lines;
+
+			std::string current_line;
+			while (getline (old_xdmf_file, current_line))
+				old_lines.push_back(current_line);
+
+			old_xdmf_file.close();
+
+			// create a std::vector for the new lines where the grids are sorted in ascending order by the time
+			std::vector< std::string > new_lines;
+
+			// the first 5 lines remain unchanged
+			for (unsigned int i = 0; i <= 4; ++i)
+				new_lines.push_back(old_lines[i]);
+
+			//////////////////////////////////////////
+			// reorder the grids by time
+			//
+			std::vector< std::vector< std::string > > grids;
+			std::vector< std::string > current_grid;
+
+			// each grid consists of 18 lines
+			for (unsigned int i = 5; i < old_lines.size()-3; ++i)
 			{
-				grids.push_back(current_grid);
-				current_grid.clear();
+				current_grid.push_back(old_lines[i]);
+				if (current_grid.size() == 18)
+				{
+					grids.push_back(current_grid);
+					current_grid.clear();
+				}
 			}
-		}
 
-		// get time of grid
-		auto get_time = [](std::vector< std::string > grid)
-		{
-			Assert(grid.size() == 18, dealii::ExcInvalidState());
-			// the second line contains the time
-			std::string line = grid[1];
-			// get the number between the double quotes
-			std::string delimiter = "\"";
-			std::string token = line.substr(line.find(delimiter)+1, line.size());
-			token = token.substr(0, token.find(delimiter));
-			return std::stod(token);
-		};
-
-		// sort the grids by time
-		std::sort(std::begin(grids),
-				  std::end(grids),
-				  [&](std::vector< std::string > & a, std::vector< std::string > & b)
-		{
-			return get_time(a) < get_time(b);
-		});
-
-		// append sorted grid to new_lines
-		for (auto grid : grids)
-		{
-			for (auto line : grid)
+			// get time of grid
+			auto get_time = [](std::vector< std::string > grid)
 			{
-				new_lines.push_back(line);
+				Assert(grid.size() == 18, dealii::ExcInvalidState());
+				// the second line contains the time
+				std::string line = grid[1];
+				// get the number between the double quotes
+				std::string delimiter = "\"";
+				std::string token = line.substr(line.find(delimiter)+1, line.size());
+				token = token.substr(0, token.find(delimiter));
+				return std::stod(token);
+			};
+
+			// sort the grids by time
+			std::sort(std::begin(grids),
+					  std::end(grids),
+					  [&](std::vector< std::string > & a, std::vector< std::string > & b)
+			{
+				return get_time(a) < get_time(b);
+			});
+
+			// append sorted grid to new_lines
+			for (auto grid : grids)
+			{
+				for (auto line : grid)
+				{
+					new_lines.push_back(line);
+				}
 			}
-		}
 
-		// the last 3 lines remain unchanged
-		for (unsigned int i = old_lines.size()-3; i < old_lines.size(); ++i)
-		{
-			new_lines.push_back(old_lines[i]);
-		}
+			// the last 3 lines remain unchanged
+			for (unsigned int i = old_lines.size()-3; i < old_lines.size(); ++i)
+			{
+				new_lines.push_back(old_lines[i]);
+			}
 
-		// write to file
-		std::ofstream new_xdmf_file;
-		new_xdmf_file.open(filename_str);
-		for (auto line : new_lines)
-			new_xdmf_file << line << std::endl;
-		new_xdmf_file.close();
+			// write to file
+			std::ofstream new_xdmf_file;
+			new_xdmf_file.open(filename_str);
+			for (auto line : new_lines)
+				new_xdmf_file << line << std::endl;
+			new_xdmf_file.close();
+		}
 	}
 }
 

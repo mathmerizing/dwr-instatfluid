@@ -137,8 +137,8 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::Vector<double> > _zn,  // input
-	std::shared_ptr< dealii::Vector<double> > _Mzn, // output
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _zn,  // input
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _Mzn, // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	////////////////////////////////////////////////////////////////////////////
@@ -232,6 +232,8 @@ assemble(
 			*time.fe
 		)
 	);
+
+	Mzn->compress(dealii::VectorOperation::add);
 }
 
 /// Local assemble on cell.
@@ -273,7 +275,7 @@ void Assembler<dim>::local_assemble_cell(
 		scratch.zn = 0;
 		for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
 			scratch.zn +=
-				(*zn)[scratch.space_local_dof_indices[j]] *
+				(double) (*zn)[scratch.space_local_dof_indices[j]] *
 				scratch.space_fe_values[convection].value(j,q);
 		}
 		

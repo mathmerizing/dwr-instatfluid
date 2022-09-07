@@ -128,8 +128,8 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::Vector<double> > _um,  // input
-	std::shared_ptr< dealii::Vector<double> > _Mum, // output
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _um,  // input
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _Mum, // output
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	////////////////////////////////////////////////////////////////////////////
@@ -155,7 +155,7 @@ assemble(
 	space.dof = slab->space.primal.fe_info->dof;
 	space.fe = slab->space.primal.fe_info->fe;
 	space.mapping = slab->space.primal.fe_info->mapping;
-	space.constraints = slab->space.primal.fe_info->constraints;
+	space.constraints = slab->space.primal.fe_info->initial_constraints;
 	
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
@@ -207,6 +207,8 @@ assemble(
 			*space.fe
 		)
 	);
+
+	Mum->compress(dealii::VectorOperation::add);
 }
 
 /// Local assemble on cell.
@@ -239,13 +241,14 @@ void Assembler<dim>::local_assemble_cell(
 
 		// get um
 		for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
+			double u_j =(*um)[scratch.space_local_dof_indices[j]];
 			if (gradient_projection)
 				scratch.grad_um +=
-					(*um)[scratch.space_local_dof_indices[j]] *
+					u_j *
 					scratch.space_grad_phi[j];
 			else
 				scratch.um +=
-					(*um)[scratch.space_local_dof_indices[j]] *
+					u_j *
 					scratch.space_phi[j];
 		}
 		

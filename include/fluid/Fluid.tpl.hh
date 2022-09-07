@@ -45,6 +45,7 @@
 #include <DTM++/io/DataOutput.tpl.hh>
 #include <DTM++/types/storage_data_block_vectors.tpl.hh>
 #include <DTM++/types/storage_data_vectors.tpl.hh>
+#include <DTM++/types/storage_data_trilinos_vectors.tpl.hh>
 
 // DEAL.II includes
 #include <deal.II/base/function.h>
@@ -52,11 +53,10 @@
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/tensor_function.h>
 
-#include <deal.II/lac/sparse_matrix.h>
-#include <deal.II/lac/block_sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
 #include <deal.II/lac/vector.h>
-#include <deal.II/lac/block_vector.h>
 #include <deal.II/lac/sparse_direct.h>
+#include <deal.II/lac/trilinos_solver.h>
 
 #include <deal.II/numerics/vector_tools.h>
 
@@ -72,7 +72,9 @@ namespace fluid {
 template<int dim>
 class Fluid : public DTM::Problem {
 public:
-	Fluid() = default;
+	Fluid():
+		mpi_comm(MPI_COMM_WORLD){}
+
 	virtual ~Fluid() = default;
 	
 	virtual void set_input_parameters(
@@ -122,7 +124,7 @@ protected:
 	
 	virtual void init_newton_parameters();
 
-	bool use_gradient_projection = false;
+	bool use_gradient_projection = true;
 
 	////////////////////////////////////////////////////////////////////////////
 	// primal problem:
@@ -133,36 +135,42 @@ protected:
 		// storage container
 		struct {
 			/// primal solution dof list
-			std::shared_ptr< DTM::types::storage_data_vectors<1> > u;
+			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > u;
 			/// primal solution dof list at beginning of slab
-			std::shared_ptr< DTM::types::storage_data_vectors<1> > um;
+			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > um;
 		} storage;
 		
 		/// temporary storage for primal solution u at \f$ t_m \f$
-		std::shared_ptr< dealii::Vector<double> > um;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > um;
 
 		/// temporary storage for divergence free projection of primal solution u at \f$ t_m \f$
-		std::shared_ptr< dealii::Vector<double> > um_projected;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > um_projected;
 
 		/// temporary storage for primal solution u at \f$ t_n \f$
-		std::shared_ptr< dealii::Vector<double> > un;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un;
 
 		/// temporary storage for primal right hand side assembly
-		std::shared_ptr< dealii::Vector<double> > Mum;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Mum;
 		
 		/// temporary storage for newton vectors
-		std::shared_ptr< dealii::Vector<double> > du;
-		std::shared_ptr< dealii::Vector<double> > Fu;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > du;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Fu;
 		// Matrix L, rhs vectors b and f
-		std::shared_ptr< dealii::SparseMatrix<double> > L;
-		std::shared_ptr< dealii::Vector<double> > b;
-//		std::shared_ptr< dealii::Vector<double> > f;
+		std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > L;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > b;
+//		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > f;
 		
 		// Matrix and rhs for divergence-free projection
-		std::shared_ptr< dealii::SparseMatrix<double> > projection_matrix;
-		std::shared_ptr< dealii::Vector<double> > projection_rhs;
+		std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > projection_matrix;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > projection_rhs;
+        std::shared_ptr<dealii::TrilinosWrappers::SolverDirect> projection_iA;
 
-		dealii::SparseDirectUMFPACK iA;
+        std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > owned_tmp;
+        std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > relevant_tmp;
+
+        std::shared_ptr<dealii::SolverControl> sc;
+        std::shared_ptr<dealii::TrilinosWrappers::SolverDirect> iA;
+        std::shared_ptr<dealii::TrilinosWrappers::SolverDirect::AdditionalData> ad;
 
 		// Data Output
 		std::shared_ptr< fluid::DataPostprocessor<dim> > data_postprocessor;
@@ -176,25 +184,23 @@ protected:
 	virtual void primal_reinit_storage();
 	virtual void primal_reinit_storage_on_slab(
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-			const typename DTM::types::storage_data_vectors<1>::iterator &x,
-			const typename DTM::types::storage_data_vectors<1>::iterator &xm
+			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
+			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &xm
 	);
 	
 	virtual void primal_assemble_system(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::shared_ptr< dealii::Vector<double > > u
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 	);
 	
  	virtual void primal_assemble_const_rhs(
  		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &xm,
-		std::map<dealii::types::global_dof_index, double> &boundary_values
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &xm
  	);
 
  	virtual void primal_assemble_and_construct_Newton_rhs(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::map<dealii::types::global_dof_index, double> &boundary_values,
-		std::shared_ptr< dealii::Vector<double > > u
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 	);
 
  	virtual void primal_calculate_boundary_values(
@@ -204,25 +210,20 @@ protected:
  	);
 	virtual void primal_apply_bc(
 		std::map<dealii::types::global_dof_index, double> &boundary_values,
-		std::shared_ptr< dealii::Vector<double> > x
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > x
 	);
 
 	virtual void primal_apply_bc(
 		std::map<dealii::types::global_dof_index, double> &boundary_values,
-		std::shared_ptr< dealii::SparseMatrix<double> > A,
-		std::shared_ptr< dealii::Vector<double> > x,
-		std::shared_ptr< dealii::Vector<double> > b
+		std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > A,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > x,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > b
 	);
 
 	virtual void primal_solve_slab_problem(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &x,
-		const typename DTM::types::storage_data_vectors<1>::iterator &xm
-	);
-
-	virtual void primal_subtract_pressure_mean(
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::shared_ptr< dealii::Vector<double> > x
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &xm
 	);
 	
 	virtual void primal_do_forward_TMS(
@@ -235,19 +236,19 @@ protected:
 	
 	virtual void primal_do_data_output_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
 		const unsigned int dwr_loop
 	);
 	
 	virtual void primal_do_data_output_on_slab_Qn_mode(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
 		const unsigned int dwr_loop
 	);
 	
 	virtual void primal_do_data_output(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
 		const unsigned int dwr_loop,
 		bool last
 	);
@@ -261,24 +262,29 @@ protected:
 		// storage container
 		struct {
 			/// dual solution dof list
-			std::shared_ptr< DTM::types::storage_data_vectors<1> > z;
+			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > z;
 		} storage;
 
 		/// temporary storage for dual solution u at \f$ t_m \f$
-		std::shared_ptr< dealii::Vector<double> > zm;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > zm;
 
 		/// temporary storage for dual solution u at \f$ t_n \f$
-		std::shared_ptr< dealii::Vector<double> > zn;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > zn;
 
 		/// temporary storage for dual right hand side assembly
-		std::shared_ptr< dealii::Vector<double> > Mzn;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Mzn;
 
 		// Matrix L, rhs vectors b and f
-		std::shared_ptr< dealii::SparseMatrix<double> > L;
-		std::shared_ptr< dealii::Vector<double> > b;
-		std::shared_ptr< dealii::Vector<double> > Je;
+		std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix > L;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > b;
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Je;
 
-		dealii::SparseDirectUMFPACK iA;
+        std::shared_ptr<dealii::SolverControl> sc;
+        std::shared_ptr<dealii::TrilinosWrappers::SolverDirect> iA;
+        std::shared_ptr<dealii::TrilinosWrappers::SolverDirect::AdditionalData> ad;
+
+        std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > owned_tmp;
+        std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > relevant_tmp;
 
 		// Data Output
 		std::shared_ptr< fluid::DataPostprocessor<dim> > data_postprocessor;
@@ -292,12 +298,12 @@ protected:
 	virtual void dual_reinit_storage();
 	virtual void dual_reinit_storage_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &z
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z
 	);
 
 	virtual void dual_assemble_system(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::shared_ptr< dealii::Vector<double > > u
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 	);
 
 	virtual void dual_assemble_rhs(
@@ -306,7 +312,7 @@ protected:
 
 	virtual void dual_solve_slab_problem(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &z
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z
 	);
 
 	virtual void dual_do_backward_TMS(
@@ -319,19 +325,19 @@ protected:
 
 	virtual void dual_do_data_output_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &z,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 		const unsigned int dwr_loop
 	);
 
 	virtual void dual_do_data_output_on_slab_Qn_mode(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &z,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 		const unsigned int dwr_loop
 	);
 
 	virtual void dual_do_data_output(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &z,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 		const unsigned int dwr_loop,
 		bool last
 	);
@@ -345,18 +351,18 @@ protected:
 	//
 
 	virtual void compute_functional_values(
-			const typename DTM::types::storage_data_vectors<1>::iterator &u,
+			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 
 	virtual double compute_pressure(
 			dealii::Point<dim> x,
-			std::shared_ptr< dealii::Vector<double> > un,
+			std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 
 	virtual void compute_drag_lift_tensor(
-			std::shared_ptr< dealii::Vector<double> > un,
+			std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 			dealii::Tensor<1, dim> &drag_lift_value
 	);
@@ -367,9 +373,9 @@ protected:
 	struct {
 		struct {
 			/// error indicator \f$ \eta_{I_n} \f$  list
-			std::shared_ptr< DTM::types::storage_data_vectors<1> > eta_space;
-			std::shared_ptr< DTM::types::storage_data_vectors<1> > eta_time;
-//			std::shared_ptr< DTM::types::storage_data_vectors<1> > eta;
+			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > eta_space;
+			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > eta_time;
+//			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > eta;
 		} storage;
 
 		// Data Output
@@ -414,12 +420,12 @@ protected:
 		} goal_functional;
 
 	} error_estimator;
-
+//
 	virtual void eta_reinit_storage();
 	virtual void eta_reinit_storage_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_t
 	);
 
 	virtual void compute_effectivity_index();
@@ -429,35 +435,26 @@ protected:
 	// post-processing functions for data output
 	virtual void eta_init_data_output();
 
-	virtual void eta_space_do_data_output_on_slab(
+	virtual void eta_do_data_output_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
-		const unsigned int dwr_loop
-	);
-
-	virtual void eta_time_do_data_output_on_slab(
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t,
-		const unsigned int dwr_loop
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+		const unsigned int dwr_loop,
+		std::string eta_type
 	);
 
 
-	virtual void eta_space_do_data_output_on_slab_Qn_mode(
+	virtual void eta_do_data_output_on_slab_Qn_mode(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_t,
 		const unsigned int dwr_loop
 	);
 
-	virtual void eta_time_do_data_output_on_slab_Qn_mode(
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t,
-		const unsigned int dwr_loop
-	);
 
 	virtual void eta_do_data_output(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_t,
 		const unsigned int dwr_loop,
 		bool last
 	);
@@ -471,6 +468,10 @@ protected:
 	//
 	
 	unsigned int setw_value_dwr_loops;
+
+
+	//MPI Communicator
+	MPI_Comm mpi_comm;
 };
 
 } // namespace

@@ -149,7 +149,7 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::SparseMatrix<double> > _L,
+	std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix  > _L,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
 	
 	////////////////////////////////////////////////////////////////////////////
@@ -173,7 +173,7 @@ assemble(
 	space.dof = slab->space.primal.fe_info->dof;
 	space.fe = slab->space.primal.fe_info->fe;
 	space.mapping = slab->space.primal.fe_info->mapping;
-	space.constraints = slab->space.primal.fe_info->constraints;
+	space.constraints = slab->space.primal.fe_info->initial_constraints;
 	
 	// FEValuesExtractors
 	convection = 0;
@@ -240,6 +240,8 @@ assemble(
 			*space.fe
 		)
 	);
+
+	L->compress(dealii::VectorOperation::add);
 }
 
 
@@ -321,7 +323,6 @@ void Assembler<dim>::copy_local_to_global_cell(
 
 	space.constraints->distribute_local_to_global(
 		copydata.matrix,
-		copydata.local_dof_indices,
 		copydata.local_dof_indices,
 		*L
 	);

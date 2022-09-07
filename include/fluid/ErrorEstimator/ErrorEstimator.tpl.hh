@@ -46,7 +46,7 @@
 #include <fluid/parameters/ParameterSet.hh>
 
 // DTM++ includes
-#include <DTM++/types/storage_data_vectors.tpl.hh>
+#include <DTM++/types/storage_data_trilinos_vectors.tpl.hh>
 
 // DEAL.II includes
 #include <deal.II/base/function.h>
@@ -57,7 +57,7 @@
 #include <deal.II/fe/fe_values.h>
 
 #include <deal.II/lac/sparse_matrix.h>
-#include <deal.II/lac/vector.h>
+#include <deal.II/lac/trilinos_vector.h>
 
 // C++ includes
 #include <memory>
@@ -260,15 +260,16 @@ public:
 
 	virtual void estimate_on_slab(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		const typename DTM::types::storage_data_vectors<1>::iterator &u,
-		const typename DTM::types::storage_data_vectors<1>::iterator &um,
-		const typename DTM::types::storage_data_vectors<1>::iterator &z,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &um,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
-		const typename DTM::types::storage_data_vectors<1>::iterator &eta_t
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_t
 	);
 
 	void init(
+		MPI_Comm mpi_comm,
 		std::shared_ptr< dealii::Function<dim> > _viscosity,
 		std::shared_ptr< fluid::Grid<dim> > _grid,
 		bool use_symmetric_stress,
@@ -286,9 +287,9 @@ protected:
 		std::shared_ptr< dealii::Mapping<1> > time_mapping,
 		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
 		const typename dealii::DoFHandler<1>::active_cell_iterator &cell_time,
-		std::shared_ptr< dealii::Vector<double> > w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
 		const double &t,
-		std::shared_ptr< dealii::Vector<double> > &w_t
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &w_t
 	);
 
 	/// evaluate solution ∂_t w(t), where w is either the primal solution u or the dual solution z
@@ -297,38 +298,38 @@ protected:
 		std::shared_ptr< dealii::Mapping<1> > time_mapping,
 		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
 		const typename dealii::DoFHandler<1>::active_cell_iterator &cell_time,
-		std::shared_ptr< dealii::Vector<double> > w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
 		const double &t,
-		std::shared_ptr< dealii::Vector<double> > &dt_w_t
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &dt_w_t
 	);
 
 	/// interpolate vector w from low spatial space to high spatial space
 	virtual void interpolate_space(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::shared_ptr< dealii::Vector<double> > w,
-		std::shared_ptr< dealii::Vector<double> > &interpolated_space_w
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &interpolated_space_w
 	);
 
 	/// patchwise high order interpolate vector w from low spatial space to high spatial space
 	virtual void patchwise_high_order_interpolate_space(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::shared_ptr< dealii::Vector<double> > w,
-		std::shared_ptr< dealii::Vector<double> > &higher_order_space_w
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > higher_order_space_w
 	);
 
 	/// restrict vector w from high spatial space to low spatial space and then interpolate back to high spatial space
 	virtual void back_interpolate_space(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-		std::shared_ptr< dealii::Vector<double> > w,
-		std::shared_ptr< dealii::Vector<double> > &back_interpolated_space_w
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > back_interpolated_space_w
 	);
 
 	/// take the entire solution on the space slab_w, restrict it back in time and then interpolate it back in time again
 	virtual void get_back_interpolated_time_slab_w(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
-		std::shared_ptr< dealii::Vector<double> > slab_w,
-		std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > back_interpolated_time_slab_w
 	);
 
 	////////////////////////////////////////////////////////////////////////////
@@ -347,18 +348,18 @@ protected:
 		Assembly::CopyData::ErrorEstimateOnCell<dim> &copydata
 	);
 
-
-	virtual void assemble_local_error_tn(
-		const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
-		Assembly::Scratch::ErrorEstimates<dim> &scratch,
-		Assembly::CopyData::ErrorEstimates<dim> &copydata
-	);
-
-	virtual void assemble_error_on_cell_tn(
-		const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
-		Assembly::Scratch::ErrorEstimateOnCell<dim> &scratch,
-		Assembly::CopyData::ErrorEstimateOnCell<dim> &copydata
-	);
+//	// NOTE: only need this for adjoint error estimator
+//	virtual void assemble_local_error_tn(
+//		const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
+//		Assembly::Scratch::ErrorEstimates<dim> &scratch,
+//		Assembly::CopyData::ErrorEstimates<dim> &copydata
+//	);
+//	// NOTE: only need this for adjoint error estimator
+//	virtual void assemble_error_on_cell_tn(
+//		const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
+//		Assembly::Scratch::ErrorEstimateOnCell<dim> &scratch,
+//		Assembly::CopyData::ErrorEstimateOnCell<dim> &copydata
+//	);
 
 
 	virtual void assemble_local_error(
@@ -391,9 +392,15 @@ protected:
 	} function;
 
 	struct {
-		std::shared_ptr< dealii::Vector<double> > um_on_tn; // u(t_n^-)
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > um_on_tn; // u(t_n^-)
+		std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+		std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
 	} primal;
 
+	struct {
+		std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+		std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
+	} dual;
 	struct {
 		bool solution_can_be_patchwise_interpolated;
 	} low;
@@ -403,8 +410,8 @@ protected:
     } pu;
 
 	struct {
-		std::shared_ptr<dealii::Vector<double> > x_h;
-		std::shared_ptr<dealii::Vector<double> > x_k;
+		std::shared_ptr<dealii::TrilinosWrappers::MPI::Vector > x_h;
+		std::shared_ptr<dealii::TrilinosWrappers::MPI::Vector > x_k;
 	} error_estimator;
 
 	double cell_time_tau_n;
@@ -416,45 +423,45 @@ protected:
 	//
 
 	// u_kh(t_m^-) = u_kh^(1,1)(t_m^-) [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_u_kh_m_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_u_kh_m_on_tm;
 	// u_k(t_m^-) = u_kh^(1,2)(t_m^-)  [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_u_k_m_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_u_k_m_on_tm;
 
 	// u_kh(t_m^+) = u_kh^(1,1)(t_m^+) [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_u_kh_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_u_kh_p_on_tm;
 	// u_k(t_m^+) = u_kh^(1,2)(t_m^+)  [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_u_k_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_u_k_p_on_tm;
 
 	// z(t_m^+)              [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_p_on_tm;
 	// z_k(t_m^+) for ρ_k    [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_k_rho_k_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_k_rho_k_p_on_tm;
 	// z_k(t_m^+) for ρ_h    [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_k_rho_h_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_k_rho_h_p_on_tm;
 	// z_kh(t_m^+)           [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_kh_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_kh_p_on_tm;
 	// z_kh(t_m^+)           [of low length]
-	std::shared_ptr< dealii::Vector<double> > low_z_kh_p_on_tm;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > low_z_kh_p_on_tm;
 
 	// u_k(t_q)                	 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_u_k_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_u_k_on_tq;
 	// ∂_t u_k(t_q)              [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_dt_u_k_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_dt_u_k_on_tq;
 	// u_kh(t_q)                 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_u_kh_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_u_kh_on_tq;
 	// ∂_t u_kh(t_q)           	 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_dt_u_kh_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_dt_u_kh_on_tq;
 
 	// z(t_q)                	 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_on_tq;
 	// z_k(t_q) for ρ_k       	 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_k_rho_k_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_k_rho_k_on_tq;
 	// z_k(t_q) for ρ_h      	 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_k_rho_h_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_k_rho_h_on_tq;
 	// z_kh(t_q)              	 [of high length]
-	std::shared_ptr< dealii::Vector<double> > high_z_kh_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > high_z_kh_on_tq;
 	// z_kh(t_q)              	 [of low length]
-	std::shared_ptr< dealii::Vector<double> > low_z_kh_on_tq;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > low_z_kh_on_tq;
 
 	////////////////////////////////////////////////////////////////////////////
 	// other data structures
@@ -469,6 +476,13 @@ protected:
 
 	std::string primal_order;
 	std::string dual_order;
+
+	unsigned int n_slab;
+
+	//MPI Communicator
+	MPI_Comm mpi_comm;
+
+
 };
 
 }}} // namespace

@@ -55,7 +55,11 @@
 #include <deal.II/fe/fe_dgq.h>
 #include <deal.II/fe/fe_tools.h>
 
+#include <deal.II/grid/filtered_iterator.h>
+
 #include <deal.II/numerics/vector_tools.h>
+
+#include <ideal.II/dofs/SlabDoFTools.hh>
 
 // namespace dwr {
 namespace fluid {
@@ -111,7 +115,20 @@ ErrorEstimateOnCell<dim>::ErrorEstimateOnCell(
 	local_z_tq(fe_high.dofs_per_cell),
 	local_z_k_rho_k_tq(fe_high.dofs_per_cell),
 	local_z_k_rho_h_tq(fe_high.dofs_per_cell),
-	local_z_kh_tq(fe_high.dofs_per_cell)
+	local_z_kh_tq(fe_high.dofs_per_cell),
+	value_viscosity(0.),
+	value_z_z_k_pressure(0.),
+	value_z_k_z_kh_pressure(0.),
+	value_div_z_z_k_convection(0.),
+	value_div_z_k_z_kh_convection(0.),
+	value_u_k_pressure(0.),
+	value_u_kh_pressure(0.),
+	value_div_u_k_convection(0.),
+	value_div_u_kh_convection(0.),
+	JxW(0.),
+	q(0),
+	d(0),
+	j(0)
 {}
 
 
@@ -254,13 +271,24 @@ void
 ErrorEstimator<dim>::
 estimate_on_slab(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	const typename DTM::types::storage_data_vectors<1>::iterator &u,
-	const typename DTM::types::storage_data_vectors<1>::iterator &um,
-	const typename DTM::types::storage_data_vectors<1>::iterator &z,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &um,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &z,
 
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta_s,
-	const typename DTM::types::storage_data_vectors<1>::iterator &eta_t
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_s,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &eta_t
 ) {
+	typedef
+		dealii::
+		FilteredIterator<const typename dealii::DoFHandler<dim>::active_cell_iterator>
+		CellFilter;
+
+	n_slab++;
+	primal.locally_owned_dofs    = slab->space.primal.fe_info->locally_owned_dofs;
+	primal.locally_relevant_dofs = slab->space.primal.fe_info->locally_relevant_dofs;
+
+	dual.locally_owned_dofs      = slab->space.dual.fe_info->locally_owned_dofs;
+	dual.locally_relevant_dofs   = slab->space.dual.fe_info->locally_relevant_dofs;
 //	std::cout << "Replace linearization points: " << (replace_linearization_points ? "true" : "false") << std::endl;
 	// NOTE: if (replace_linearization_points == true):  ρ_k(u_k,.) ~ ρ_k(u_kh,.), i.e. use u_kh as u_k
 	//       else: ρ_k(u_k,.) ~ ρ_k(u_kh^(1,2),.) ~ ρ_k(I_2h(u_kh^(1,1)),.)
@@ -293,7 +321,7 @@ estimate_on_slab(
 	//     NOTE: z_kh^(2,2), z_kh^(1,2) and z_kh^(1,1) are being computed from interpolation or extrapolation of z_kh
 
 
-	primal.um_on_tn = std::make_shared< dealii::Vector<double> >();
+	primal.um_on_tn = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
 
 	pu.constraints = std::make_shared< dealii::AffineConstraints<double> > (); // slab->space.pu.fe_info->constraints;
 
@@ -302,6 +330,7 @@ estimate_on_slab(
 		error_estimator.x_h = eta_s->x[0];
 		error_estimator.x_k = eta_t->x[0];
 	}
+
 
 	// check low.solution_can_be_patchwise_interpolated
 	{
@@ -358,7 +387,8 @@ estimate_on_slab(
 	);
 
 	// dof vector u on slab for back interpolation in time (high -> low -> high)
-	auto high_back_interpolated_time_u = std::make_shared< dealii::Vector<double> > ();
+	auto high_back_interpolated_time_u = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+
 	if ( !primal_order.compare("high") ) // u is high order
 	{
 		// computation of u_kh^(1,2) from u_kh^(2,2)
@@ -372,7 +402,8 @@ estimate_on_slab(
 	}
 
 	// dof vector z on slab for back interpolation in time (high -> low -> high)
-	auto high_back_interpolated_time_z = std::make_shared< dealii::Vector<double> > ();
+	auto high_back_interpolated_time_z = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+
 	if ( !dual_order.compare("high") ) // z is high order
 	{
 		// computation of z_kh^(1,2) from z_kh^(2,2)
@@ -384,104 +415,226 @@ estimate_on_slab(
 		);
 	}
 
+
 	////////////////////////////////////////////////////////////////////////
 	// left jump (between slabs prepare)
 	//
 
+	auto tmp_owned = std::make_shared<dealii::TrilinosWrappers::MPI::Vector >();
+
 	// interpolate primal solution u^-(t_m) to high solution space
-	auto primal_um_on_tm = std::make_shared< dealii::Vector<double> > ();
-	primal_um_on_tm->reinit( slab->space.primal.fe_info->dof->n_dofs() );
+	auto primal_um_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	primal_um_on_tm->reinit(
+			*slab->space.primal.fe_info->locally_owned_dofs,
+			*slab->space.primal.fe_info->locally_relevant_dofs,
+			mpi_comm);
 
-	high_u_kh_m_on_tm = std::make_shared< dealii::Vector<double> > ();
-	high_u_kh_m_on_tm->reinit( slab->space.high.fe_info->dof->n_dofs() );
 
-	high_u_k_m_on_tm = std::make_shared< dealii::Vector<double> > ();
-	high_u_k_m_on_tm->reinit( slab->space.high.fe_info->dof->n_dofs() );
+	high_u_kh_m_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_u_kh_m_on_tm->reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+
+	high_u_k_m_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_u_k_m_on_tm->reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+
+
+	high_u_k_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_u_k_p_on_tm->reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+
+	high_u_kh_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_u_kh_p_on_tm -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+
+	high_z_kh_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_kh_p_on_tm -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+	high_z_k_rho_k_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_k_rho_k_p_on_tm  -> reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm);
+
+	high_z_k_rho_h_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_k_rho_h_p_on_tm  -> reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm);
+
+	high_z_p_on_tm  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_p_on_tm  -> reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm);
+
+	high_z_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_on_tq -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+	high_z_kh_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_kh_on_tq  -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+	high_z_k_rho_k_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_k_rho_k_on_tq  -> reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm);
+
+	high_z_k_rho_h_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_z_k_rho_h_on_tq  -> reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm);
+	high_u_kh_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_u_kh_on_tq  -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+	high_dt_u_kh_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_dt_u_kh_on_tq  -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			*slab->space.high.fe_info->locally_relevant_dofs,
+			mpi_comm);
+
+	auto high_owned = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	high_owned -> reinit(
+			*slab->space.high.fe_info->locally_owned_dofs,
+			mpi_comm);
+
 
 	if (slab == grid->slabs.begin()) {
 		// slab n == 1: interpolate initial value function u_0 to high solution space
 		Assert(primal_um_on_tm.use_count(), dealii::ExcNotInitialized());
 		Assert(primal_um_on_tm->size(), dealii::ExcNotInitialized());
-
+		tmp_owned ->reinit(
+			*slab->space.primal.fe_info->locally_owned_dofs,
+			mpi_comm
+		);
+		*tmp_owned = 0.;
 		// our case: u_0 = 0
 //			function.u_0->set_time(slab->t_m);
 //			dealii::VectorTools::interpolate(
 //				*slab->space.primal.fe_info->mapping,
 //				*slab->space.primal.fe_info->dof,
 //				*function.u_0,
-//				*primal_um_on_tm
+//				*tmp_owned
 //			);
+
 
 		// call hanging nodes to make the result continuous again
 		// (Note: after the first dwr-loop the initial grid could have hanging nodes)
-		slab->space.primal.fe_info->constraints->distribute(*primal_um_on_tm);
+		slab->space.primal.fe_info->hanging_node_constraints->distribute(*tmp_owned);
+		*primal_um_on_tm = *tmp_owned;
 	}
 	else {
 		// slab n > 1
 		Assert(primal.um_on_tn.use_count(), dealii::ExcNotInitialized());
 
-		if (std::prev(slab)->space.primal.fe_info->dof->n_dofs() != primal.um_on_tn->size())
-			primal.um_on_tn->reinit( std::prev(slab)->space.primal.fe_info->dof->n_dofs() );
+		if (std::prev(slab)->space.primal.fe_info->dof->n_dofs() != primal.um_on_tn->size()){
 
-		*primal.um_on_tn = 0;
-		{
-			dealii::FEValues<1> fe_face_values_time(
-				*std::prev(slab)->time.primal.fe_info->mapping,
-				*std::prev(slab)->time.primal.fe_info->fe,
-				dealii::QGaussLobatto<1>(2),
-				dealii::update_values
-			);
-
-			{
-				// primal_cell_time is be the last time cell from the previous slab
-				auto primal_cell_time = std::prev(slab)->time.primal.fe_info->dof->begin_active();
-				auto endc_time = std::prev(slab)->time.primal.fe_info->dof->end();
-				auto last_time = std::prev(slab)->time.primal.fe_info->dof->begin_active();
-				++primal_cell_time;
-				for ( ; primal_cell_time != endc_time; ++primal_cell_time) {
-					last_time = primal_cell_time;
-				}
-				primal_cell_time = last_time;
-
-				fe_face_values_time.reinit(primal_cell_time);
-
-				// evaluate solution for t_n of time cell
-				for (unsigned int jj{0};
-					jj < std::prev(slab)->time.primal.fe_info->fe->dofs_per_cell; ++jj)
-				for (dealii::types::global_dof_index i{0};
-					i < std::prev(slab)->space.primal.fe_info->dof->n_dofs(); ++i) {
-					(*primal.um_on_tn)[i] += (*std::prev(u)->x[0])[
-						i
-						// time offset
-						+ std::prev(slab)->space.primal.fe_info->dof->n_dofs() *
-							(primal_cell_time->index() * std::prev(slab)->time.primal.fe_info->fe->dofs_per_cell)
-						// local in time dof
-						+ std::prev(slab)->space.primal.fe_info->dof->n_dofs() * jj
-					] * fe_face_values_time.shape_value(jj,1);
-				}
-			}
-
-			//   get u(t_m^-) from:   Omega_h^primal x Q_{n-1} (t_{n-1})
-			//   (1) interpolated to: Omega_h^primal x Q_{n} (t_m) => primal_um_on_tm
-			//   (2) interpolated to: Omega_h^high x Q_{n} (t_m)   => high_um_on_tm
-
-			// (1) interpolate_to_different_mesh (in primal):
-			//     - needs the same fe: dof1.get_fe() = dof2.get_fe()
-			//     - allow different triangulations: dof1.get_tria() != dof2.get_tria()
-
-			dealii::VectorTools::interpolate_to_different_mesh(
-				// solution on Q_{n-1}:
-				*std::prev(slab)->space.primal.fe_info->dof,
-				*primal.um_on_tn,
-				// solution on Q_n:
-				*slab->space.primal.fe_info->dof,
-				*slab->space.primal.fe_info->constraints,
-				*primal_um_on_tm
-			);
-
-			// primal_um_on_tm has actually already been stored with a divergence free projection in um
-			primal_um_on_tm->equ(1., *um->x[0]);
+			primal.um_on_tn->reinit(
+					*std::prev(slab)->space.primal.fe_info->locally_owned_dofs,
+					*std::prev(slab)->space.primal.fe_info->locally_relevant_dofs,
+					mpi_comm);
 		}
+		// primal_um_on_tm has actually already been stored with a divergence free projection in um
+		*primal_um_on_tm = *um->x[0];
+
+//		tmp_owned ->reinit(
+//				*std::prev(slab)->space.primal.fe_info->locally_owned_dofs,
+//				mpi_comm
+//		);
+//
+//		*primal.um_on_tn = 0;
+//		{
+//			dealii::FEValues<1> fe_face_values_time(
+//				*std::prev(slab)->time.primal.fe_info->mapping,
+//				*std::prev(slab)->time.primal.fe_info->fe,
+//				dealii::QGaussLobatto<1>(2),
+//				dealii::update_values
+//			);
+//
+//			{
+//				// primal_cell_time is be the last time cell from the previous slab
+//				auto primal_cell_time = std::prev(slab)->time.primal.fe_info->dof->begin_active();
+//				auto endc_time = std::prev(slab)->time.primal.fe_info->dof->end();
+//				auto last_time = std::prev(slab)->time.primal.fe_info->dof->begin_active();
+//				++primal_cell_time;
+//				for ( ; primal_cell_time != endc_time; ++primal_cell_time) {
+//					last_time = primal_cell_time;
+//				}
+//				primal_cell_time = last_time;
+//
+//				fe_face_values_time.reinit(primal_cell_time);
+//
+//				// evaluate solution for t_n of time cell
+//				for (unsigned int jj{0};
+//					jj < std::prev(slab)->time.primal.fe_info->fe->dofs_per_cell; ++jj)
+//				{
+//					dealii::IndexSet::ElementIterator lri = std::prev(slab)->space.primal.fe_info->locally_owned_dofs->begin();
+//					dealii::IndexSet::ElementIterator lre = std::prev(slab)->space.primal.fe_info->locally_owned_dofs->end();
+//					for ( ; lri != lre ; lri++){
+//						(*tmp_owned)[*lri] += (*std::prev(u)->x[0])[
+//							*lri
+//							// time offset
+//							+ std::prev(slab)->space.primal.fe_info->dof->n_dofs() *
+//								(primal_cell_time->index() * std::prev(slab)->time.primal.fe_info->fe->dofs_per_cell)
+//							// local in time dof
+//							+ std::prev(slab)->space.primal.fe_info->dof->n_dofs() * jj
+//						] * fe_face_values_time.shape_value(jj,1);
+//					}
+//				}
+//			}
+//
+//			*primal.um_on_tn = *tmp_owned;
+//
+//
+//			tmp_owned ->reinit(
+//				*slab->space.primal.fe_info->locally_owned_dofs,
+//				mpi_comm
+//			);
+//			//   get u(t_m^-) from:   Omega_h^primal x Q_{n-1} (t_{n-1})
+//			//   (1) interpolated to: Omega_h^primal x Q_{n} (t_m) => primal_um_on_tm
+//			//   (2) interpolated to: Omega_h^high x Q_{n} (t_m)   => high_um_on_tm
+//
+//			// (1) interpolate_to_different_mesh (in primal):
+//			//     - needs the same fe: dof1.get_fe() = dof2.get_fe()
+//			//     - allow different triangulations: dof1.get_tria() != dof2.get_tria()
+//			dealii::VectorTools::interpolate_to_different_mesh(
+//				// solution on Q_{n-1}:
+//				*std::prev(slab)->space.primal.fe_info->dof,
+//				*primal.um_on_tn,
+//				// solution on Q_n:
+//				*slab->space.primal.fe_info->dof,
+//				*slab->space.primal.fe_info->hanging_node_constraints,
+//				*tmp_owned
+//			);
+//
+//			*primal_um_on_tm = *tmp_owned;
+//
+//		}
 	}
 
 	// compute high_u_kh_m_on_tm and high_u_k_m_on_tm from primal_um_on_tm
@@ -494,9 +647,11 @@ estimate_on_slab(
 			*primal_um_on_tm,
 			// high solution
 			*slab->space.high.fe_info->dof,
-			*slab->space.high.fe_info->constraints,
-			*high_u_kh_m_on_tm
+			*slab->space.high.fe_info->hanging_node_constraints,
+			*high_owned
 		);
+		*high_u_kh_m_on_tm = *high_owned;
+
 	}
 	else // primal == high
 	{
@@ -520,6 +675,7 @@ estimate_on_slab(
 		//  ρ_k(u_kh^(1,2),.) ~ ρ_k(I_2h(u_kh^(1,1)),.)
 		if (!primal_order.compare("low")) // primal == low
 		{
+//			std::cout << "patchwise high interpolate space" << std::endl;
 			patchwise_high_order_interpolate_space(
 				slab,
 				primal_um_on_tm,
@@ -528,6 +684,7 @@ estimate_on_slab(
 		}
 		else //  primal == high
 		{
+//			std::cout << "back interpolate space" << std::endl;
 			back_interpolate_space(
 				slab,
 				high_u_k_m_on_tm,
@@ -535,7 +692,6 @@ estimate_on_slab(
 			);
 		}
 	}
-
 	////////////////////////////////////////////////////////////////////////
 	// loop over all cells in time on this slab
 	//
@@ -600,19 +756,20 @@ estimate_on_slab(
 		//
 		// inside slab: set primal_um_on_tm / high_u_kh_m_on_tm / high_u_k_m_on_tm
 		if (cell_time->index() >= 1) {
-			Assert(primal.um_on_tn.use_count(), dealii::ExcNotInitialized());
-			Assert(
-				primal.um_on_tn->size() == slab->space.primal.fe_info->dof->n_dofs(),
-				dealii::ExcMessage(
-					"primal.um_on_tn->size() != slab->space.primal.fe_info->dof->n_dofs()"
-				)
-			);
+//			Assert(primal.um_on_tn.use_count(), dealii::ExcNotInitialized());
+//			Assert(
+//				primal.um_on_tn->size() == slab->space.primal.fe_info->dof->n_dofs(),
+//				dealii::ExcMessage(
+//					"primal.um_on_tn->size() != slab->space.primal.fe_info->dof->n_dofs()"
+//				)
+//			);
 
 			Assert(primal_um_on_tm.use_count(), dealii::ExcNotInitialized());
 			Assert(primal_um_on_tm->size(), dealii::ExcNotInitialized());
 
-			primal_um_on_tm->equ(1., *primal.um_on_tn);
+//			primal_um_on_tm = *primal.um_on_tn;
 
+//			std::cout << "compute high u_kh on tm" << std::endl;
 			// compute high_u_kh_m_on_tm and high_u_k_m_on_tm from primal_um_on_tm
 			if (!primal_order.compare("low")) // primal == low
 			{
@@ -623,9 +780,11 @@ estimate_on_slab(
 					*primal_um_on_tm,
 					// high solution
 					*slab->space.high.fe_info->dof,
-					*slab->space.high.fe_info->constraints,
-					*high_u_kh_m_on_tm
+					*slab->space.high.fe_info->hanging_node_constraints,
+					*high_owned
 				);
+				*high_u_kh_m_on_tm = *high_owned;
+
 			}
 			else // primal == high
 			{
@@ -669,7 +828,15 @@ estimate_on_slab(
 		//////////////////////////////////////////
 		// get the primal solution at t_m^+
 		//
-		std::shared_ptr< dealii::Vector<double> > primal_up_on_tm;
+//		std::cout << "get primal at tm+" << std::endl;
+		auto primal_up_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+		Assert(slab->space.primal.fe_info->locally_owned_dofs.use_count(),dealii::ExcNotInitialized());
+		Assert(slab->space.primal.fe_info->locally_relevant_dofs.use_count(),dealii::ExcNotInitialized());
+		primal_up_on_tm ->reinit(
+			*slab->space.primal.fe_info->locally_owned_dofs,
+			*slab->space.primal.fe_info->locally_relevant_dofs,
+			mpi_comm
+		);
 		get_w_t(
 			slab->time.primal.fe_info->fe,
 			slab->time.primal.fe_info->mapping,
@@ -680,6 +847,7 @@ estimate_on_slab(
 			primal_up_on_tm
 		);
 
+//		std::cout << "interpolate space" << std::endl;
 		// compute high_u_kh_p_on_tm and high_u_k_p_on_tm from primal_up_on_tm
 		if (!primal_order.compare("low")) // primal == low
 		{
@@ -689,6 +857,7 @@ estimate_on_slab(
 				primal_up_on_tm,
 				high_u_kh_p_on_tm
 			);
+
 		}
 		else // primal == high
 		{
@@ -703,6 +872,7 @@ estimate_on_slab(
 			);
 		}
 
+//		std::cout << "linearization points " << std::endl;
 		if (replace_linearization_points)
 		{
 			// ρ_k(u_k,.) ~ ρ_k(u_kh,.), i.e. use u_kh as u_k
@@ -739,7 +909,14 @@ estimate_on_slab(
 		//////////////////////////////////////////
 		// get the dual solution at t_m^+
 		//
-		std::shared_ptr< dealii::Vector<double> > dual_zp_on_tm;
+
+//		std::cout << "get dual at tm+" << std::endl;
+		auto dual_zp_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+		dual_zp_on_tm -> reinit(
+			*slab->space.dual.fe_info->locally_owned_dofs,
+			*slab->space.dual.fe_info->locally_relevant_dofs,
+			mpi_comm
+		);
 		get_w_t(
 			slab->time.dual.fe_info->fe,
 			slab->time.dual.fe_info->mapping,
@@ -749,6 +926,7 @@ estimate_on_slab(
 			fe_face_values_time.quadrature_point(0)[0],
 			dual_zp_on_tm
 		);
+
 
 		if (!dual_order.compare("low")) // dual == low
 		{
@@ -764,7 +942,6 @@ estimate_on_slab(
 			{
 				// z_k^[rho_h] = z_kh^(2,2)(t_m^+):
 				high_z_k_rho_h_p_on_tm = high_z_p_on_tm;
-
 				// z_k^[rho_k] = z_kh^(1,2)(t_m^+) = back_interpolate_time(z_kh^(2,2)(t_m^+)):
 				get_w_t(
 					slab->time.high.fe_info->fe,
@@ -776,12 +953,14 @@ estimate_on_slab(
 					high_z_k_rho_k_p_on_tm
 				);
 
+
 				// z_kh = z_kh^(2,1)(t_m^+) = back_interpolate_space(z_kh^(2,2)(t_m^+)):
 				back_interpolate_space(
 					slab,
 					high_z_p_on_tm,
 					high_z_kh_p_on_tm
 				);
+
 			}
 			else
 			{
@@ -808,6 +987,8 @@ estimate_on_slab(
 			}
 		}
 
+
+//		std::cout << "starting local error tm workstream" << std::endl;
 		////////////////////////////////////////////////////////////////////
 		// integrate in space on t_m:
 		//
@@ -815,8 +996,12 @@ estimate_on_slab(
 		// assemble cell_time on t_m problem
 		//
 		dealii::WorkStream::run(
-			slab->space.high.fe_info->dof->begin_active(),
-			slab->space.high.fe_info->dof->end(),
+			CellFilter(
+				dealii::IteratorFilters::LocallyOwnedCell(), slab->space.high.fe_info->dof->begin_active()
+			),
+			CellFilter(
+				dealii::IteratorFilters::LocallyOwnedCell(), slab->space.high.fe_info->dof->end()
+			),
 			std::bind (
 				&ErrorEstimator<dim>::assemble_local_error_tm,
 				this,
@@ -844,6 +1029,7 @@ estimate_on_slab(
 			Assembly::CopyData::ErrorEstimates<dim> (*slab->space.pu.fe_info->fe)
 		);
 
+//		std::cout << "assemble tn" << std::endl;
 		////////////////////////////////////////////////////////////////////
 		// integrate time by quadrature
 		// use high space to set up the time quadrature
@@ -869,7 +1055,12 @@ estimate_on_slab(
 			//////////////////////////////////////////
 			// get the dual solution at t_q
 			//
-			std::shared_ptr< dealii::Vector<double> > dual_z_on_tq;
+			auto dual_z_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+			dual_z_on_tq->reinit(
+				*slab->space.dual.fe_info->locally_owned_dofs,
+				*slab->space.dual.fe_info->locally_relevant_dofs,
+				mpi_comm
+			);
 			get_w_t(
 				slab->time.dual.fe_info->fe,
 				slab->time.dual.fe_info->mapping,
@@ -916,6 +1107,7 @@ estimate_on_slab(
 				else
 				{
 					// z_k^[rho_h] = back_interpolate_time(z_kh^(2,2)(t_q)):
+//					std::cout << "w_t with high_back_interpolated_time no weight" << std::endl;
 					get_w_t(
 						slab->time.high.fe_info->fe,
 						slab->time.high.fe_info->mapping,
@@ -942,7 +1134,14 @@ estimate_on_slab(
 			// get the primal solution (and its time derivative) at t_q
 			//
 			// u(t_q)
-			std::shared_ptr< dealii::Vector<double> > primal_u_on_tq;
+//			std::cout << "w_t with u" << std::endl;
+			auto primal_u_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+			primal_u_on_tq ->reinit(
+				*slab->space.primal.fe_info->locally_owned_dofs,
+				*slab->space.primal.fe_info->locally_relevant_dofs,
+				mpi_comm
+			);
+
 			get_w_t(
 				slab->time.primal.fe_info->fe,
 				slab->time.primal.fe_info->mapping,
@@ -953,7 +1152,12 @@ estimate_on_slab(
 				primal_u_on_tq
 			);
 			// ∂_t u(t_q)
-			std::shared_ptr< dealii::Vector<double> > primal_dt_u_on_tq;
+			auto primal_dt_u_on_tq= std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+			primal_dt_u_on_tq ->reinit(
+				*slab->space.primal.fe_info->locally_owned_dofs,
+				*slab->space.primal.fe_info->locally_relevant_dofs,
+				mpi_comm
+			);
 			get_dt_w_t(
 				slab->time.primal.fe_info->fe,
 				slab->time.primal.fe_info->mapping,
@@ -985,6 +1189,7 @@ estimate_on_slab(
 			else // primal == high
 			{
 				// a)
+//				std::cout << "w_t with high_back_interpolated_time" << std::endl;
 				get_w_t(
 					slab->time.high.fe_info->fe,
 					slab->time.high.fe_info->mapping,
@@ -1028,6 +1233,16 @@ estimate_on_slab(
 			}
 			else // ρ_k(u_k,.) ~ ρ_k(u_kh^(1,2),.)
 			{
+				high_u_k_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+				high_u_k_on_tq->reinit(
+						*slab->space.high.fe_info->locally_owned_dofs,
+						*slab->space.high.fe_info->locally_relevant_dofs,
+						mpi_comm);
+				high_dt_u_k_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+				high_dt_u_k_on_tq->reinit(
+						*slab->space.high.fe_info->locally_owned_dofs,
+						*slab->space.high.fe_info->locally_relevant_dofs,
+						mpi_comm);
 				//  ρ_k(u_kh^(1,2),.) ~ ρ_k(I_2h(u_kh^(1,1)),.)
 				if (!primal_order.compare("low")) // primal == low
 				{
@@ -1070,9 +1285,14 @@ estimate_on_slab(
 			// assemble cell_time on t_q problem
 			//
 
+//			std::cout << "local assemble on tq" << std::endl;
 			dealii::WorkStream::run(
-				slab->space.high.fe_info->dof->begin_active(),
-				slab->space.high.fe_info->dof->end(),
+				CellFilter(
+					dealii::IteratorFilters::LocallyOwnedCell(), slab->space.high.fe_info->dof->begin_active()
+				),
+				CellFilter(
+					dealii::IteratorFilters::LocallyOwnedCell(), slab->space.high.fe_info->dof->end()
+				),
 				std::bind (
 					&ErrorEstimator<dim>::assemble_local_error,
 					this,
@@ -1101,52 +1321,71 @@ estimate_on_slab(
 				Assembly::CopyData::ErrorEstimates<dim> (*slab->space.pu.fe_info->fe)
 			);
 		} // t_q
-
-		////////////////////////////////////////////////////////////////////
-		// jump in t_n (either between next cell_time or (next slab or z_T))
-		//
-		// NOTE: only needed for the adjoint error estimator
-
-		////////////////////////////////////////////////////////////////////
-		// evaluate solution u(t_n) on this cell_time
-		// for next cell_time or next slab
-		//
-
-		Assert(primal.um_on_tn.use_count(), dealii::ExcNotInitialized());
-		if (slab->space.primal.fe_info->dof->n_dofs() != primal.um_on_tn->size()) {
-			primal.um_on_tn->reinit( slab->space.primal.fe_info->dof->n_dofs() );
-		}
-
-		*primal.um_on_tn = 0;
-		{
-			dealii::FEValues<1> fe_face_values_time(
-				*slab->time.primal.fe_info->mapping,
-				*slab->time.primal.fe_info->fe,
-				dealii::QGaussLobatto<1>(2),
-				dealii::update_values
-			);
-
-			{
-				fe_face_values_time.reinit(primal_cell_time);
-
-				// evaluate solution for t_n of time cell
-				for (unsigned int jj{0};
-					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj)
-				for (dealii::types::global_dof_index i{0};
-					i < slab->space.primal.fe_info->dof->n_dofs(); ++i) {
-					(*primal.um_on_tn)[i] += (*u->x[0])[
-						i
-						// time offset
-						+ slab->space.primal.fe_info->dof->n_dofs() *
-							(primal_cell_time->index() * slab->time.primal.fe_info->fe->dofs_per_cell)
-						// local in time dof
-						+ slab->space.primal.fe_info->dof->n_dofs() * jj
-					] * fe_face_values_time.shape_value(jj,1);
-				}
-			}
-		}
+//
+//		////////////////////////////////////////////////////////////////////
+//		// jump in t_n (either between next cell_time or (next slab or z_T))
+//		//
+//		// NOTE: only needed for the adjoint error estimator
+//
+//		////////////////////////////////////////////////////////////////////
+//		// evaluate solution u(t_n) on this cell_time
+//		// for next cell_time or next slab
+//		//
+//
+//		Assert(primal.um_on_tn.use_count(), dealii::ExcNotInitialized());
+//		if (slab->space.primal.fe_info->dof->n_dofs() != primal.um_on_tn->size()) {
+//			primal.um_on_tn->reinit(
+//					*slab->space.primal.fe_info->locally_owned_dofs,
+//					*slab->space.primal.fe_info->locally_relevant_dofs,
+//					mpi_comm);
+//		}
+//
+//		tmp_owned->reinit(
+//				*slab->space.primal.fe_info->locally_owned_dofs,
+//				mpi_comm);
+//
+//		std::cout << "assemble jump" << std::endl;
+//		*primal.um_on_tn = 0;
+//		{
+//			dealii::FEValues<1> fe_face_values_time(
+//				*slab->time.primal.fe_info->mapping,
+//				*slab->time.primal.fe_info->fe,
+//				dealii::QGaussLobatto<1>(2),
+//				dealii::update_values
+//			);
+//
+//			{
+//				fe_face_values_time.reinit(primal_cell_time);
+//
+//				// evaluate solution for t_n of time cell
+//				for (unsigned int jj{0};
+//					jj < slab->time.primal.fe_info->fe->dofs_per_cell; ++jj){
+//
+//					dealii::IndexSet::ElementIterator lri =
+//							slab->space.primal.fe_info->locally_owned_dofs->begin();
+//
+//					dealii::IndexSet::ElementIterator lre =
+//							slab->space.primal.fe_info->locally_owned_dofs->end();
+//
+//				for ( ; lri != lre ; lri++ ){
+//						(*tmp_owned)[*lri] += (*u->x[0])[
+//							*lri
+//							// time offset
+//							+ slab->space.primal.fe_info->dof->n_dofs() *
+//								(primal_cell_time->index() * slab->time.primal.fe_info->fe->dofs_per_cell)
+//							// local in time dof
+//							+ slab->space.primal.fe_info->dof->n_dofs() * jj
+//						] * fe_face_values_time.shape_value(jj,1);
+//					}
+//				}
+//				*primal.um_on_tn = *tmp_owned;
+//			}
+//		}
 	} // for cell_time
 
+//	std::cout << "compressing " << std::endl;
+	error_estimator.x_h->compress(dealii::VectorOperation::add);
+	error_estimator.x_k->compress(dealii::VectorOperation::add);
 	//
 	////////////////////////////////////////////////////////////////////////
 
@@ -1154,6 +1393,7 @@ estimate_on_slab(
 	// prepare next slab
 	//
 	primal_um_on_tm = nullptr;
+//	std::cout << "done" << std::endl;
 }
 
 
@@ -1169,9 +1409,9 @@ get_w_t(
 	std::shared_ptr< dealii::Mapping<1> > time_mapping,
 	std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
 	const typename dealii::DoFHandler<1>::active_cell_iterator &cell_time,
-	std::shared_ptr< dealii::Vector<double> > w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
 	const double &t,
-	std::shared_ptr< dealii::Vector<double> > &w_t
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &w_t
 ) {
 	Assert(w.use_count(), dealii::ExcNotInitialized());
 
@@ -1200,11 +1440,11 @@ get_w_t(
 	}
 #endif
 
-	w_t = std::make_shared< dealii::Vector<double> > ();
-	w_t->reinit(
-		space_dof->n_dofs()
-	);
-
+	const dealii::IndexSet loe = w_t->locally_owned_elements();
+	auto tmpvec = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+    tmpvec->reinit(
+		loe,
+		mpi_comm);
 	// create special quadrature for fe eval on t
 	// NOTE: cell_time->diameter() = tau_n of cell_time in 1d
 
@@ -1229,24 +1469,32 @@ get_w_t(
 
 	cell_time->get_dof_indices(local_dof_indices);
 
-	for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
-		*w_t = 0.;
+    *tmpvec = 0.;
+    Assert(fe_values_time.n_quadrature_points==1,
+			dealii::ExcInternalError());
 
-		// evaluate solution for t_q
-		for (
-			unsigned int jj{0};
-			jj < time_fe->dofs_per_cell; ++jj) {
-		for (
-			dealii::types::global_dof_index i{0};
-			i < space_dof->n_dofs(); ++i) {
-			(*w_t)[i] += (*w)[
-				i
+	//only a single QP, so no loop needed
+	unsigned int qt{0};
+
+	// evaluate solution for t_q
+	for (
+		unsigned int jj{0};
+		jj < time_fe->dofs_per_cell; ++jj) {
+
+		dealii::IndexSet::ElementIterator lri = loe.begin();
+		dealii::IndexSet::ElementIterator lre = loe.end();
+		for ( ; lri != lre ; lri ++) {
+			double tmp  = (*w)[
+				*lri
 				// time offset
 				+ space_dof->n_dofs() *
 					local_dof_indices[jj]
 			] * fe_values_time.shape_value(jj,qt);
-		}}
+
+			(*tmpvec)[*lri] += tmp;
+		}
 	}
+	*w_t = *tmpvec;
 }
 
 
@@ -1258,9 +1506,9 @@ get_dt_w_t(
 	std::shared_ptr< dealii::Mapping<1> > time_mapping,
 	std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
 	const typename dealii::DoFHandler<1>::active_cell_iterator &cell_time,
-	std::shared_ptr< dealii::Vector<double> > w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
 	const double &t,
-	std::shared_ptr< dealii::Vector<double> > &dt_w_t
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &dt_w_t
 ) {
 	Assert(w.use_count(), dealii::ExcNotInitialized());
 
@@ -1289,11 +1537,11 @@ get_dt_w_t(
 	}
 #endif
 
-	dt_w_t = std::make_shared< dealii::Vector<double> > ();
-	dt_w_t->reinit(
-		space_dof->n_dofs()
-	);
-
+	const dealii::IndexSet loe = dt_w_t->locally_owned_elements();
+	auto tmpvec = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	tmpvec->reinit(
+		loe,
+		mpi_comm);
 	// create special quadrature for fe eval on t
 	// NOTE: cell_time->diameter() = tau_n of cell_time in 1d
 
@@ -1318,24 +1566,32 @@ get_dt_w_t(
 
 	cell_time->get_dof_indices(local_dof_indices);
 
-	for (unsigned int qt{0}; qt < fe_values_time.n_quadrature_points; ++qt) {
-		*dt_w_t = 0.;
+	Assert(fe_values_time.n_quadrature_points==1,
+			dealii::ExcInternalError());
 
-		// evaluate solution for t_q
-		for (
-			unsigned int jj{0};
-			jj < time_fe->dofs_per_cell; ++jj) {
-		for (
-			dealii::types::global_dof_index i{0};
-			i < space_dof->n_dofs(); ++i) {
-			(*dt_w_t)[i] += (*w)[
-				i
+	*tmpvec = 0.;
+	//only a single QP, so no loop needed
+	unsigned int qt{0};
+
+	// evaluate solution for t_q
+	for (
+		unsigned int jj{0};
+		jj < time_fe->dofs_per_cell; ++jj) {
+
+		dealii::IndexSet::ElementIterator lri = loe.begin();
+		dealii::IndexSet::ElementIterator lre = loe.end();
+
+		for ( ; lri != lre ; lri++ ){
+			(*tmpvec)[*lri] += (*w)[
+				*lri
 				// time offset
 				+ space_dof->n_dofs() *
 					local_dof_indices[jj]
-			] * fe_values_time.shape_grad(jj,qt)[0];
-		}}
+			  ] * fe_values_time.shape_grad(jj,qt)[0];
+		}
 	}
+
+	*dt_w_t = *tmpvec;
 }
 
 
@@ -1344,8 +1600,8 @@ void
 ErrorEstimator<dim>::
 interpolate_space(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::shared_ptr< dealii::Vector<double> > w,
-	std::shared_ptr< dealii::Vector<double> > &interpolated_space_w
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &interpolated_space_w
 ) {
 	Assert(w.use_count(), dealii::ExcNotInitialized());
 	Assert(
@@ -1356,10 +1612,12 @@ interpolate_space(
 		)
 	);
 
-	interpolated_space_w = std::make_shared< dealii::Vector<double> > ();
-	interpolated_space_w->reinit(
-		slab->space.high.fe_info->dof->n_dofs()
-	);
+
+	auto tmp = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+	tmp->reinit(interpolated_space_w->locally_owned_elements(),
+			   mpi_comm);
+
+	Assert(interpolated_space_w.use_count(), dealii::ExcNotInitialized());
 
 	// interpolate low dof vector to high dof vector
 	dealii::FETools::interpolate(
@@ -1368,9 +1626,10 @@ interpolate_space(
 		*w,
 		// high solution
 		*slab->space.high.fe_info->dof,
-		*slab->space.high.fe_info->constraints,
-		*interpolated_space_w
+		*slab->space.high.fe_info->hanging_node_constraints,
+		*tmp
 	);
+	*interpolated_space_w = *tmp;
 }
 
 
@@ -1379,8 +1638,8 @@ void
 ErrorEstimator<dim>::
 patchwise_high_order_interpolate_space(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::shared_ptr< dealii::Vector<double> > w,
-	std::shared_ptr< dealii::Vector<double> > &higher_order_space_w
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > higher_order_space_w
 ) {
 	// I_h^[high]{ I_h^[2*p on 2*h patch]{ w(t) } } or
 	// I_h^[high]{ w(t) }:
@@ -1403,9 +1662,12 @@ patchwise_high_order_interpolate_space(
 		)
 	);
 
-	higher_order_space_w = std::make_shared< dealii::Vector<double> > ();
-	higher_order_space_w->reinit(
-		slab->space.high.fe_info->dof->n_dofs()
+	Assert(higher_order_space_w.use_count(), dealii::ExcNotInitialized());
+
+	auto tmpvec = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+	tmpvec -> reinit(
+			higher_order_space_w->locally_owned_elements(),
+			mpi_comm
 	);
 
 	if (low.solution_can_be_patchwise_interpolated) {
@@ -1417,8 +1679,8 @@ patchwise_high_order_interpolate_space(
 			*w,
 			// high solution
 			*slab->space.high.fe_info->dof,
-			*slab->space.high.fe_info->constraints,
-			*higher_order_space_w
+			*slab->space.high.fe_info->hanging_node_constraints,
+			*tmpvec
 		);
 	}
 	else {
@@ -1429,10 +1691,11 @@ patchwise_high_order_interpolate_space(
 			*w,
 			// high solution
 			*slab->space.high.fe_info->dof,
-			*slab->space.high.fe_info->constraints,
-			*higher_order_space_w
+			*slab->space.high.fe_info->hanging_node_constraints,
+			*tmpvec
 		);
 	}
+	*higher_order_space_w = *tmpvec;
 }
 
 template<int dim>
@@ -1440,8 +1703,8 @@ void
 ErrorEstimator<dim>::
 back_interpolate_space(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
-	std::shared_ptr< dealii::Vector<double> > w,
-	std::shared_ptr< dealii::Vector<double> > &back_interpolated_space_w) {
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > back_interpolated_space_w) {
 	// back interpolation:
 	// IR_h_w^high(t) = I_h^[high]{ R_h^[low]{w^high(t)} }
 
@@ -1454,23 +1717,25 @@ back_interpolate_space(
 		)
 	);
 
-	back_interpolated_space_w = std::make_shared< dealii::Vector<double> > ();
-	back_interpolated_space_w->reinit(
-		slab->space.high.fe_info->dof->n_dofs()
-	);
+	Assert(back_interpolated_space_w.use_count(), dealii::ExcNotInitialized());
+
+	auto tmp = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+	tmp->reinit(back_interpolated_space_w->locally_owned_elements(),
+			   mpi_comm);
 
 	dealii::FETools::back_interpolate(
 		// high space (input and output space)
 		*slab->space.high.fe_info->dof,
-		*slab->space.high.fe_info->constraints,
+		*slab->space.high.fe_info->hanging_node_constraints,
 		// input vector
 		*w,
 		// low space (restriction space)
 		*slab->space.low.fe_info->dof,
-		*slab->space.low.fe_info->constraints,
+		*slab->space.low.fe_info->hanging_node_constraints,
 		// output vector (high solution after back interpolation)
-		*back_interpolated_space_w
+		*tmp
 	);
+	*back_interpolated_space_w = *tmp;
 }
 
 
@@ -1480,8 +1745,8 @@ ErrorEstimator<dim>::
 get_back_interpolated_time_slab_w(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
-	std::shared_ptr< dealii::Vector<double> > slab_w,
-	std::shared_ptr< dealii::Vector<double> > &back_interpolated_time_slab_w
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > back_interpolated_time_slab_w
 ) {
 	// TODO: does this also work for multiple cells per slab?!
 	// evaluate back interpolation in time for the whole slab solution z:
@@ -1511,22 +1776,65 @@ get_back_interpolated_time_slab_w(
 		dealii::ExcNotInitialized()
 	);
 
+
+	Assert(
+		back_interpolated_time_slab_w.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	dealii::IndexSet low_restricted_owned_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.low.fe_info->dof
+		);
+
+	dealii::IndexSet low_restricted_relevant_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.low.fe_info->dof
+		);
+
+	dealii::IndexSet high_restricted_owned_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.high.fe_info->dof
+		);
+
+	dealii::IndexSet high_restricted_relevant_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.high.fe_info->dof
+		);
+
 	// init intermediate vector
-	auto low_restricted_time_slab_w = std::make_shared< dealii::Vector<double> > ();
+	auto low_restricted_time_slab_w = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 	low_restricted_time_slab_w->reinit(
-		space_dof->n_dofs()
-		* slab->time.low.fe_info->dof->n_dofs()
+		low_restricted_owned_dofs,
+		low_restricted_relevant_dofs,
+		mpi_comm
 	);
 	*low_restricted_time_slab_w = 0.;
 
+	auto low_restricted_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector> ();
+	low_restricted_tmp->reinit(
+		low_restricted_owned_dofs,
+		mpi_comm
+	);
+
 	// init result vector
-	back_interpolated_time_slab_w = std::make_shared< dealii::Vector<double> > ();
+//	back_interpolated_time_slab_w = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 	back_interpolated_time_slab_w->reinit(
-		space_dof->n_dofs()
-		* slab->time.high.fe_info->dof->n_dofs()
+		high_restricted_owned_dofs,
+		high_restricted_relevant_dofs,
+		mpi_comm
 	);
 	*back_interpolated_time_slab_w = 0.;
 
+	auto back_tmp = std::make_shared<dealii::TrilinosWrappers::MPI::Vector >();
+	back_tmp->reinit(
+		high_restricted_owned_dofs,
+		mpi_comm
+	);
 	// init quadratures in time for interpolations in time
 	// NOTE: we need here the original support points of the low/high fe
 	dealii::QGauss<1> low_quad_time(
@@ -1653,23 +1961,25 @@ get_back_interpolated_time_slab_w(
 			for (
 				unsigned int jj{0};
 				jj < high_fe_values_time.get_fe().dofs_per_cell; ++jj) {
-			for (
-				dealii::types::global_dof_index i{0};
-				i < space_dof->n_dofs(); ++i) {
-				(*low_restricted_time_slab_w)[
-					i
-					// time offset
-					+ space_dof->n_dofs() *
-						low_local_dof_indices_time[qt]
-				] += (*slab_w)[
-					i
-					// time offset
-					+ space_dof->n_dofs() *
-						high_local_dof_indices_time[jj]
-				] * high_fe_values_time.shape_value(jj,qt);
-			}}
-		}
+					dealii::IndexSet::ElementIterator lri = space_dof->locally_owned_dofs().begin();
+					dealii::IndexSet::ElementIterator lre = space_dof->locally_owned_dofs().end();
+					for ( ; lri!=lre ; lri++ ) {
+						(*low_restricted_tmp)[
+							*lri
+							// time offset
+							+ space_dof->n_dofs() *
+								low_local_dof_indices_time[qt]
+						] += (*slab_w)[
+							*lri
+							// time offset
+							+ space_dof->n_dofs() *
+								high_local_dof_indices_time[jj]
+						] * high_fe_values_time.shape_value(jj,qt);
+					}
+				}
+			}
 
+		*low_restricted_time_slab_w = *low_restricted_tmp;
 		////////////////////////////////////////////////////////////////////////
 		// R_tau z -> IR_tau_z
 		//
@@ -1687,16 +1997,17 @@ get_back_interpolated_time_slab_w(
 			for (
 				unsigned int jj{0};
 				jj < low_fe_values_time.get_fe().dofs_per_cell; ++jj) {
-			for (
-				dealii::types::global_dof_index i{0};
-				i < space_dof->n_dofs(); ++i) {
-				(*back_interpolated_time_slab_w)[
-					i
+
+				dealii::IndexSet::ElementIterator lri = space_dof->locally_owned_dofs().begin();
+				dealii::IndexSet::ElementIterator lre = space_dof->locally_owned_dofs().end();
+				for ( ; lri!=lre ; lri++ ) {
+					(*back_tmp)[
+					 *lri
 					// time offset
 					+ space_dof->n_dofs() *
 						high_local_dof_indices_time[qt]
 				] += (*low_restricted_time_slab_w)[
-					i
+					*lri
 					// time offset
 					+ space_dof->n_dofs() *
 						low_local_dof_indices_time[jj]
@@ -1704,6 +2015,7 @@ get_back_interpolated_time_slab_w(
 			}}
 		}
 	}
+	*back_interpolated_time_slab_w = *back_tmp;
 }
 
 //
@@ -1877,31 +2189,31 @@ assemble_error_on_cell_tm(
 	} // for q
 }
 
+//// NOTE: only need this for adjoint error estimator
+//template<int dim>
+//void
+//ErrorEstimator<dim>::
+//assemble_local_error_tn(
+//	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
+//	Assembly::Scratch::ErrorEstimates<dim> &scratch,
+//	Assembly::CopyData::ErrorEstimates<dim> &copydata) {
+//
+//	////////////////////////////////////////////////////////////////////////
+//	// cell integrals:
+//	//
+//	assemble_error_on_cell_tn(cell, scratch.cell, copydata.cell);
+//}
 
-template<int dim>
-void
-ErrorEstimator<dim>::
-assemble_local_error_tn(
-	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
-	Assembly::Scratch::ErrorEstimates<dim> &scratch,
-	Assembly::CopyData::ErrorEstimates<dim> &copydata) {
-
-	////////////////////////////////////////////////////////////////////////
-	// cell integrals:
-	//
-	assemble_error_on_cell_tn(cell, scratch.cell, copydata.cell);
-}
-
-template<int dim>
-void
-ErrorEstimator<dim>::
-assemble_error_on_cell_tn(
-	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
-	Assembly::Scratch::ErrorEstimateOnCell<dim> &scratch,
-	Assembly::CopyData::ErrorEstimateOnCell<dim> &copydata) {
-
-	// NOTE: only need this for adjoint error estimator
-}
+//// NOTE: only need this for adjoint error estimator
+//template<int dim>
+//void
+//ErrorEstimator<dim>::
+//assemble_error_on_cell_tn(
+//	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
+//	Assembly::Scratch::ErrorEstimateOnCell<dim> &scratch,
+//	Assembly::CopyData::ErrorEstimateOnCell<dim> &copydata) {
+//
+//}
 
 
 template<int dim>
@@ -2484,6 +2796,7 @@ template<int dim>
 void
 ErrorEstimator<dim>::copy_local_error(
 	const Assembly::CopyData::ErrorEstimates<dim> &copydata) {
+
 	pu.constraints->distribute_local_to_global(
 		copydata.cell.local_eta_h_vector,
 		copydata.cell.local_dof_indices_pu,
@@ -2501,6 +2814,7 @@ template<int dim>
 void
 ErrorEstimator<dim>::
 init(
+	MPI_Comm _mpi_comm,
 	std::shared_ptr< dealii::Function<dim> > _viscosity,
 	std::shared_ptr< fluid::Grid<dim> > _grid,
 	bool use_symmetric_stress,
@@ -2510,6 +2824,7 @@ init(
 	std::string _dual_order,
 	bool _nonlinear)
 {
+	mpi_comm = _mpi_comm;
 	Assert(_viscosity.use_count(), dealii::ExcNotInitialized());
 	function.viscosity = _viscosity;
 
@@ -2526,6 +2841,8 @@ init(
 	// FEValuesExtractors
 	convection = 0;
 	pressure   = dim;
+
+	n_slab = 0;
 }
 
 }}} // namespace

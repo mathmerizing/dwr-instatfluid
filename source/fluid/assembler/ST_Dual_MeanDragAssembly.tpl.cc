@@ -196,7 +196,7 @@ template<int dim>
 void
 Assembler<dim>::
 assemble(
-	std::shared_ptr< dealii::Vector<double> > Je,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Je,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const double &t0,
 	const double &T) {
@@ -216,17 +216,13 @@ assemble(
 	Assert(slab->spacetime.dual.constraints.use_count(), dealii::ExcNotInitialized());
 
 	Assert(Je.use_count(), dealii::ExcNotInitialized());
-	Assert(Je->size(), dealii::ExcNotInitialized());
 
 	////////////////////////////////////////////////////////////////////////////
 	// init
 	
 	*Je = 0.;
 
-	_Je = std::make_shared< dealii::Vector<double> > ();
-	_Je->reinit(
-		slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs()
-	);
+	_Je = Je;
 
 	space.dof = slab->space.dual.fe_info->dof;
 	space.fe = slab->space.dual.fe_info->fe;
@@ -320,7 +316,7 @@ assemble(
 		)
 	);
 
-	Je->add(1., *_Je);
+	Je->compress(dealii::VectorOperation::add);
 }
 
 

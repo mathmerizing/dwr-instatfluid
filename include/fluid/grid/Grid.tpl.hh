@@ -53,6 +53,8 @@
 #include <deal.II/base/function.h>
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_out.h>
+#include <deal.II/distributed/tria.h>
+#include <deal.II/base/tensor_function.h>
 
 namespace fluid {
 
@@ -60,7 +62,7 @@ template<int dim>
 class Grid {
 public:
 	Grid(std::shared_ptr< fluid::ParameterSet > _parameter_set,
-		MPI_Comm mpi_comm = MPI_COMM_WORLD) : mpi_comm(mpi_comm) {
+		MPI_Comm mpi_comm = MPI_COMM_WORLD) : mpi_comm(mpi_comm), coarse_tria() {
 		Assert(_parameter_set.use_count(), dealii::ExcNotInitialized());
 		parameter_set = _parameter_set;
 	};
@@ -72,6 +74,11 @@ public:
 	virtual void initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void initialize_pu_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	
+
+	virtual bool split_slab_in_time(
+		typename fluid::types::spacetime::dwr::slabs<dim>::iterator slab
+	);
+
 	virtual void refine_slab_in_time(
 		typename fluid::types::spacetime::dwr::slabs<dim>::iterator slab
 	);
@@ -85,15 +92,27 @@ public:
 	
 	virtual void set_manifolds();
 	virtual void set_boundary_indicators();
+	virtual void set_dirichlet_function(std::shared_ptr< dealii::TensorFunction<1,dim> > fun);
 	
 	virtual void distribute();
 	virtual void distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
-	
-	virtual void create_sparsity_pattern_primal_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
-	virtual void create_sparsity_pattern_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 
+	virtual void interpolate_dirichlet_bc(std::shared_ptr<dealii::DoFHandler<dim>> dof,
+			                              std::shared_ptr<dealii::AffineConstraints<double>> constraints,
+										  double tm,
+										  bool inhom);
+
+	virtual void create_sparsity_pattern_primal_on_slab(
+			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+			std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix>,
+			std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix>
+	);
+
+	virtual void create_sparsity_pattern_dual_on_slab(
+			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+			std::shared_ptr< dealii::TrilinosWrappers::SparseMatrix>);
 	virtual void clear_primal_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void clear_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 
@@ -108,6 +127,8 @@ public:
 protected:
 	std::shared_ptr< fluid::ParameterSet > parameter_set;
 	MPI_Comm mpi_comm;
+	std::shared_ptr<dealii::Triangulation<dim> > coarse_tria;
+	std::shared_ptr< dealii::TensorFunction<1,dim> > dirichlet_function;
 };
 
 } // namespace

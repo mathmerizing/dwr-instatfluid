@@ -53,7 +53,6 @@ set_manifolds() {
 	for (unsigned int d{0}; d < dim; ++d) {
 		p_obstacle_mid[d] = .2;
 	}
-	
 	{
 		auto slab(this->slabs.begin());
 		auto ends(this->slabs.end());

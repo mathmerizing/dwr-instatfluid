@@ -58,6 +58,9 @@ ParameterSet(
 			"symmetric stress"
 		);
 
+		fe.primal_projection_type = handler->get("primal projection type");
+		fe.dual_projection_type = handler->get("dual projection type");
+
 		fe.primal_order = handler->get(
 				"primal order"
 		);
@@ -191,6 +194,7 @@ ParameterSet(
 		time.fluid.initial_time_tria_refinement = handler->get_double(
 			"global refinement"
 		);
+		time.fluid.max_intervals_per_slab = handler->get_integer("maximum number of intervals per slab");
 	}
 	handler->leave_subsection();
 	

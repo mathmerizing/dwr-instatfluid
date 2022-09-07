@@ -89,10 +89,9 @@ template<int dim>
 void
 DataOutput<dim>::
 set_DoF_data(
-	std::shared_ptr< dealii::DoFHandler<dim> > _dof,
-	std::shared_ptr< std::vector< dealii::IndexSet > > _partitioning_locally_owned_dofs ) {
+	std::shared_ptr< dealii::DoFHandler<dim> > _dof
+){
 	dof = _dof;
-	partitioning_locally_owned_dofs = _partitioning_locally_owned_dofs;
 }
 
 
@@ -162,7 +161,7 @@ void
 DataOutput<dim>::
 write_data(
 	const std::string &solution_name,
-	std::shared_ptr< dealii::Vector<double> > solution_vector,
+	std::shared_ptr< VectorType > solution_vector,
 	const double &time) {
 	Assert(format == DataFormat::HDF5_XDMF, dealii::ExcNotImplemented());
 	
@@ -232,7 +231,7 @@ void
 DataOutput<dim>::
 write_data(
 	const std::string &solution_name,
-	std::shared_ptr< dealii::Vector<double> > solution_vector,
+	std::shared_ptr< VectorType > solution_vector,
 	std::shared_ptr< dealii::DataPostprocessor<dim> > data_postprocessor,
 	const double &time) {
 	Assert(format == DataFormat::HDF5_XDMF, dealii::ExcNotImplemented());

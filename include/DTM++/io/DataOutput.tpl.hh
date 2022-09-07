@@ -56,7 +56,8 @@
 
 namespace DTM {
 
-using VectorType = dealii::BlockVector<double>;
+//using VectorType = dealii::BlockVector<double>;
+using VectorType = dealii::TrilinosWrappers::MPI::Vector;
 
 template<int dim>
 class DataOutput {
@@ -87,8 +88,7 @@ public:
 	virtual void set_MPI_Comm(MPI_Comm mpi_comm = MPI_COMM_WORLD);
 	
 	virtual void set_DoF_data(
-		std::shared_ptr< dealii::DoFHandler<dim> > dof,
-		std::shared_ptr< std::vector< dealii::IndexSet > > partitioning_locally_owned_dofs
+		std::shared_ptr< dealii::DoFHandler<dim> > dof
 	);
 	
 	virtual void set_output_format(DataFormat format);
@@ -107,13 +107,13 @@ public:
 	
 	virtual void write_data(
 		const std::string &solution_file_name,
-		std::shared_ptr< dealii::Vector<double> > solution_vector,
+		std::shared_ptr< VectorType > solution_vector,
 		const double &time
 	);
 	
 	virtual void write_data(
 		const std::string &solution_file_name,
-		std::shared_ptr< dealii::Vector<double> > solution_vector,
+		std::shared_ptr< VectorType > solution_vector,
 		std::shared_ptr< dealii::DataPostprocessor<dim> > data_postprocessor,
 		const double &time
 	);
@@ -126,7 +126,6 @@ protected:
 	MPI_Comm mpi_comm;
 	DataFormat format;
 	std::shared_ptr< dealii::DoFHandler<dim> > dof;
-	std::shared_ptr< std::vector< dealii::IndexSet > > partitioning_locally_owned_dofs;
 	
 	std::vector<std::string> data_field_names;
 	std::vector<std::string> data_field_names_process_id;

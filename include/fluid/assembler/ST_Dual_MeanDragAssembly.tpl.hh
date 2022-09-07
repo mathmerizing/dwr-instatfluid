@@ -56,7 +56,8 @@
 #include <deal.II/grid/filtered_iterator.h>
 
 #include <deal.II/lac/affine_constraints.h>
-#include <deal.II/lac/vector.h>
+#include <deal.II/lac/trilinos_vector.h>
+
 
 // DTM++ includes
 #include <DTM++/types/storage_data_vectors.tpl.hh>
@@ -146,7 +147,7 @@ public:
 	void set_symmetric_stress(bool use_symmetric_stress);
 	
 	void assemble(
-		std::shared_ptr< dealii::Vector<double> > Je,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Je,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const double &t0,
 		const double &T
@@ -165,7 +166,7 @@ protected:
 	);
 
 private:
-	std::shared_ptr< dealii::Vector<double> > _Je;
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > _Je;
 
 	struct {
 		std::shared_ptr< dealii::DoFHandler<dim> > dof;

@@ -1,0 +1,59 @@
+/*
+ * SlabDoFTools.hh
+ *
+ *  Created on: Aug 9, 2022
+ *      Author: thiele
+ 
+ * @brief Instantiation file.
+ */
+ 
+ 
+#ifndef IDEAL_II_SLABDOFTOOLS_INST_IN
+#define IDEAL_II_SLABDOFTOOLS_INST_IN
+ 
+namespace idealii
+{
+	namespace SlabDoFTools{
+		template
+		dealii::IndexSet
+		extract_locally_relevant_dofs(
+			std::shared_ptr<dealii::DoFHandler<2,2>> space_dof,
+			std::shared_ptr<dealii::DoFHandler<1,1>> time_dof
+		);
+		template
+		dealii::IndexSet
+		extract_locally_relevant_dofs(
+			std::shared_ptr<dealii::DoFHandler<3,3>> space_dof,
+			std::shared_ptr<dealii::DoFHandler<1,1>> time_dof
+		);
+
+		template
+		dealii::IndexSet
+		extract_locally_owned_dofs(
+			std::shared_ptr<dealii::DoFHandler<2,2>> space_dof,
+			std::shared_ptr<dealii::DoFHandler<1,1>> time_dof
+		);
+		template
+		dealii::IndexSet
+		extract_locally_owned_dofs(
+			std::shared_ptr<dealii::DoFHandler<3,3>> space_dof,
+			std::shared_ptr<dealii::DoFHandler<1,1>> time_dof
+		);
+		
+	
+		template
+		void
+		make_spacetime_constraints(
+			std::shared_ptr<dealii::IndexSet> space_relevant_dofs,
+			std::shared_ptr<dealii::AffineConstraints<double>> space_constraints,
+			dealii::types::global_dof_index n_space_dofs,
+			dealii::types::global_dof_index  n_time_dofs,
+			std::shared_ptr<dealii::IndexSet> spacetime_relevant_dofs,
+			std::shared_ptr<dealii::AffineConstraints<double>> spacetime_constraints
+		);
+	
+	}
+}
+ 
+ 
+#endif
