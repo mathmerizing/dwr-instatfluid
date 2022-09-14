@@ -121,6 +121,7 @@ protected:
 		double       line_search_damping;
 	} newton;
 
+	virtual void init_reference_values();
 	
 	virtual void init_newton_parameters();
 
@@ -394,23 +395,14 @@ protected:
 			// J(u) = ...
 			// reference computations
 			struct {
-				// from own computations on fine spatio-temporal meshes
-				struct {
-					double mean_drag = 0.4027165386203608; // mean drag from 0s to 8s for Stokes 2D-3
-					double mean_lift = 0.002576246687436928; // mean lift from 0s to 8s for Stokes 2D-3
-				} Stokes;
-
-				// computed reference values for Navier-Stokes from featflow results online
-				struct {
-					double mean_drag = 1.6031368118815639; // mean drag from 0s to 8s for Navier-Stokes 2D-3
-					double mean_lift = -0.010209786642844209; // mean lift from 0s to 8s for Navier-Stokes 2D-3
-				} NSE;
+				double mean_drag;
+				double mean_lift;
 			} reference;
 
 			// J(u_{kh}) = ...
 			struct {
-				double mean_drag; // mean drag from 0s to 8s for (Navier-)Stokes 2D-3
-				double mean_lift; // mean lift from 0s to 8s for (Navier-)Stokes 2D-3
+				double mean_drag;
+				double mean_lift;
 			} fem;
 
 			// for debugging: J(u_{kh}) = ...

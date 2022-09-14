@@ -197,6 +197,12 @@ ParameterSet(
 		time.fluid.max_intervals_per_slab = handler->get_integer("maximum number of intervals per slab");
 	}
 	handler->leave_subsection();
+	handler->enter_subsection("Reference Values");
+		reference.stokes.mean_drag = handler->get_double("mean drag stokes");
+		reference.stokes.mean_lift = handler->get_double("mean lift stokes");
+		reference.navier_stokes.mean_drag = handler->get_double("mean drag navier-stokes");
+		reference.navier_stokes.mean_lift = handler->get_double("mean lift navier-stokes");
+	handler->leave_subsection();
 	
 	handler->enter_subsection("Newton");{
 		newton.max_steps = handler->get_integer("max steps");

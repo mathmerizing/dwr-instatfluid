@@ -619,7 +619,7 @@ generate(
 			)
 		);
 
-        std::string grid_name = "/home/ifam/thiele/grids/nsbench4_original.inp";
+        std::string grid_name = "nsbench4_original.inp";
         dealii::GridIn<dim> grid_in;
         grid_in.attach_triangulation(*tria);
         std::ifstream input_file(grid_name.c_str());
@@ -632,6 +632,34 @@ generate(
 		return;
 	}
 
+
+	////////////////////////////////////////////////////////////////////////////
+	//
+	if (TriaGenerator_Type.compare("channel_without_cylinder_3D") == 0) {
+		AssertThrow(
+			options.size() == 0,
+			dealii::ExcMessage(
+				"TriaGenerator Options invalid, "
+				"please check your input file data."
+			)
+		);
+
+		std::string grid_name = "nsbench3dZ_3D.inp";
+		dealii::GridIn<dim> grid_in;
+		grid_in.attach_triangulation(*tria);
+		std::ifstream input_file(grid_name.c_str());
+		grid_in.read_ucd(input_file);
+		dealii::Point<dim> p(0.5,0.2,0.);
+		dealii::Tensor<1,dim> z_dir;
+		z_dir[0] = 0.;
+		z_dir[1] = 0.;
+		z_dir[dim-1] = 1.;
+		static const dealii::CylindricalManifold<dim> boundary(z_dir,p);
+		dealii::GridTools::copy_boundary_to_manifold_id(*tria);
+		tria->set_manifold(80,boundary);
+
+		return;
+	}
 	////////////////////////////////////////////////////////////////////////////
 	//
 	AssertThrow(

@@ -1,18 +1,16 @@
 /**
- * @file Convection_Parabolic_Inflow_3.tpl.cc
- * @author Uwe Köcher (UK)
+ * @file Grid_Schaefer_Turek_3D.tpl.hh
  * @author Julian Roth (JR)
- * 
+ * @author Uwe Koecher (UK)
+ * @author Marius Paul Bruchhaeuser (MPB)
  * @author Jan Philipp Thiele (JPT)
  * 
  * @Date 2022-01-14, Fluid, JPT
- * @date 2021-12-14, JR
- * @date 2021-09-23, JR
- * @date 2019-11-12, UK
- * @date 2016-05-26, UK
- * @date 2016-05-09, UK
- * @date 2016-01-19, UK
- * @date 2015-11-26, UK
+ * @date 2021-09-27, Schaefer/Turek 2D, JR
+ * 
+ * @date 2019-11-11, UK
+ * @date 2018-07-26, UK
+ * @date 2018-03-06, UK
  */
 
 /*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
@@ -32,51 +30,32 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3_sin.tpl.hh>
+#ifndef __Grid_Schaefer_Turek_3D_tpl_hh
+#define __Grid_Schaefer_Turek_3D_tpl_hh
 
-namespace convection {
-namespace dirichlet {
+// PROJECT includes
+#include <fluid/grid/Grid.tpl.hh>
+#include <fluid/parameters/ParameterSet.hh>
+
+namespace fluid {
+namespace grid {
 
 template<int dim>
-dealii::Tensor<1,dim>
-Parabolic_Inflow_3_sin<dim>::
-value(
-	const dealii::Point<dim> &x
-) const {
-	Assert(((dim==2)||(dim==3)), dealii::ExcNotImplemented());
+class Grid_Schaefer_Turek_3D :
+	public fluid::Grid<dim> {
+public:
+	Grid_Schaefer_Turek_3D(
+		std::shared_ptr< fluid::ParameterSet > parameter_set
+	) :
+		fluid::Grid<dim> (parameter_set)
+	{};
 	
-	const double t{this->get_time()};
-
-	dealii::Tensor<1,dim> y;
+	virtual ~Grid_Schaefer_Turek_3D() = default;
 	
-	// NOTE: maximal velocity for
-	// --> NSE 2D-1: 0.3 m/s
-	// --> NSE 2D-2: 1.5 m/s
-	// --> NSE 2D-3: 1.5 m/s
-	if (dim==2) {
-		if ( x[0] < 1.0e-14){
-			y[0] = -1. * max_velocity * (4.0 / 0.1681) *
-					(std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
-			y[1] = 0.;
-		}
-	}
-	else {
-		if (x[0] < 1.0e-14){
-			double y_sq = x(1)*x(1);
-			double z_sq = x(2)*x(2);
+	virtual void set_manifolds();
+	virtual void set_boundary_indicators();
+};
 
-			y[0] = max_velocity * (16.0 / 0.02825761) *
-				   (y_sq*z_sq - 0.41*y_sq*x(2) - 0.41*x(1)*z_sq + 0.1681*x(1)*x(2) );
-			y[1] = 0.;
-			y[2] = 0.;
-		}
-	}
+}} // namespace
 
-	y *= std::sin(M_PI * t / 8.);
-
-	return y;
-}
-
-}}
-
-#include "Convection_Parabolic_Inflow_3_sin.inst.in"
+#endif

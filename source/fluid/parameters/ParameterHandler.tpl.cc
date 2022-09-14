@@ -331,6 +331,28 @@ ParameterHandler() {
 		);
 	}
 	leave_subsection();
+	enter_subsection("Reference Values");
+		declare_entry(
+			"mean drag stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
+			"mean lift stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
+			"mean drag navier-stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
+			"mean lift navier-stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+	leave_subsection();
 	enter_subsection("Newton");{
 		declare_entry(
 			"max steps",

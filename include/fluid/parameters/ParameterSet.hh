@@ -188,6 +188,17 @@ struct ParameterSet {
 		} error_estimator;
 	} data_output;
 	
+	struct {
+	  struct {
+		  double mean_drag;
+      	  double mean_lift;
+	  } stokes;
+	  struct {
+		  double mean_drag;
+      	  double mean_lift;
+	  } navier_stokes;
+	} reference;
+
 	//Newton
 	struct {
 		unsigned int max_steps;

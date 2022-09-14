@@ -221,6 +221,7 @@ run() {
 	);
 	
 	init_functions();
+	init_reference_values();
 	init_newton_parameters();
 	init_grid();
 	
@@ -454,6 +455,25 @@ init_functions() {
 }
 
 
+template<int dim>
+void
+Fluid<dim>::
+init_reference_values() {
+	if (parameter_set->problem.compare("Navier-Stokes") == 0){
+	  error_estimator.goal_functional.reference.mean_drag
+	   = parameter_set->reference.navier_stokes.mean_drag;
+
+	  error_estimator.goal_functional.reference.mean_lift
+		 = parameter_set->reference.navier_stokes.mean_lift;
+	}
+	else {
+		  error_estimator.goal_functional.reference.mean_drag
+		   = parameter_set->reference.stokes.mean_drag;
+
+		  error_estimator.goal_functional.reference.mean_lift
+			 = parameter_set->reference.stokes.mean_lift;
+	}
+}
 template<int dim>
 void
 Fluid<dim>::
@@ -1388,6 +1408,7 @@ primal_solve_slab_problem(
 //    primal.owned_tmp ->compress(dealii::VectorOperation::insert);
 //    DTM::pout << "u_1^0" << std::endl;
     *u->x[0] = *primal.owned_tmp;
+
     // assemble slab problem const rhs
 
     *primal.relevant_tmp = *primal.um;
@@ -1792,11 +1813,7 @@ primal_do_forward_TMS(
 	// output exact error
 
 	// analytical mean drag
-	double reference_goal_functional;
-	if (parameter_set->problem.compare("Navier-Stokes") == 0)
-		reference_goal_functional = error_estimator.goal_functional.reference.NSE.mean_drag;
-	else
-		reference_goal_functional = error_estimator.goal_functional.reference.Stokes.mean_drag;
+	double reference_goal_functional = error_estimator.goal_functional.reference.mean_drag;
 	// FEM mean drag
 	double fem_goal_functional = error_estimator.goal_functional.fem.mean_drag;
 
@@ -1808,10 +1825,8 @@ primal_do_forward_TMS(
 	DTM::pout << "---------------------------" << std::endl << std::endl;
 
 	// analytical mean lift
-	if (parameter_set->problem.compare("Navier-Stokes") == 0)
-		reference_goal_functional = error_estimator.goal_functional.reference.NSE.mean_lift;
-	else
-		reference_goal_functional = error_estimator.goal_functional.reference.Stokes.mean_lift;
+	reference_goal_functional = error_estimator.goal_functional.reference.mean_lift;
+
 	// FEM mean lift
 	fem_goal_functional = error_estimator.goal_functional.fem.mean_lift;
 
@@ -3548,7 +3563,7 @@ compute_functional_values(
 		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
-	Assert(dim==2, dealii::ExcNotImplemented());
+	Assert(dim==2 || dim==3, dealii::ExcNotImplemented());
 	
 	// un := u at quadrature point, i.e. un = u(.,t_n)
 	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un =
@@ -3633,7 +3648,7 @@ compute_functional_values(
 				];
 			}
 
-			un_rel = un;
+			*un_rel = *un;
 			////////////////////////////////////
 			// compute functional values of un
 			////////////////////////////////////
@@ -3643,6 +3658,10 @@ compute_functional_values(
 			if (dim==2) {
 				M[0] = 0.15;
 				M[1] = 0.20;
+			} else if (dim ==3) {
+				M[0] = 0.45;
+				M[1] = 0.20;
+				M[2] = 0.205;
 			}
 
 			double pressure_front = compute_pressure(
@@ -3655,6 +3674,10 @@ compute_functional_values(
 			if (dim==2) {
 				M[0] = 0.25;
 				M[1] = 0.20;
+			} else if (dim == 3){
+				M[0] = 0.55;
+				M[1] = 0.20;
+				M[2] = 0.205;
 			}
 
 			double pressure_back = compute_pressure(
@@ -3876,9 +3899,13 @@ compute_drag_lift_tensor(
 	tmp = dealii::Utilities::MPI::sum(drag_lift_value[1],mpi_comm);
 	drag_lift_value[1] = tmp;
 	// 2D-1: 500; 2D-2 and 2D-3: 20 (see Schaefer/Turek 1996)
-	double max_velocity = function.convection.dirichlet->value(
+	double max_velocity = 0.;
+	if (dim == 2){
+		max_velocity =
+		function.convection.dirichlet->value(
 					dealii::Point<dim>(0.0, 0.205) // maximal velocity in the middle of the boundary
-	)[0];
+		)[0];
+	}
 
 	if (parameter_set->convection.dirichlet_boundary_function.compare("Convection_Parabolic_Inflow_3") == 0)
 	{
@@ -3889,7 +3916,10 @@ compute_drag_lift_tensor(
 	}
 	else if (parameter_set->convection.dirichlet_boundary_function.compare("Convection_Parabolic_Inflow_3_sin") == 0)
 	{
-		drag_lift_value *= 20.0; // 2D-3
+		if ( dim == 2)
+			drag_lift_value *= 20.0; // 2D-3
+		else if (dim == 3)
+			drag_lift_value *= 20.0/0.41; // 3D-3
 	}
 }
 
@@ -3993,11 +4023,8 @@ compute_effectivity_index() {
 	const double value_eta = std::abs(value_eta_k + value_eta_h);
 
 	// true error of FEM simulation in goal functional
-	double reference_goal_functional;
-	if (parameter_set->problem.compare("Navier-Stokes") == 0)
-		reference_goal_functional = error_estimator.goal_functional.reference.NSE.mean_drag;
-	else
-		reference_goal_functional = error_estimator.goal_functional.reference.Stokes.mean_drag;
+	double reference_goal_functional = error_estimator.goal_functional.reference.mean_drag;
+
 	const double fem_goal_functional = error_estimator.goal_functional.fem.mean_drag;
 	const double true_error = std::abs(reference_goal_functional - fem_goal_functional);
 

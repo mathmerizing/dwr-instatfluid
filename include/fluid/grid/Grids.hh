@@ -34,6 +34,7 @@
 #include <fluid/grid/Grid_Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow.tpl.hh>
 #include <fluid/grid/Grid_Fluid_ParabolicInflow_NoSlipWall_DoNothingOutflow_2.tpl.hh>
 #include <fluid/grid/Grid_Schaefer_Turek_2D.tpl.hh>
+#include <fluid/grid/Grid_Schaefer_Turek_3D.tpl.hh>
 #include <fluid/grid/Grid_Cavity_2D.tpl.hh>
 
 #endif

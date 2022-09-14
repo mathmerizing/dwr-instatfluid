@@ -166,7 +166,29 @@ create_grid(
 
 		return;
 	}
+	////////////////////////////////////////////////////////////////////////////
+	//
+	if ( !Mesh_Boundary_Class.compare("Schaefer_Turek_3D") ) {
+		AssertThrow(
+			options.size() == 0,
+			dealii::ExcMessage(
+				"Schaefer_Turek_3D "
+				"options invalid, "
+				"please check your input file data."
+			)
+		);
 
+		grid = std::make_shared< fluid::grid::Grid_Schaefer_Turek_3D<dim> > (
+			parameter_set
+		);
+
+		DTM::pout
+			<< "fluid::grid selector: created "
+			<< "Grid_Schaefer_Turek_3D"
+			<< std::endl;
+
+		return;
+	}
 	////////////////////////////////////////////////////////////////////////////
 	//
 	if ( !Mesh_Boundary_Class.compare("Cavity_2D") ) {
