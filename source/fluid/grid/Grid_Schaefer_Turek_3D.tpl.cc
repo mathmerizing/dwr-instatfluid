@@ -48,8 +48,24 @@ Grid_Schaefer_Turek_3D<dim>::
 set_manifolds() {
 	Assert((dim==3), dealii::ExcNotImplemented());
 	
-	// Obstacle: CylindricalManifold
+	set_obstacle_manifold(this->coarse_tria);
 
+	{
+		auto slab(this->slabs.begin());
+		auto ends(this->slabs.end());
+
+		for (; slab != ends; ++slab) {
+			set_obstacle_manifold(slab->space.tria);
+		}
+	}
+}
+
+template<int dim>
+void
+Grid_Schaefer_Turek_3D<dim>::
+set_obstacle_manifold(std::shared_ptr<dealii::Triangulation<dim>> tria){
+
+	// Obstacle: CylindricalManifold
 	//midpoints of obstacle
 	double x_mp = 0.5;
 	double y_mp = 0.2;
@@ -58,61 +74,53 @@ set_manifolds() {
 	z_dir[0] = 0.;
 	z_dir[1] = 0.;
 	z_dir[dim-1] = 1.;
+	tria->reset_all_manifolds();
+	tria->set_all_manifold_ids(0);
 
-	{
-		auto slab(this->slabs.begin());
-		auto ends(this->slabs.end());
+	auto cell(tria->begin_active());
+	auto endc(tria->end());
+	for (; cell != endc; ++cell)
+	if (cell->at_boundary())
+	for (
+		unsigned int face(0);
+		face < dealii::GeometryInfo<dim>::faces_per_cell; ++face
+	) {
+		if (cell->face(face)->at_boundary()) {
+			auto center{cell->face(face)->center()};
 
-		for (; slab != ends; ++slab) {
-			slab->space.tria->reset_all_manifolds();
-			slab->space.tria->set_all_manifold_ids(0);
+			double distance = std::sqrt(
+					(center(0)-x_mp)*(center(0)-x_mp)+
+					(center(1)-y_mp)*(center(1)-y_mp)
+			);
 
-			auto cell(slab->space.tria->begin_active());
-			auto endc(slab->space.tria->end());
-			for (; cell != endc; ++cell)
-			if (cell->at_boundary())
-			for (
-				unsigned int face(0);
-				face < dealii::GeometryInfo<dim>::faces_per_cell; ++face
+
+			// obstacle cylinder
+			if (
+				distance < 0.055 //radius of 0.05 + Tolerance
 			) {
-				if (cell->face(face)->at_boundary()) {
-					auto center{cell->face(face)->center()};
-
-					double distance = std::sqrt(
-							(center(0)-x_mp)*(center(0)-x_mp)+
-							(center(1)-y_mp)*(center(1)-y_mp)
-					);
-
-
-					// obstacle cylinder
-					if (
-						distance < 0.055 //radius of 0.05 + Tolerance
-					) {
 //						std::cout << n_face << " is obstacle face with center " << center
 //								<< " and distance " << distance
 //								<< std::endl;
-						for (unsigned int line(0); line < dealii::GeometryInfo<dim-1>::faces_per_cell; ++ line){
-							cell->face(face)->line(line)->set_manifold_id(
-								42 //CylindricalManifold
-							);
-						}
-						cell->face(face)->set_manifold_id(
-							42 // CylindricalManifold
-						);
-
-					}
-
+				for (unsigned int line(0); line < dealii::GeometryInfo<dim-1>::faces_per_cell; ++ line){
+					cell->face(face)->line(line)->set_manifold_id(
+						42 //CylindricalManifold
+					);
 				}
+				cell->face(face)->set_manifold_id(
+					42 // CylindricalManifold
+				);
+
 			}
 
-			slab->space.tria->set_manifold(
-				42, dealii::CylindricalManifold<dim>(z_dir,p_obstacle_mid)
-			);
 		}
 	}
+
+	tria->set_manifold(
+		42, dealii::CylindricalManifold<dim>(z_dir,p_obstacle_mid)
+	);
+
+
 }
-
-
 template<int dim>
 void
 Grid_Schaefer_Turek_3D<dim>::
@@ -141,8 +149,8 @@ set_boundary_indicators() {
 					if (
 						(std::abs(center[1] - 0.) < 1.e-14) ||
 						(std::abs(center[1] - 0.41) < 1.e-14) ||
-						(std::abs(center[2] - 0.) < 1.e-14) ||
-						(std::abs(center[2] - 0.41) < 1.e-14)
+						(std::abs(center[dim-1] - 0.) < 1.e-14) ||
+						(std::abs(center[dim-1] - 0.41) < 1.e-14)
 					) {
 						cell->face(face)->set_boundary_id(
 							static_cast<dealii::types::boundary_id> (

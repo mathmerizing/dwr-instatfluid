@@ -109,6 +109,8 @@ using ProjectionRHSAssembler = projectionrhs::spacetime::Operator::Assembler<dim
 
 #include <ideal.II/dofs/SlabDoFTools.hh>
 
+#include <cstdio>
+
 namespace fluid {
 
 template<int dim>
@@ -130,7 +132,7 @@ Fluid<dim>::
 run() {
 	// check
 	Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
-	
+
 	// check problem we want to solve
 	if ( parameter_set->problem.compare("Stokes") == 0)
 	{
@@ -291,10 +293,10 @@ run() {
 			}
 			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
 				refine_and_coarsen_space_time_grid(dwr_loop-1); // do adaptive space-time mesh refinements and coarsenings
-			else
+			else{
 				// invalid refinement strategy
 				AssertThrow(false, dealii::ExcNotImplemented());
-
+			}
 			grid->set_manifolds();
 		}
 		
@@ -302,6 +304,22 @@ run() {
 			<< "***************************************************************"
 			<< "*****************" << std::endl
 			<< "adaptivity loop = " << dwr_loop << std::endl;
+
+		//overwrite temp drag/lift/pressure logs and write headers
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			std::ofstream out;
+			out.open("pressure.log");
+			out << "time,pressure" << std::endl;
+			out.close();
+
+			out.open("drag.log");
+			out << "time,drag" << std::endl;
+			out.close();
+
+			out.open("lift.log");
+			out << "time,lift" << std::endl;
+			out.close();
+		}
 		
 		grid->set_boundary_indicators();
 		
@@ -346,6 +364,20 @@ run() {
 
 //		if (estimated_error < TOL_DWR)
 //			break;
+
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			std::ostringstream pfilename;
+			pfilename << "pressure" << dwr_loop << ".log";
+			std::rename("pressure.log",pfilename.str().c_str());
+
+			std::ostringstream dfilename;
+			dfilename << "drag" << dwr_loop << ".log";
+			std::rename("drag.log",dfilename.str().c_str());
+
+			std::ostringstream lfilename;
+			lfilename << "lift" << dwr_loop << ".log";
+			std::rename("lift.log",lfilename.str().c_str());
+		}
 
 		++dwr_loop;
 	} while (dwr_loop <= max_dwr_loop);

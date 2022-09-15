@@ -53,6 +53,7 @@ public:
 	virtual ~Grid_Schaefer_Turek_3D() = default;
 	
 	virtual void set_manifolds();
+	virtual void set_obstacle_manifold(std::shared_ptr<dealii::Triangulation<dim>>tria);
 	virtual void set_boundary_indicators();
 };
 
