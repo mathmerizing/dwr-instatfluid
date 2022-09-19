@@ -157,6 +157,36 @@ run() {
 	// check whether we are using the symmetric stress tensor
 	DTM::pout << "symmetric stress: " << (parameter_set->fe.symmetric_stress ? "true" : "false") << std::endl;
 
+	// check primal space discretisation
+	if ((parameter_set->fe.primal.convection.space_type.compare("cG") == 0) &&
+		(parameter_set->fe.primal.pressure.space_type.compare("cG") == 0) ) {
+		DTM::pout
+			<< "primal space discretisation convection-pressure:"
+			<< std::endl
+			<< "\t[ "
+			// convection
+			<< "cG("
+			<< parameter_set->fe.primal.convection.p
+			<< ")-Q_"
+			<< parameter_set->fe.primal.convection.space_type_support_points
+			<< ", "
+			// pressure
+			<< "cG("
+			<< parameter_set->fe.primal.pressure.p
+			<< ")-Q_"
+			<< parameter_set->fe.primal.pressure.space_type_support_points
+			<< " ]^T"
+			<< std::endl;
+	}
+	else {
+		AssertThrow(
+			false,
+			dealii::ExcMessage(
+				"primal space discretisation unknown"
+			)
+		);
+	}
+
 	// check primal time discretisation
 	if ((parameter_set->fe.primal.convection.time_type.compare("dG") == 0) &&
 		(parameter_set->fe.primal.pressure.time_type.compare("dG") == 0) ) {
@@ -187,6 +217,36 @@ run() {
 		);
 	}
 	
+	// check dual space discretisation
+	if ((parameter_set->fe.dual.convection.space_type.compare("cG") == 0) &&
+		(parameter_set->fe.dual.pressure.space_type.compare("cG") == 0) ) {
+		DTM::pout
+			<< "dual space discretisation convection-pressure:"
+			<< std::endl
+			<< "\t[ "
+			// convection
+			<< "cG("
+			<< parameter_set->fe.dual.convection.p
+			<< ")-Q_"
+			<< parameter_set->fe.dual.convection.space_type_support_points
+			<< ", "
+			// pressure
+			<< "cG("
+			<< parameter_set->fe.dual.pressure.p
+			<< ")-Q_"
+			<< parameter_set->fe.dual.pressure.space_type_support_points
+			<< " ]^T"
+			<< std::endl;
+	}
+	else {
+		AssertThrow(
+			false,
+			dealii::ExcMessage(
+				"dual space discretisation unknown"
+			)
+		);
+	}
+
 	// check dual time discretisation
 	if ((parameter_set->fe.dual.convection.time_type.compare("dG") == 0) &&
 		(parameter_set->fe.dual.pressure.time_type.compare("dG") == 0) ) {
@@ -250,7 +310,7 @@ run() {
 			AssertThrow(false, dealii::ExcMessage("primal_order needs to be 'low' or 'high'."));
 		}
 
-		// dual = low / high
+		// dual = low / high / high-time
 		if ( !parameter_set->fe.dual_order.compare("low") )
 		{
 			slab->space.dual.fe_info = slab->space.low.fe_info;
@@ -261,9 +321,14 @@ run() {
 			slab->space.dual.fe_info = slab->space.high.fe_info;
 			slab->time.dual.fe_info = slab->time.high.fe_info;
 		}
+		else if ( !parameter_set->fe.dual_order.compare("high-time") )
+		{
+			slab->space.dual.fe_info = slab->space.low.fe_info;
+			slab->time.dual.fe_info = slab->time.high.fe_info;
+		}
 		else
 		{
-			AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high'."));
+			AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high' or 'high-time'."));
 		}
 	} // end for-loop slab
 
@@ -327,7 +392,6 @@ run() {
 		primal_reinit_storage();
 		primal_init_data_output();
 		primal_do_forward_TMS(dwr_loop, false);
-
 
 		// dual problem
 		dual_reinit_storage();
@@ -1803,7 +1867,6 @@ primal_do_forward_TMS(
 			}
 		}
 
-
 		// output data
 		primal_do_data_output(slab, u, dwr_loop, last);
 
@@ -1973,7 +2036,6 @@ primal_do_data_output_on_slab(
 	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
 	const unsigned int dwr_loop) {
 	// triggered output mode
-	std::cout << "output used in non Qn mode!" << std::endl;
 	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 	Assert(u->x[0].use_count(),dealii::ExcNotInitialized());
 
@@ -2228,7 +2290,6 @@ primal_do_data_output_on_slab_Qn_mode(
 									  ] * fe_values_time.shape_value(jj,qt);
 					}
  				}
-
  				owned_tmp->compress(dealii::VectorOperation::add);
  				slab->space.primal.fe_info->hanging_node_constraints->distribute(*owned_tmp);
 
@@ -2637,7 +2698,7 @@ dual_do_backward_TMS(
 				grid->initialize_low_grid_components_on_slab(slab);
 				grid->distribute_low_on_slab(slab);
 			}
-			else if ( !parameter_set->fe.dual_order.compare("high") )
+			else if ( !parameter_set->fe.dual_order.compare("high") || !parameter_set->fe.dual_order.compare("high-time") )
 			{
 				grid->initialize_high_grid_components_on_slab(slab);
 				grid->distribute_high_on_slab(slab);
@@ -2653,9 +2714,9 @@ dual_do_backward_TMS(
 				grid->initialize_high_grid_components_on_slab(slab);
 				grid->distribute_high_on_slab(slab);
 			}
-			else if ( !parameter_set->fe.dual_order.compare("high") )
+			else if ( !parameter_set->fe.dual_order.compare("high") || !parameter_set->fe.dual_order.compare("high-time") )
 			{
-				// (dual == high): init low for error estimator
+				// (dual == high or dual == high-time): init low for error estimator
 				grid->initialize_low_grid_components_on_slab(slab);
 				grid->distribute_low_on_slab(slab);
 			}
@@ -3624,21 +3685,21 @@ compute_functional_values(
 	std::shared_ptr< dealii::Quadrature<1> > quad_time;
 	{
 		if ( !(parameter_set->
-			fe.low.convection.time_type_support_points
+			fe.primal.convection.time_type_support_points
 			.compare("Gauss")) ) {
 			quad_time =
 			std::make_shared< dealii::QGauss<1> > (
-				(parameter_set->fe.low.convection.r + 1)
+				(parameter_set->fe.primal.convection.r + 1)
 			);
 		} else if ( !(parameter_set->
-				fe.low.convection.time_type_support_points
+				fe.primal.convection.time_type_support_points
 				.compare("Gauss-Lobatto")) ){
-			if (parameter_set->fe.low.convection.r < 1){
+			if (parameter_set->fe.primal.convection.r < 1){
 				quad_time = std::make_shared< QRightBox<1> > ();
 			} else {
 				quad_time =
 						std::make_shared< dealii::QGaussLobatto<1> > (
-								(parameter_set->fe.low.convection.r + 1)
+								(parameter_set->fe.primal.convection.r + 1)
 						);
 			}
 		}
@@ -3725,7 +3786,6 @@ compute_functional_values(
 			////////////////////////////////////
 			// drag and lift
 
-			DTM::pout << "calculating drag lift tensor " << std::endl;
 			// Compute drag and lift via line integral
 			dealii::Tensor<1, dim> drag_lift_value;
 			compute_drag_lift_tensor(
@@ -4824,14 +4884,11 @@ eta_do_data_output_on_slab_Qn_mode(
 		<< "error-indicators-time-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 	{
-		// TODO: check natural time quadrature (Gauss, Gauss-Radau, etc.)
-		//       from input or generated fe<1>
-		//
 		// create fe values
 		dealii::FEValues<1> fe_values_time(
 			*slab->time.pu.fe_info->mapping,
 			*slab->time.pu.fe_info->fe,
-			dealii::QGauss<1>(slab->time.pu.fe_info->fe->tensor_degree()+1), // here
+			dealii::QGauss<1>(slab->time.pu.fe_info->fe->tensor_degree()+1), // PU = dG(0) in time -> QGauss(1)
 			dealii::update_values |
 			dealii::update_quadrature_points
 		);

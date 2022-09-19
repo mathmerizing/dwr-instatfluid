@@ -178,11 +178,11 @@ write_data(
 	stream << solution_name
 		<< ".xdmf";
 	std::string xdmf_filename = stream.str();
-	
+
 	// create dealii::DataOut object and attach the data
 	dealii::DataOut<dim> data_out;
 	data_out.attach_dof_handler(*dof);
-	
+
 	data_out.add_data_vector(
 		*solution_vector,
 		data_field_names,
@@ -190,7 +190,7 @@ write_data(
 		dci_field
 	);
 	data_out.build_patches(data_output_patches);
-	
+
 	// Filter duplicated verticies = true, hdf5 = true
 	dealii::DataOutBase::DataOutFilter data_filter(
 		dealii::DataOutBase::DataOutFilterFlags(false, true)
@@ -198,14 +198,14 @@ write_data(
 	
 	// Filter the data and store it in data_filter
 	data_out.write_filtered_data(data_filter);
-	
+
 	// Write the filtered data to HDF5
 	data_out.write_hdf5_parallel(
 		data_filter,
 		data_filename.c_str(),
 		mpi_comm
 	);
-	
+
 	// Add XDMF entry
 	xdmf_entries_data.push_back(
 		data_out.create_xdmf_entry(
@@ -215,7 +215,7 @@ write_data(
 			mpi_comm
 		)
 	);
-	
+
 	data_out.write_xdmf_file(
 		xdmf_entries_data,
 		xdmf_filename.c_str(),

@@ -376,7 +376,7 @@ estimate_on_slab(
 
 	Assert(slab->space.high.fe_info.use_count(), dealii::ExcNotInitialized());
 	// quadratures for integration in space
-	dealii::QGaussLobatto<dim> quad_cell(
+	dealii::QGauss<dim> quad_cell(
 		std::max(
 			std::max(
 				slab->space.high.fe_info->fe->base_element(0).base_element(0).tensor_degree(),
@@ -1835,15 +1835,6 @@ get_back_interpolated_time_slab_w(
 		high_restricted_owned_dofs,
 		mpi_comm
 	);
-	// init quadratures in time for interpolations in time
-	// NOTE: we need here the original support points of the low/high fe
-	dealii::QGauss<1> low_quad_time(
-		slab->time.low.fe_info->fe->dofs_per_cell
-	);
-
-	dealii::QGauss<1> high_quad_time(
-		slab->time.high.fe_info->fe->dofs_per_cell
-	);
 
 	// prepare local dof mappings
 	std::vector< dealii::types::global_dof_index >
@@ -1860,14 +1851,14 @@ get_back_interpolated_time_slab_w(
 	dealii::FEValues<1> high_fe_values_time(
 		*slab->time.high.fe_info->mapping,
 		*slab->time.high.fe_info->fe,
-		low_quad_time,
+		dealii::Quadrature<1>(slab->time.low.fe_info->fe->get_unit_support_points()),
 		dealii::update_values
 	);
 
 	dealii::FEValues<1> low_fe_values_time(
 		*slab->time.low.fe_info->mapping,
 		*slab->time.low.fe_info->fe,
-		high_quad_time,
+		dealii::Quadrature<1>(slab->time.high.fe_info->fe->get_unit_support_points()),
 		dealii::update_values
 	);
 
@@ -2073,19 +2064,19 @@ assemble_error_on_cell_tm(
 		// PART 1: u
 
 		// 1)  u_kh := u_kh^(1,1) = u_kh^low = I_k(I_h(u_kh^high))
-		// 1a) get u_kh(t_m^+)
+		// 1a) get u_kh(t_m^-)
 		scratch.local_u_kh_m[scratch.j] =
 			(*high_u_kh_m_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
-		// 1b) get u_kh(t_m^-)
+		// 1b) get u_kh(t_m^+)
 		scratch.local_u_kh_p[scratch.j] =
 			(*high_u_kh_p_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
 
 		// 2)  u_k := u_kh^(1,2) = I_2h(u_kh^low) = I_k(u_kh^high)
 		// BUT: if we replace the linearization point, then here u_k is being replaced by u_kh --> this has already been done in the code before!
-		// 2a) get u_k(t_m^+)
+		// 2a) get u_k(t_m^-)
 		scratch.local_u_k_m[scratch.j] =
 			(*high_u_k_m_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
-		// 2b) get u_k(t_m^-)
+		// 2b) get u_k(t_m^+)
 		scratch.local_u_k_p[scratch.j] =
 			(*high_u_k_p_on_tm)[ scratch.local_dof_indices_high[scratch.j] ];
 
@@ -2581,7 +2572,7 @@ assemble_error_on_cell(
 
 			// (∂_t v_k, [z^v-z^v_k]χ_i)
 			copydata.local_eta_k_vector[scratch.j] -= (
-				(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
+				1. //(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
 				* scratch.value_dt_u_k_convection
 				* scratch.value_z_z_k_convection
 				* scratch.chi[scratch.j]
@@ -2590,7 +2581,7 @@ assemble_error_on_cell(
 
 			// (∂_t v_kh, [z^v_k-z^v_kh]χ_i)
 			copydata.local_eta_h_vector[scratch.j] -= (
-				(1 / cell_time_tau_n) // mapping I_n -> widehat(I)
+				1. // (1 / cell_time_tau_n) // mapping I_n -> widehat(I)
 				* scratch.value_dt_u_kh_convection
 				* scratch.value_z_k_z_kh_convection
 				* scratch.chi[scratch.j]

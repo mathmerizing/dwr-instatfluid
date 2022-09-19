@@ -70,6 +70,7 @@
 
 #include <deal.II/lac/affine_constraints.h>
 #include <deal.II/lac/sparsity_pattern.h>
+#include <deal.II/lac/sparsity_tools.h>
 #include <deal.II/lac/trilinos_sparse_matrix.h>
 #include <deal.II/lac/dynamic_sparsity_pattern.h>
 
@@ -784,7 +785,7 @@ initialize_pu_grid_components_on_slab(const typename fluid::types::spacetime::dw
 // 				<< std::endl;
 	}
 
-	slab->time.pu.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (0);
+	slab->time.pu.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (1);
 }
 
 template<int dim>
@@ -910,7 +911,7 @@ split_slab_in_time(
 		AssertThrow(false, dealii::ExcMessage("primal_order needs to be 'low' or 'high'."));
 	}
 
-	// dual = low / high
+	// dual = low / high / high-time
 	if ( !parameter_set->fe.dual_order.compare("low") )
 	{
 		std::prev(slab)->space.dual.fe_info = std::prev(slab)->space.low.fe_info;
@@ -921,9 +922,14 @@ split_slab_in_time(
 		std::prev(slab)->space.dual.fe_info = std::prev(slab)->space.high.fe_info;
 		std::prev(slab)->time.dual.fe_info = std::prev(slab)->time.high.fe_info;
 	}
+	else if ( !parameter_set->fe.dual_order.compare("high-time") )
+	{
+		std::prev(slab)->space.dual.fe_info = std::prev(slab)->space.low.fe_info;
+		std::prev(slab)->time.dual.fe_info = std::prev(slab)->time.high.fe_info;
+	}
 	else
 	{
-		AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high'."));
+		AssertThrow(false, dealii::ExcMessage("dual_order needs to be 'low' or 'high' or 'high-time'."));
 	}
 
 	return true;

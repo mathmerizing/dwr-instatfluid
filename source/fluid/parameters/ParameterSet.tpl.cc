@@ -156,13 +156,54 @@ ParameterSet(
 
 		if (!fe.primal_order.compare("low"))
 			fe.primal = fe.low;
-		else
+		else if (!fe.primal_order.compare("high"))
 			fe.primal = fe.high;
+		else
+		{
+			AssertThrow(
+				false,
+				dealii::ExcMessage(
+					"The primal order '" + fe.primal_order + "' is invalid."
+				)
+			);
+		}
 
 		if (!fe.dual_order.compare("low"))
 			fe.dual = fe.low;
-		else
+		else if (!fe.dual_order.compare("high"))
 			fe.dual = fe.high;
+		else if (!fe.dual_order.compare("high-time"))
+		{
+			// dual: space->low, time->high
+			// convection: space->low
+			fe.dual.convection.space_type = fe.low.convection.space_type;
+			fe.dual.convection.space_type_support_points = fe.low.convection.space_type_support_points;
+			fe.dual.convection.p = fe.low.convection.p;
+
+			// convection: time->high
+			fe.dual.convection.time_type = fe.high.convection.time_type;
+			fe.dual.convection.time_type_support_points = fe.high.convection.time_type_support_points;
+			fe.dual.convection.r = fe.high.convection.r;
+
+			// pressure: space->low
+			fe.dual.pressure.space_type = fe.low.pressure.space_type;
+			fe.dual.pressure.space_type_support_points = fe.low.pressure.space_type_support_points;
+			fe.dual.pressure.p = fe.low.pressure.p;
+
+			// pressure: time->high
+			fe.dual.pressure.time_type = fe.high.pressure.time_type;
+			fe.dual.pressure.time_type_support_points = fe.high.pressure.time_type_support_points;
+			fe.dual.pressure.r = fe.high.pressure.r;
+		}
+		else
+		{
+			AssertThrow(
+				false,
+				dealii::ExcMessage(
+					"The dual order '" + fe.dual_order + "' is invalid."
+				)
+			);
+		}
 	}
 	handler->leave_subsection();
 	
