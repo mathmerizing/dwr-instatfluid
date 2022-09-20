@@ -324,12 +324,48 @@ protected:
 		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > back_interpolated_space_w
 	);
 
+	/// patchwise high order interpolate the space-time vector slab_w in space
+	virtual void get_patchwise_high_order_interpolated_space_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &high_slab_w
+	);
+
+	/// interpolate the space-time vector slab_w in space
+	virtual void get_interpolated_space_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &high_slab_w
+	);
+
+	/// back interpolate the space-time vector slab_w in space
+	virtual void get_back_interpolated_space_slab(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &high_slab_w
+	);
+
 	/// take the entire solution on the space slab_w, restrict it back in time and then interpolate it back in time again
 	virtual void get_back_interpolated_time_slab_w(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
 		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
 		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > back_interpolated_time_slab_w
+	);
+
+	/// take the entire solution on the space slab_w and interpolate it back in time again
+	virtual void get_interpolated_time_slab_w(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &interpolated_time_slab_w
+	);
+
+	/// take the entire solution on the space slab_w, patchwise interpolate up in space, restrict it back in time and then interpolate it back in time again
+	virtual void get_high_back_interpolated_time_slab_w(
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &back_interpolated_time_slab_w
 	);
 
 	////////////////////////////////////////////////////////////////////////////
