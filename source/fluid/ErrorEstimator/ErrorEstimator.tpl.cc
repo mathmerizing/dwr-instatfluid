@@ -516,94 +516,18 @@ estimate_on_slab(
 			*slab->space.primal.fe_info->locally_relevant_dofs,
 			mpi_comm);
 
-	// TODO: for-loop over pointers to simplify code
-	high_u_kh_m_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
-	high_u_kh_m_on_tm->reinit(
+	// reinit vectors to high space
+	for (auto vec : {&high_u_kh_m_on_tm, &high_u_k_m_on_tm, &high_u_k_p_on_tm, &high_u_kh_p_on_tm,
+		&high_z_kh_p_on_tm, &high_z_k_rho_k_p_on_tm, &high_z_k_rho_h_p_on_tm, &high_z_p_on_tm,
+		&high_z_on_tq, &high_z_kh_on_tq, &high_z_k_rho_k_on_tq, &high_z_k_rho_h_on_tq,
+		&high_u_kh_on_tq, &high_dt_u_kh_on_tq})
+	{
+		*vec = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+		(*vec)->reinit(
 			*slab->space.high.fe_info->locally_owned_dofs,
 			*slab->space.high.fe_info->locally_relevant_dofs,
 			mpi_comm);
-
-
-	high_u_k_m_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
-	high_u_k_m_on_tm->reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-
-
-	high_u_k_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
-	high_u_k_p_on_tm->reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-
-	high_u_kh_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_u_kh_p_on_tm -> reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-
-	high_z_kh_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_kh_p_on_tm -> reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-	high_z_k_rho_k_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_k_rho_k_p_on_tm  -> reinit(
-		*slab->space.high.fe_info->locally_owned_dofs,
-		*slab->space.high.fe_info->locally_relevant_dofs,
-		mpi_comm);
-
-	high_z_k_rho_h_p_on_tm = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_k_rho_h_p_on_tm  -> reinit(
-		*slab->space.high.fe_info->locally_owned_dofs,
-		*slab->space.high.fe_info->locally_relevant_dofs,
-		mpi_comm);
-
-	high_z_p_on_tm  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_p_on_tm  -> reinit(
-		*slab->space.high.fe_info->locally_owned_dofs,
-		*slab->space.high.fe_info->locally_relevant_dofs,
-		mpi_comm);
-
-	high_z_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_on_tq -> reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-	high_z_kh_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_kh_on_tq  -> reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-	high_z_k_rho_k_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_k_rho_k_on_tq  -> reinit(
-		*slab->space.high.fe_info->locally_owned_dofs,
-		*slab->space.high.fe_info->locally_relevant_dofs,
-		mpi_comm);
-
-	high_z_k_rho_h_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_z_k_rho_h_on_tq  -> reinit(
-		*slab->space.high.fe_info->locally_owned_dofs,
-		*slab->space.high.fe_info->locally_relevant_dofs,
-		mpi_comm);
-	high_u_kh_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_u_kh_on_tq  -> reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
-
-	high_dt_u_kh_on_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-	high_dt_u_kh_on_tq  -> reinit(
-			*slab->space.high.fe_info->locally_owned_dofs,
-			*slab->space.high.fe_info->locally_relevant_dofs,
-			mpi_comm);
+	}
 
 	auto high_owned = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
 	high_owned -> reinit(
