@@ -365,10 +365,31 @@ estimate_on_slab(
 	// GETTING THE SPACE-TIME VECTORS: U_k, U_kh, Z, Z_k^{ρ_k}, Z_k^{ρ_h}, Z_kh
 	//
 
+	auto tmp_high_lod =
+		std::make_shared<dealii::IndexSet> (
+				idealii::SlabDoFTools::extract_locally_owned_dofs(
+						slab->space.high.fe_info->dof,
+						slab->time.high.fe_info->dof
+				)
+		);
+
+	auto tmp_high_lrd =
+		std::make_shared<dealii::IndexSet> (
+				idealii::SlabDoFTools::extract_locally_relevant_dofs(
+						slab->space.high.fe_info->dof,
+						slab->time.high.fe_info->dof
+				)
+		);
+
 	//////////////////////
 	// GETTING Z
 	//
 	auto high_z_slab = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_z_slab->reinit(
+		*tmp_high_lod,
+		*tmp_high_lrd,
+		mpi_comm
+	);
 
 	if (!dual_order.compare("high")) // dual = [time = high, space = high]
 		high_z_slab = z->x[0]; // for mixed order
@@ -388,6 +409,11 @@ estimate_on_slab(
 	// GETTING Z_k^{ρ_k}
 	//
 	auto high_z_k_rho_k_slab = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_z_k_rho_k_slab->reinit(
+		*tmp_high_lod,
+		*tmp_high_lrd,
+		mpi_comm
+	);
 
 	if (!dual_order.compare("high") || !dual_order.compare("high-time")) // dual = { [time = high, space = high], [time = high, space = low] }
 	{
@@ -411,6 +437,11 @@ estimate_on_slab(
 	// GETTING Z_kh
 	//
 	auto high_z_kh_slab = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_z_kh_slab->reinit(
+		*tmp_high_lod,
+		*tmp_high_lrd,
+		mpi_comm
+	);
 
 	if (!dual_order.compare("high")) // dual = [time = high, space = high]
 	{
@@ -435,9 +466,30 @@ estimate_on_slab(
 	///////////////////////
 	// GETTING U_k == U_kh
 	//
+	auto tmp_lod =
+		std::make_shared<dealii::IndexSet> (
+				idealii::SlabDoFTools::extract_locally_owned_dofs(
+						slab->space.low.fe_info->dof,
+						slab->time.high.fe_info->dof
+				)
+		);
+
+	auto tmp_lrd =
+		std::make_shared<dealii::IndexSet> (
+				idealii::SlabDoFTools::extract_locally_relevant_dofs(
+						slab->space.low.fe_info->dof,
+						slab->time.high.fe_info->dof
+				)
+		);
 
 	// interpolate u_kh^(1,1) in time
 	auto low_interpolated_time_u_slab = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	low_interpolated_time_u_slab->reinit(
+		*tmp_lod,
+		*tmp_lrd,
+		mpi_comm
+	);
+
 	get_interpolated_time_slab_w(
 		slab,
 		slab->space.low.fe_info->dof,
@@ -447,6 +499,12 @@ estimate_on_slab(
 
 	// interpolate u_kh^(2,1) in space
 	auto high_u_slab = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_u_slab->reinit(
+		*tmp_high_lod,
+		*tmp_high_lrd,
+		mpi_comm
+	);
+
 	get_interpolated_space_slab(
 		slab,
 		low_interpolated_time_u_slab,
@@ -908,6 +966,13 @@ estimate_on_slab(
 				fe_values_time.quadrature_point(qt)[0],
 				high_z_kh_on_tq
 			);
+
+			// replacing linearization point
+			// ρ_k(u_k,.) ~ ρ_k(u_kh,.), i.e. use u_kh as u_k
+			// a)
+			high_u_k_on_tq = high_u_kh_on_tq;
+			// b)
+			high_dt_u_k_on_tq = high_dt_u_kh_on_tq;
 
 			////////////////////////////////////////////////////////////////
 			// integrate in space on t_q:
@@ -1403,7 +1468,6 @@ get_patchwise_high_order_interpolated_space_slab(
 	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
 	{
 		// get slab_w_tq
-		//for (dealii::types::global_dof_index i{0}; i < slab->space.low.fe_info->dof->n_dofs(); ++i)
 		for (auto i : *slab->space.low.fe_info->locally_owned_dofs)
 			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
 		*slab_w_tq = *slab_w_tq_tmp;
@@ -1416,12 +1480,200 @@ get_patchwise_high_order_interpolated_space_slab(
 		);
 
 		// write high_slab_w_tq into high_slab_w
-		//for (dealii::types::global_dof_index i{0}; i < slab->space.high.fe_info->dof->n_dofs(); ++i)
 		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
 			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
 	}
 }
 
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_interpolated_space_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &high_slab_w
+) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	slab_w_tq->reinit(
+		*slab->space.low.fe_info->locally_owned_dofs,
+		*slab->space.low.fe_info->locally_relevant_dofs,
+		mpi_comm
+	);
+	*slab_w_tq = 0.;
+
+	auto slab_w_tq_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	slab_w_tq_tmp->reinit(
+		*slab->space.low.fe_info->locally_owned_dofs,
+		mpi_comm
+	);
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_slab_w_tq->reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (auto i : *slab->space.low.fe_info->locally_owned_dofs)
+			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+		*slab_w_tq = *slab_w_tq_tmp;
+
+		// use interpolation in space to go from slab_w_tq to high_slab_w_tq
+		interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+}
+
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_back_interpolated_space_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &high_slab_w
+) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	slab_w_tq->reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm
+	);
+	*slab_w_tq = 0.;
+
+	auto slab_w_tq_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	slab_w_tq_tmp->reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		mpi_comm
+	);
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_slab_w_tq->reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (auto i : *slab->space.low.fe_info->locally_owned_dofs)
+			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+		*slab_w_tq = *slab_w_tq_tmp;
+
+		// use back interpolation in space to go from slab_w_tq to high_slab_w_tq
+		back_interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+}
+
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_high_back_interpolated_time_slab_w(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &back_interpolated_time_slab_w
+) {
+	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
+
+	dealii::IndexSet high_owned_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			slab->space.high.fe_info->dof,
+			slab->time.high.fe_info->dof
+		);
+
+	dealii::IndexSet high_relevant_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			slab->space.high.fe_info->dof,
+			slab->time.high.fe_info->dof
+		);
+
+	// higher order reconstruction in space of slab_w
+	auto high_slab_w = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_slab_w->reinit(
+		high_owned_dofs,
+		high_relevant_dofs,
+		mpi_comm
+	);
+	*high_slab_w = 0.;
+
+	// slab_w evaluated at temporal quadrature point
+	auto slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	slab_w_tq->reinit(
+		*slab->space.low.fe_info->locally_owned_dofs,
+		*slab->space.low.fe_info->locally_relevant_dofs,
+		mpi_comm
+	);
+	*slab_w_tq = 0.;
+
+	auto slab_w_tq_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	slab_w_tq_tmp->reinit(
+		*slab->space.low.fe_info->locally_owned_dofs,
+		mpi_comm
+	);
+
+	// higher order reconstruction in space of slab_w evaluated at temporal quadrature point
+	auto high_slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	high_slab_w_tq->reinit(
+		*slab->space.high.fe_info->locally_owned_dofs,
+		*slab->space.high.fe_info->locally_relevant_dofs,
+		mpi_comm
+	);
+	*high_slab_w_tq = 0.;
+
+	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
+	{
+		// get slab_w_tq
+		for (auto i : *slab->space.low.fe_info->locally_owned_dofs)
+			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+		*slab_w_tq = *slab_w_tq_tmp;
+
+		// use higher order interpolation in space to go from slab_w_tq to high_slab_w_tq
+		patchwise_high_order_interpolate_space(
+			slab,
+			slab_w_tq,
+			high_slab_w_tq
+		);
+
+		// write high_slab_w_tq into high_slab_w
+		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
+			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+	}
+
+	get_back_interpolated_time_slab_w(
+		slab,
+		slab->space.high.fe_info->dof,
+		high_slab_w,
+		back_interpolated_time_slab_w
+	);
+}
 
 template<int dim>
 void
@@ -1693,6 +1945,196 @@ get_back_interpolated_time_slab_w(
 	*back_interpolated_time_slab_w = *back_tmp;
 }
 
+template<int dim>
+void
+ErrorEstimator<dim>::
+get_interpolated_time_slab_w(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::DoFHandler<dim> > space_dof,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > slab_w,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > &interpolated_time_slab_w
+) {
+	// TODO: does this also work for multiple cells per slab?!
+	// evaluate interpolation in time for the whole slab solution z:
+	// I_k^[high]{z^low}
+
+	Assert(
+		space_dof.use_count(),
+		dealii::ExcNotInitialized()
+	);
+	Assert(
+		slab->time.low.fe_info->dof.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	Assert(
+		slab->time.high.fe_info->fe.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	Assert(
+		slab_w.use_count(),
+		dealii::ExcNotInitialized()
+	);
+
+	Assert(
+		slab_w->size(),
+		dealii::ExcNotInitialized()
+	);
+
+	dealii::IndexSet low_restricted_owned_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.low.fe_info->dof
+		);
+
+	dealii::IndexSet low_restricted_relevant_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.low.fe_info->dof
+		);
+
+	dealii::IndexSet high_restricted_owned_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.high.fe_info->dof
+		);
+
+	dealii::IndexSet high_restricted_relevant_dofs =
+		idealii::SlabDoFTools::extract_locally_owned_dofs(
+			space_dof,
+			slab->time.high.fe_info->dof
+		);
+
+	// init result vector
+	interpolated_time_slab_w = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	interpolated_time_slab_w->reinit(
+		high_restricted_owned_dofs,
+		high_restricted_relevant_dofs,
+		mpi_comm
+	);
+	*interpolated_time_slab_w = 0.;
+
+	auto interpolated_time_slab_w_tmp = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	interpolated_time_slab_w_tmp->reinit(
+		high_restricted_owned_dofs,
+		mpi_comm
+	);
+
+	// prepare local dof mappings
+	std::vector< dealii::types::global_dof_index >
+	low_local_dof_indices_time(
+		slab->time.low.fe_info->fe->dofs_per_cell
+	);
+
+	std::vector< dealii::types::global_dof_index >
+	high_local_dof_indices_time(
+		slab->time.high.fe_info->fe->dofs_per_cell
+	);
+
+	// prepare fe values for interpolation
+	dealii::FEValues<1> low_fe_values_time(
+		*slab->time.low.fe_info->mapping,
+		*slab->time.low.fe_info->fe,
+		dealii::Quadrature<1>(slab->time.high.fe_info->fe->get_unit_support_points()),//*high_quad_time,
+		dealii::update_values
+	);
+
+	// loop over all cell time on slab
+	auto cell_time = slab->time.high.fe_info->dof->begin_active();
+	auto endc_time = slab->time.high.fe_info->dof->end();
+
+	auto low_cell_time = slab->time.low.fe_info->dof->begin_active();
+
+	for ( ; cell_time != endc_time; ++cell_time, ++low_cell_time) {
+		////////////////////////////////////////////////////////////////////////
+		// check (low) cell time iterators and matching
+		Assert(
+			low_cell_time != slab->time.low.fe_info->dof->end(),
+			dealii::ExcInternalError()
+		);
+
+		Assert(
+			cell_time->center()[0] == low_cell_time->center()[0],
+			dealii::ExcInternalError()
+		);
+
+		////////////////////////////////////////////////////////////////////////
+		// high_local_dof_indices_time
+		Assert(
+			high_local_dof_indices_time.size() ==
+			slab->time.high.fe_info->fe->dofs_per_cell,
+			dealii::ExcNotInitialized()
+		);
+
+		cell_time->get_dof_indices(
+			high_local_dof_indices_time
+		);
+
+		// low_local_dof_indices_time
+		Assert(
+			low_local_dof_indices_time.size() ==
+			slab->time.low.fe_info->fe->dofs_per_cell,
+			dealii::ExcNotInitialized()
+		);
+
+		low_cell_time->get_dof_indices(
+			low_local_dof_indices_time
+		);
+
+		// reinit and check: low_fe_values_time
+		low_fe_values_time.reinit(low_cell_time);
+
+		Assert(
+			low_local_dof_indices_time.size() ==
+			low_fe_values_time.get_fe().dofs_per_cell,
+			dealii::ExcInternalError()
+		);
+
+		Assert(
+			low_fe_values_time.n_quadrature_points ==
+			high_local_dof_indices_time.size(),
+			dealii::ExcInternalError()
+		);
+
+		////////////////////////////////////////////////////////////////////////
+		// z -> I_k z
+		//
+
+		// NOTE: qt must correspond to local dof jj of high back interpolation
+		Assert(
+			low_fe_values_time.n_quadrature_points ==
+			slab->time.high.fe_info->fe->dofs_per_cell,
+			dealii::ExcInternalError()
+		);
+
+		for (unsigned int qt{0};
+			qt < low_fe_values_time.n_quadrature_points; ++qt) {
+
+			for (
+				unsigned int jj{0};
+				jj < low_fe_values_time.get_fe().dofs_per_cell; ++jj) {
+
+				dealii::IndexSet::ElementIterator lri = space_dof->locally_owned_dofs().begin();
+				dealii::IndexSet::ElementIterator lre = space_dof->locally_owned_dofs().end();
+				for ( ; lri!=lre ; lri++ ) {
+					(*interpolated_time_slab_w_tmp)[
+						*lri
+						// time offset
+						+ space_dof->n_dofs() *
+							high_local_dof_indices_time[qt]
+					] += (*slab_w)[
+						*lri
+						// time offset
+						+ space_dof->n_dofs() *
+							low_local_dof_indices_time[jj]
+					] * low_fe_values_time.shape_value(jj,qt);
+			}}
+		}
+	}
+	*interpolated_time_slab_w = *interpolated_time_slab_w_tmp;
+}
+
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
@@ -1930,13 +2372,11 @@ assemble_error_on_cell(
 
 	// fetch local dof data
 	cell_high->get_dof_indices(scratch.local_dof_indices_high);
-
 	for (scratch.j=0; scratch.j < scratch.fe_values_high.get_fe().dofs_per_cell;
 		++scratch.j) {
 
 		//////////////
 		// PART 1: u
-
 		// 1)  u_kh := u_kh^(1,1) = u_kh^low = I_k(I_h(u_kh^high))
 		// 1a) get u_kh(t_q)
 		scratch.local_u_kh_tq[scratch.j] =
@@ -1989,7 +2429,7 @@ assemble_error_on_cell(
 			tmp_local_dof_indices_pu[i]
 			+ cell_time_index * scratch.dof_pu.n_dofs();
 
-	// assemble PU
+    // assemble PU
 	for (scratch.q=0; scratch.q < scratch.fe_values_pu.n_quadrature_points; ++scratch.q) {
 		scratch.JxW = scratch.fe_values_pu.JxW(scratch.q);
 

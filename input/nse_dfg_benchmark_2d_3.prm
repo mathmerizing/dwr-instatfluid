@@ -20,7 +20,7 @@ subsection Fluid Problem Specification
     set primal order = low # options: low, high
     
     # dual problem: convection-pressure : [z_b; z_p]^T
-    set dual order = high # options: low, high
+    set dual order = high # options: low, high, high-time
     
     # LOW order problem
     # convection
@@ -74,14 +74,14 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 1 #6
+    set global refinement = 0 #1 #6
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.4 #0.0015625
-    set global refinement = 1
+    set time step size = 0.8 #0.4 #0.0015625
+    set global refinement = 0 #1
     set maximum number of intervals per slab = 1
 end
 
@@ -103,12 +103,12 @@ subsection Newton
 end
 
 subsection DWR
-	set refine and coarsen spacetime strategy = global #adaptive #  # global_space #global_time #
+	set refine and coarsen spacetime strategy = global_space #adaptive #global #adaptive #  # global_space #global_time #
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 2
-    set replace linearization points = false
+    set solver control max iterations = 3 #2
+    set replace linearization points = true
     set replace weights = false
     
     ############################
@@ -163,18 +163,18 @@ end
 subsection Output Quantities
     ############################################################################
     # primal solution output control
-    set primal data output dwr loop = none #all         # use none, all, last or number
+    set primal data output dwr loop = all         # use none, all, last or number
     
     set primal data output trigger type = I_n   # I_n mode: one output per I_n
 #    set primal data output trigger type = fixed # fixed mode: fixed output trigger time
     set primal data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
     
     set primal data output patches auto mode = false # use < primal p > data output patches (auto mode)
-    set primal data output patches           = 2    # use this (no auto mode)
+    set primal data output patches           = 1#2    # use this (no auto mode)
     
     ############################################################################
     # dual solution output control
-    set dual data output dwr loop = none #all         # use none, all, last or number
+    set dual data output dwr loop = all         # use none, all, last or number
     
     set dual data output trigger type = I_n   # I_n mode: one output per I_n
 #    set dual data output trigger type = fixed # fixed mode: fixed output trigger time
@@ -185,7 +185,7 @@ subsection Output Quantities
     
     ############################################################################
     # error estimator solution output control
-    set error estimator data output dwr loop = none #all         # use none, all, last or number
+    set error estimator data output dwr loop = all         # use none, all, last or number
     
     set error estimator data output trigger type = I_n   # I_n mode: one output per I_n
 #    set error estimator data output trigger type = fixed # fixed mode: fixed output trigger time
