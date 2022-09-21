@@ -293,8 +293,8 @@ estimate_on_slab(
 	dual.locally_owned_dofs      = slab->space.dual.fe_info->locally_owned_dofs;
 	dual.locally_relevant_dofs   = slab->space.dual.fe_info->locally_relevant_dofs;
 
-	// INFO: replace_linearization_points and replace_weights are bing hard coded in the error estimator
-	//       They have a negligible impact on the effectivity index and hard coding them maskes the estimator more readable.
+	// INFO: replace_linearization_points and replace_weights are being hard coded in the error estimator
+	//       They have a negligible impact on the effectivity index and hard coding them makes the estimator more readable.
 
 	primal.um_on_tn = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
 
@@ -418,7 +418,7 @@ estimate_on_slab(
 	if (!dual_order.compare("high") || !dual_order.compare("high-time")) // dual = { [time = high, space = high], [time = high, space = low] }
 	{
 		// computation of z_kh^(1,2) from z_kh^(2,2)
-		get_back_interpolated_time_slab_w( // for mixed order
+		get_back_interpolated_time_slab_w( // for mixed order and semi-mixed order
 			slab,
 			slab->space.high.fe_info->dof,
 			high_z_slab,
@@ -443,18 +443,10 @@ estimate_on_slab(
 		mpi_comm
 	);
 
-	if (!dual_order.compare("high")) // dual = [time = high, space = high]
+	if (!dual_order.compare("high") || !dual_order.compare("high-time")) // dual = { [time = high, space = high], [time = high, space = low] }
 	{
 		// computation of z_kh^(2,1) from z_kh^(2,2)
-		get_back_interpolated_space_slab( // for mixed order
-			slab,
-			high_z_k_rho_h_slab,
-			high_z_kh_slab
-		);
-	}
-	else if (!dual_order.compare("high-time")) // dual = [time = high, space = low]
-	{
-		get_back_interpolated_space_slab( // for semi-mixed order
+		get_back_interpolated_space_slab( // for mixed order and semi-mixed order
 			slab,
 			high_z_k_rho_h_slab,
 			high_z_kh_slab
@@ -884,25 +876,6 @@ estimate_on_slab(
 			cell_time_JxW = fe_values_time.JxW(qt); // tau_n x w_q
 
 			function.viscosity->set_time(fe_values_time.quadrature_point(qt)[0]);
-
-			//////////////////////////////////////////
-			// DELETE: get the dual solution at t_q
-			//
-			auto dual_z_on_tq = std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
-			dual_z_on_tq->reinit(
-				*slab->space.dual.fe_info->locally_owned_dofs,
-				*slab->space.dual.fe_info->locally_relevant_dofs,
-				mpi_comm
-			);
-			get_w_t(
-				slab->time.dual.fe_info->fe,
-				slab->time.dual.fe_info->mapping,
-				slab->space.dual.fe_info->dof,
-				dual_cell_time,
-				z->x[0],
-				fe_values_time.quadrature_point(qt)[0],
-				dual_z_on_tq
-			);
 
 			////////////////////////////////////////////////////////
 			// Load u_kh, z, z_k and z_kh from space-time vectors
@@ -1576,8 +1549,8 @@ get_back_interpolated_space_slab(
 	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
 	{
 		// get slab_w_tq
-		for (auto i : *slab->space.low.fe_info->locally_owned_dofs)
-			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.low.fe_info->dof->n_dofs() * ii];
+		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
+			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii];
 		*slab_w_tq = *slab_w_tq_tmp;
 
 		// use back interpolation in space to go from slab_w_tq to high_slab_w_tq
