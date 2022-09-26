@@ -276,6 +276,44 @@ run() {
 			)
 		);
 	}
+	DTM::pout << std::endl << std::endl;
+
+	//give info about functional values
+	DTM::pout << "The following functional values will be calculated:" << std::endl;
+	if ( parameter_set->dwr.functional.mean_drag)
+		DTM::pout << "mean drag coefficient" << std::endl;
+
+	if ( parameter_set->dwr.functional.mean_lift)
+			DTM::pout << "mean lift coefficient" << std::endl;
+
+	if ( parameter_set->dwr.functional.mean_pdiff)
+			DTM::pout << "mean pressure difference" << std::endl;
+
+	if ( parameter_set->dwr.functional.mean_vorticity)
+			DTM::pout << "mean vorticity" << std::endl;
+
+	DTM::pout << "Refinement will be based on the ";
+	if ( !parameter_set->dwr.goal.type.compare("mean_drag")){
+		DTM::pout << "mean drag coefficient" << std::endl;
+		AssertThrow(parameter_set->dwr.functional.mean_drag,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
+	}
+
+	if ( !parameter_set->dwr.goal.type.compare("mean_lift")){
+		AssertThrow(false,dealii::ExcNotImplemented());
+		DTM::pout << "mean lift coefficient" << std::endl;
+		AssertThrow(parameter_set->dwr.functional.mean_lift,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
+	}
+
+	if ( !parameter_set->dwr.goal.type.compare("mean_pdiff")){
+		AssertThrow(false,dealii::ExcNotImplemented());
+		DTM::pout << "mean pressure difference" << std::endl;
+		AssertThrow(parameter_set->dwr.functional.mean_pdiff,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
+	}
+
+	if ( !parameter_set->dwr.goal.type.compare("mean_vorticity")){
+		DTM::pout << "mean vorticity" << std::endl;
+		AssertThrow(parameter_set->dwr.functional.mean_vorticity,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
+	}
 
 	// determine setw value for dwr loop number of data output filename
 	setw_value_dwr_loops = static_cast<unsigned int>(
@@ -373,17 +411,26 @@ run() {
 		//overwrite temp drag/lift/pressure logs and write headers
 		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
 			std::ofstream out;
-			out.open("pressure.log");
-			out << "time,pressure" << std::endl;
-			out.close();
-
-			out.open("drag.log");
-			out << "time,drag" << std::endl;
-			out.close();
-
-			out.open("lift.log");
-			out << "time,lift" << std::endl;
-			out.close();
+			if( parameter_set->dwr.functional.mean_pdiff){
+				out.open("pressure.log");
+				out << "time,pressure" << std::endl;
+				out.close();
+			}
+			if( parameter_set->dwr.functional.mean_drag){
+				out.open("drag.log");
+				out << "time,drag" << std::endl;
+				out.close();
+			}
+			if( parameter_set->dwr.functional.mean_lift){
+				out.open("lift.log");
+				out << "time,lift" << std::endl;
+				out.close();
+			}
+			if( parameter_set->dwr.functional.mean_vorticity){
+				out.open("vorticity.log");
+				out << "time,vorticity" << std::endl;
+				out.close();
+			}
 		}
 		
 		grid->set_boundary_indicators();
@@ -393,55 +440,68 @@ run() {
 		primal_init_data_output();
 		primal_do_forward_TMS(dwr_loop, false);
 
-		// dual problem
-		dual_reinit_storage();
-		dual_init_data_output();
-		{
-			// error indicators
-			eta_reinit_storage();
-			eta_init_data_output();
-		}
-		dual_do_backward_TMS(dwr_loop, false);
-		{
-			dual_sort_xdmf_by_time(dwr_loop);
-			eta_sort_xdmf_by_time(dwr_loop);
-		}
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
 
-		// error estimation
-		compute_effectivity_index();
+			if( parameter_set->dwr.functional.mean_pdiff){
+				std::ostringstream pfilename;
+				pfilename << "pressure" << dwr_loop << ".log";
+				std::rename("pressure.log",pfilename.str().c_str());
+			}
+
+			if( parameter_set->dwr.functional.mean_drag){
+				std::ostringstream dfilename;
+				dfilename << "drag" << dwr_loop << ".log";
+				std::rename("drag.log",dfilename.str().c_str());
+			}
+
+			if( parameter_set->dwr.functional.mean_lift){
+				std::ostringstream lfilename;
+				lfilename << "lift" << dwr_loop << ".log";
+				std::rename("lift.log",lfilename.str().c_str());
+			}
+
+			if( parameter_set->dwr.functional.mean_vorticity){
+				std::ostringstream lfilename;
+				lfilename << "vorticity" << dwr_loop << ".log";
+				std::rename("vorticity.log",lfilename.str().c_str());
+			}
+		}
+//		// dual problem
+//		dual_reinit_storage();
+//		dual_init_data_output();
+//		{
+//			// error indicators
+//			eta_reinit_storage();
+//			eta_init_data_output();
+//		}
+//		dual_do_backward_TMS(dwr_loop, false);
+//		{
+//			dual_sort_xdmf_by_time(dwr_loop);
+//			eta_sort_xdmf_by_time(dwr_loop);
+//		}
+//
+//		// error estimation
+//		compute_effectivity_index();
 
 		// compute the number of primal and dual space-time dofs
 		unsigned long int n_primal_st_dofs = 0;
-		unsigned long int n_dual_st_dofs   = 0;
+//		unsigned long int n_dual_st_dofs   = 0;
 
 		auto slab{grid->slabs.begin()};
 		auto ends{grid->slabs.end()};
 		for (; slab != ends; ++slab)
 		{
 			n_primal_st_dofs += slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs();
-			n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
+//			n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
 		}
 
 		DTM::pout << "\n#DoFs(primal; Space-Time) = " << n_primal_st_dofs
-				  << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs
+//				  << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs
 				  << std::endl;
 
 //		if (estimated_error < TOL_DWR)
 //			break;
 
-		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-			std::ostringstream pfilename;
-			pfilename << "pressure" << dwr_loop << ".log";
-			std::rename("pressure.log",pfilename.str().c_str());
-
-			std::ostringstream dfilename;
-			dfilename << "drag" << dwr_loop << ".log";
-			std::rename("drag.log",dfilename.str().c_str());
-
-			std::ostringstream lfilename;
-			lfilename << "lift" << dwr_loop << ".log";
-			std::rename("lift.log",lfilename.str().c_str());
-		}
 
 		++dwr_loop;
 	} while (dwr_loop <= max_dwr_loop);
@@ -561,6 +621,12 @@ init_reference_values() {
 
 	  error_estimator.goal_functional.reference.mean_lift
 		 = parameter_set->reference.navier_stokes.mean_lift;
+
+	  error_estimator.goal_functional.reference.mean_pdiff
+	    =  parameter_set->reference.navier_stokes.mean_pdiff;
+
+	error_estimator.goal_functional.reference.mean_vorticity
+		=  parameter_set->reference.navier_stokes.mean_vorticity;
 	}
 	else {
 		  error_estimator.goal_functional.reference.mean_drag
@@ -568,6 +634,12 @@ init_reference_values() {
 
 		  error_estimator.goal_functional.reference.mean_lift
 			 = parameter_set->reference.stokes.mean_lift;
+
+		  error_estimator.goal_functional.reference.mean_pdiff
+		   = parameter_set->reference.stokes.mean_pdiff;
+
+		  error_estimator.goal_functional.reference.mean_vorticity
+			 = parameter_set->reference.stokes.mean_vorticity;
 	}
 }
 template<int dim>
@@ -627,6 +699,13 @@ primal_reinit_storage() {
 	primal.storage.um->resize(
 		static_cast<unsigned int>(grid->slabs.size())
 	);
+
+	primal.storage.vorticity =
+			std::make_shared< DTM::types::storage_data_trilinos_vectors<1>> ();
+
+	primal.storage.vorticity->resize(
+			static_cast<unsigned int>(grid->slabs.size())
+	);
 }
 
 template<int dim>
@@ -665,6 +744,37 @@ primal_reinit_storage_on_slab(
 		xm->x[j]->reinit(
 			*slab->space.primal.fe_info->locally_owned_dofs,
 			*slab->space.primal.fe_info->locally_relevant_dofs,
+			mpi_comm
+		);
+	}
+}
+
+template<int dim>
+void
+Fluid<dim>::
+primal_reinit_vorticity_storage_on_slab(
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &v
+) {
+	for (unsigned int j{0}; j < v->x.size(); ++j) {
+		// x
+		v->x[j] = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+
+		Assert(slab != grid->slabs.end(), dealii::ExcInternalError());
+
+		Assert(
+			slab->space.vorticity.fe_info->dof.use_count(),
+			dealii::ExcNotInitialized()
+		);
+
+		Assert(
+			slab->time.vorticity.fe_info->dof.use_count(),
+			dealii::ExcNotInitialized()
+		);
+
+		v->x[j]->reinit(
+			*slab->spacetime.vorticity.locally_owned_dofs,
+			*slab->spacetime.vorticity.locally_relevant_dofs,
 			mpi_comm
 		);
 	}
@@ -1648,6 +1758,9 @@ primal_do_forward_TMS(
 	Assert(primal.storage.um->size(), dealii::ExcNotInitialized());
 	auto um = primal.storage.um->begin();
 
+	Assert(primal.storage.vorticity.use_count(), dealii::ExcNotInitialized());
+	Assert(primal.storage.vorticity->size(), dealii::ExcNotInitialized());
+	auto vort = primal.storage.vorticity->begin();
 	////////////////////////////////////////////////////////////////////////////
 	// interpolate (or project) initial value(s)
 	//
@@ -1684,6 +1797,26 @@ primal_do_forward_TMS(
 		else
 			AssertThrow(false, dealii::ExcNotImplemented());
 
+		if(parameter_set->dwr.functional.mean_vorticity){
+			grid->initialize_vorticity_grid_components_on_slab(slab);
+			grid->distribute_vorticity_on_slab(slab);
+
+			slab->spacetime.vorticity.locally_owned_dofs =
+				std::make_shared<dealii::IndexSet> (
+					idealii::SlabDoFTools::extract_locally_owned_dofs(
+						slab->space.vorticity.fe_info->dof,
+						slab->time.vorticity.fe_info->dof
+					)
+				);
+
+			slab->spacetime.vorticity.locally_relevant_dofs =
+				std::make_shared<dealii::IndexSet> (
+					idealii::SlabDoFTools::extract_locally_relevant_dofs(
+							slab->space.vorticity.fe_info->dof,
+							slab->time.vorticity.fe_info->dof
+					)
+				);
+		}
 
 		// primal dof partitioning
 		{
@@ -1746,6 +1879,9 @@ primal_do_forward_TMS(
 			grid->create_sparsity_pattern_primal_on_slab(slab,primal.L,primal.projection_matrix);
 		}
 		primal_reinit_storage_on_slab(slab, u, um);
+		if( parameter_set->dwr.functional.mean_vorticity){
+			primal_reinit_vorticity_storage_on_slab(slab, vort);
+		}
 
 		primal.um = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 		primal.um->reinit(*slab->space.primal.fe_info->locally_owned_dofs,mpi_comm);
@@ -1867,14 +2003,14 @@ primal_do_forward_TMS(
 			}
 		}
 
-		// output data
-		primal_do_data_output(slab, u, dwr_loop, last);
 
 		////////////////////////////////////////////////////////////////////////
 		// compute functional values:
 		//
-		compute_functional_values(u, slab);
-		
+		compute_functional_values(u,vort, slab);
+
+		// output data
+		primal_do_data_output(slab, u, vort,dwr_loop, last);
 		////////////////////////////////////////////////////////////////////////
 		// allow garbage collector to clean up memory
 		//
@@ -1894,6 +2030,7 @@ primal_do_forward_TMS(
 		++slab;
 		++u;
 		++um;
+		++vort;
 
 		DTM::pout << std::endl;
 	}
@@ -1907,31 +2044,56 @@ primal_do_forward_TMS(
 	////////////////////////////////////////////////////////////////////////////
 	// output exact error
 
-	// analytical mean drag
-	double reference_goal_functional = error_estimator.goal_functional.reference.mean_drag;
-	// FEM mean drag
-	double fem_goal_functional = error_estimator.goal_functional.fem.mean_drag;
+	double reference_goal_functional;
+	double fem_goal_functional;
 
-	DTM::pout << "---------------------------" << std::endl;
-	DTM::pout << "Mean drag:" << std::endl;
-	DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
-	DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
-	DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
-	DTM::pout << "---------------------------" << std::endl << std::endl;
+	if ( parameter_set->dwr.functional.mean_drag){
+		reference_goal_functional = error_estimator.goal_functional.reference.mean_drag;
+		fem_goal_functional = error_estimator.goal_functional.fem.mean_drag;
 
-	// analytical mean lift
-	reference_goal_functional = error_estimator.goal_functional.reference.mean_lift;
+		DTM::pout << "---------------------------" << std::endl;
+		DTM::pout << "Mean drag:" << std::endl;
+		DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
+		DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
+		DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
+		DTM::pout << "---------------------------" << std::endl << std::endl;
+	}
 
-	// FEM mean lift
-	fem_goal_functional = error_estimator.goal_functional.fem.mean_lift;
+	if ( parameter_set->dwr.functional.mean_lift){
+		reference_goal_functional = error_estimator.goal_functional.reference.mean_lift;
+		fem_goal_functional = error_estimator.goal_functional.fem.mean_lift;
 
-	DTM::pout << "---------------------------" << std::endl;
-	DTM::pout << "Mean lift:" << std::endl;
-	DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
-	DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
-	DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
-	DTM::pout << "---------------------------" << std::endl << std::endl;
+		DTM::pout << "---------------------------" << std::endl;
+		DTM::pout << "Mean lift:" << std::endl;
+		DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
+		DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
+		DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
+		DTM::pout << "---------------------------" << std::endl << std::endl;
+	}
 
+	if ( parameter_set->dwr.functional.mean_pdiff){
+		reference_goal_functional = error_estimator.goal_functional.reference.mean_pdiff;
+		fem_goal_functional = error_estimator.goal_functional.fem.mean_pdiff;
+
+		DTM::pout << "---------------------------" << std::endl;
+		DTM::pout << "Mean pressure difference:" << std::endl;
+		DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
+		DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
+		DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
+		DTM::pout << "---------------------------" << std::endl << std::endl;
+	}
+
+	if ( parameter_set->dwr.functional.mean_vorticity){
+		reference_goal_functional = error_estimator.goal_functional.reference.mean_vorticity;
+		fem_goal_functional = error_estimator.goal_functional.fem.mean_vorticity;
+
+		DTM::pout << "---------------------------" << std::endl;
+		DTM::pout << "Mean vorticity:" << std::endl;
+		DTM::pout << "	J(u)               = " << std::setprecision(16) << reference_goal_functional << std::endl;
+		DTM::pout << "	J(u_{kh})          = " << std::setprecision(16) << fem_goal_functional << std::endl;
+		DTM::pout << "	|J(u) - J(u_{kh})| = " << std::setprecision(16) << std::abs(reference_goal_functional - fem_goal_functional) << std::endl;
+		DTM::pout << "---------------------------" << std::endl << std::endl;
+	}
 	////////////////////////////////////////////////////////////////////////////
 	// allow garbage collector to clean up memory
 	//
@@ -1978,7 +2140,7 @@ primal_init_data_output() {
 	);
 	
 	////////////////////////////////////////////////////////////////////////////
-	// INIT DATA OUTPUT
+	// INIT PRIMAL DATA OUTPUT
 	//
 	
 	primal.data_output = std::make_shared< DTM::DataOutput<dim> >();
@@ -1986,6 +2148,7 @@ primal_init_data_output() {
 	std::vector<std::string> data_field_names;
 	for (unsigned int i{0}; i < dim; ++i)
 		data_field_names.push_back("convection");
+
 	data_field_names.push_back("pressure");
 	
 	primal.data_output->set_data_field_names(data_field_names);
@@ -2025,6 +2188,22 @@ primal_init_data_output() {
 	}
 	
 	primal.data_output_time_value = parameter_set->time.fluid.t0;
+
+	if(parameter_set->dwr.functional.mean_vorticity){
+		primal.vorticity_data_output = std::make_shared<DTM::DataOutput<dim>>();
+		std::vector<std::string> dfn;
+		dfn.push_back("vorticity");
+
+		primal.vorticity_data_output->set_data_field_names(dfn);
+		std::vector< dealii::DataComponentInterpretation::DataComponentInterpretation > dci;
+		dci.push_back(dealii::DataComponentInterpretation::component_is_scalar);
+		primal.vorticity_data_output->set_data_component_interpretation_field(dci);
+
+		primal.vorticity_data_output->set_data_output_patches(
+			parameter_set->data_output.primal.patches
+		);
+	}
+
 }
 
 
@@ -2190,13 +2369,21 @@ Fluid<dim>::
 primal_do_data_output_on_slab_Qn_mode(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &vort,
 	const unsigned int dwr_loop) {
 	// natural output of solutions on Q_n in their support points in time
 	Assert(slab->space.primal.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 
+
 	primal.data_output->set_DoF_data(
 		slab->space.primal.fe_info->dof
 	);
+
+	if(parameter_set->dwr.functional.mean_vorticity){
+		primal.vorticity_data_output->set_DoF_data(
+			slab->space.vorticity.fe_info->dof
+		);
+	}
 
 	auto u_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
  	u_trigger->reinit(
@@ -2209,9 +2396,30 @@ primal_do_data_output_on_slab_Qn_mode(
 			*slab->space.primal.fe_info->locally_owned_dofs,
 			mpi_comm);
 
+	auto vort_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector> ();
+	auto vort_tmp = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
+	if (parameter_set->dwr.functional.mean_vorticity){
+		vort_trigger->reinit(
+			*slab->space.vorticity.fe_info->locally_owned_dofs,
+			*slab->space.vorticity.fe_info->locally_relevant_dofs,
+			mpi_comm
+		);
+
+		vort_tmp->reinit(
+				*slab->space.vorticity.fe_info->locally_owned_dofs,
+				mpi_comm
+		);
+
+	}
+
 	std::ostringstream filename;
 	filename
 		<< "solution-dwr_loop-"
+		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
+
+	std::ostringstream vortname;
+	vortname
+		<< "vorticity-dwr_loop-"
 		<< std::setw(setw_value_dwr_loops) << std::setfill('0') << dwr_loop;
 
 	{
@@ -2301,6 +2509,35 @@ primal_do_data_output_on_slab_Qn_mode(
 //					primal.data_postprocessor,
 					fe_values_time.quadrature_point(qt)[0] // t_trigger
 				);
+
+ 				if(parameter_set->dwr.functional.mean_vorticity){
+ 					*vort_trigger = 0.;
+ 					*vort_tmp = 0.;
+
+ 	 				dealii::IndexSet::ElementIterator lri = slab->space.vorticity.fe_info->locally_owned_dofs->begin();
+ 	 				dealii::IndexSet::ElementIterator lre = slab->space.vorticity.fe_info->locally_owned_dofs->end();
+
+// 	 				vort->x[0]->print(std::cout);
+ 	 				for (; lri!= lre; lri++) {
+ 	 					for ( unsigned int jj{0}; jj < slab->time.primal.fe_info->fe->dofs_per_cell; jj++){
+ 	 						(*vort_tmp)[*lri] +=
+ 	 							(*vort->x[0])[*lri
+ 										   // time offset
+ 										   + slab->space.vorticity.fe_info->dof->n_dofs() *
+ 										   local_dof_indices_time[jj]
+ 										  ] * fe_values_time.shape_value(jj,qt);
+ 						}
+ 	 				}
+ 	 				vort_tmp->compress(dealii::VectorOperation::add);
+
+ 	 				*vort_trigger = *vort_tmp;
+
+ 	 				primal.vorticity_data_output->write_data(
+ 	 					vortname.str(),
+						vort_trigger,
+						fe_values_time.quadrature_point(qt)[0]
+ 	 				);
+ 				}
 			}
 		}
 	}
@@ -2313,6 +2550,7 @@ Fluid<dim>::
 primal_do_data_output(
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
+	const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &vort,
 	const unsigned int dwr_loop,
 	bool last
 ) {
@@ -2363,7 +2601,7 @@ primal_do_data_output(
 	
 	if (!primal.data_output_trigger_type_fixed) {
 		// I_n output mode (output on natural Q_n support points in time)
-		primal_do_data_output_on_slab_Qn_mode(slab, x, dwr_loop);
+		primal_do_data_output_on_slab_Qn_mode(slab, x, vort,dwr_loop);
 	}
 	else {
 		// fixed trigger output mode
@@ -3654,6 +3892,7 @@ void
 Fluid<dim>::
 compute_functional_values(
 		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &vort,
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 ) {
 	Assert(dim==2 || dim==3, dealii::ExcNotImplemented());
@@ -3672,12 +3911,30 @@ compute_functional_values(
 				   *slab->space.primal.fe_info->locally_relevant_dofs,
 				   mpi_comm);
 
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > vortn =
+				std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
 
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > vortn_rel =
+					std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+
+
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > vort_owned =
+				std::make_shared< dealii::TrilinosWrappers::MPI::Vector >();
+	if ( parameter_set->dwr.functional.mean_vorticity){
+		vortn->reinit(*slab->space.vorticity.fe_info->locally_owned_dofs,mpi_comm);
+
+		vortn_rel->reinit(*slab->space.vorticity.fe_info->locally_owned_dofs,
+					   *slab->space.vorticity.fe_info->locally_relevant_dofs,
+					   mpi_comm);
+
+		vort_owned->reinit(*slab->spacetime.vorticity.locally_owned_dofs,mpi_comm);
+	}
 	// create vectors with functional values at quadrature points
 	// format: (time, value)
 	std::vector< std::tuple< double, double > > pressure_values;
 	std::vector< std::tuple< double, double > > drag_values;
 	std::vector< std::tuple< double, double > > lift_values;
+	std::vector< std::tuple< double, double > > vorticity_values;
 
 	auto cell_time = slab->time.primal.fe_info->dof->begin_active();
 	auto endc_time = slab->time.primal.fe_info->dof->end();
@@ -3745,65 +4002,107 @@ compute_functional_values(
 			////////////////////////////////////
 			// compute functional values of un
 			////////////////////////////////////
-			// pressure
-			dealii::Point<dim> M;
 
-			if (dim==2) {
-				M[0] = 0.15;
-				M[1] = 0.20;
-			} else if (dim ==3) {
-				M[0] = 0.45;
-				M[1] = 0.20;
-				M[2] = 0.205;
+			double scaling = 1. / (parameter_set->time.fluid.T - parameter_set->time.fluid.t0);
+
+			if ( parameter_set->dwr.functional.mean_pdiff){
+				// pressure
+				dealii::Point<dim> M;
+
+				if (dim==2) {
+					M[0] = 0.15;
+					M[1] = 0.20;
+				} else if (dim ==3) {
+					M[0] = 0.45;
+					M[1] = 0.20;
+					M[2] = 0.205;
+				}
+
+
+				double pressure_front = compute_pressure(
+					M,
+					un_rel,
+					slab
+				); // pressure - left  point on circle
+
+
+				if (dim==2) {
+					M[0] = 0.25;
+					M[1] = 0.20;
+				} else if (dim == 3){
+					M[0] = 0.55;
+					M[1] = 0.20;
+					M[2] = 0.205;
+				}
+
+				double pressure_back = compute_pressure(
+					M,
+					un_rel,
+					slab
+				); // pressure - right point on circle
+
+				// save pressure difference to the vector pressure_values
+				double pressure_diff = pressure_front - pressure_back;
+				pressure_values.push_back(std::make_tuple(tn, pressure_diff));
+				error_estimator.goal_functional.fem.mean_pdiff += scaling * pressure_diff * fe_values_time.JxW(ii);
 			}
-
-			double pressure_front = compute_pressure(
-				M,
-				un_rel,
-				slab
-			); // pressure - left  point on circle
-
-
-			if (dim==2) {
-				M[0] = 0.25;
-				M[1] = 0.20;
-			} else if (dim == 3){
-				M[0] = 0.55;
-				M[1] = 0.20;
-				M[2] = 0.205;
-			}
-
-			double pressure_back = compute_pressure(
-				M,
-				un_rel,
-				slab
-			); // pressure - right point on circle
-
-			// save pressure difference to the vector pressure_values
-			double pressure_diff = pressure_front - pressure_back;
-			pressure_values.push_back(std::make_tuple(tn, pressure_diff));
-
 			////////////////////////////////////
 			// drag and lift
+			if (parameter_set->dwr.functional.mean_drag || parameter_set->dwr.functional.mean_lift){
+				// Compute drag and lift via line integral
+				dealii::Tensor<1, dim> drag_lift_value;
+				compute_drag_lift_tensor(
+					un_rel,
+					slab,
+					drag_lift_value
+				);
+				if ( parameter_set->dwr.functional.mean_drag){
+					drag_values.push_back(std::make_tuple(tn, drag_lift_value[0]));
+					error_estimator.goal_functional.fem.mean_drag += scaling * drag_lift_value[0] * fe_values_time.JxW(ii);
+				}
+				if ( parameter_set->dwr.functional.mean_lift){
+					lift_values.push_back(std::make_tuple(tn, drag_lift_value[1]));
+					error_estimator.goal_functional.fem.mean_lift += scaling * drag_lift_value[1] * fe_values_time.JxW(ii);
+				}
+			}
 
-			// Compute drag and lift via line integral
-			dealii::Tensor<1, dim> drag_lift_value;
-			compute_drag_lift_tensor(
-				un_rel,
-				slab,
-				drag_lift_value
-			);
-			drag_values.push_back(std::make_tuple(tn, drag_lift_value[0]));
-			lift_values.push_back(std::make_tuple(tn, drag_lift_value[1]));
+			if (parameter_set->dwr.functional.mean_vorticity) {
+				//Compute vorticity
+				compute_vorticity(un_rel, slab, vortn);
+//				std::cout << ii << " vorticity vector" << std::endl;
+//				vortn->print(std::cout);
+				//Compute L2 Norm
+//				*vortn_rel = *vortn;
+				double mean_vort = vortn->l2_norm();
+				mean_vort=std::pow(mean_vort,2);
+				vorticity_values.push_back(std::make_tuple(tn, mean_vort));
+				error_estimator.goal_functional.fem.mean_vorticity += scaling * mean_vort * fe_values_time.JxW(ii);
+				//Save result to storage for output
+				dealii::IndexSet::ElementIterator lri = slab->space.vorticity.fe_info->locally_owned_dofs->begin();
+				dealii::IndexSet::ElementIterator lre = slab->space.vorticity.fe_info->locally_owned_dofs->end();
+				for (; lri != lre ;lri++)
+				{
 
-			// update space-time goal functionals
-			double scaling = 1. / (parameter_set->time.fluid.T - parameter_set->time.fluid.t0);
-			error_estimator.goal_functional.fem.mean_drag += scaling * drag_lift_value[0] * fe_values_time.JxW(ii);
-			error_estimator.goal_functional.fem.mean_lift += scaling * drag_lift_value[1] * fe_values_time.JxW(ii);
-		}
+					(*vort_owned)[
+					  *lri
+					  //time offset
+					  + slab->space.vorticity.fe_info->dof->n_dofs() *
+					  	  (cell_time->index() * slab->time.vorticity.fe_info->fe->dofs_per_cell)
+					  // local in time dof
+					  + slab->space.vorticity.fe_info->dof->n_dofs() * ii
+					  ] = (*vortn)[*lri];
+				}
+			}
+		} //time dofs
 	}
 
+//	vort_owned->print(std::cout);
+	if ( parameter_set->dwr.functional.mean_vorticity){
+		*vort->x[0] = *vort_owned;
+	}
 
+//	std::cout << std::endl << std::endl;
+//	vort->x[0]->print(std::cout);
 	//////////////////////////////////////////////////////
 	// output goal functionals
 
@@ -3812,70 +4111,103 @@ compute_functional_values(
 			<< std::endl;
 
 	// pressure
-	DTM::pout << "Pressure difference:" << std::endl;
-	std::ofstream p_out;
-	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-		// append instead pressure difference to text file (ios_base::app):
-		p_out.open("pressure.log", std::ios_base::app);
-	}
-	for (auto &item : pressure_values)
-	{
-		DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
-		DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
-
-		// save to txt file
+	if(parameter_set->dwr.functional.mean_pdiff){
+		DTM::pout << "Pressure difference:" << std::endl;
+		std::ofstream p_out;
 		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-			p_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			// append instead pressure difference to text file (ios_base::app):
+			p_out.open("pressure.log", std::ios_base::app);
 		}
-	}
+		for (auto &item : pressure_values)
+		{
+			DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
+			DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
 
-	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-	p_out.close();
+			// save to txt file
+			if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+				p_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			}
+		}
+
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			p_out.close();
+		}
 	}
 	// drag
-	DTM::pout << "Face drag:" << std::endl;
 
-	std::ofstream d_out;
+	if(parameter_set->dwr.functional.mean_drag){
+		DTM::pout << "Face drag:" << std::endl;
 
-	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-		d_out.open("drag.log", std::ios_base::app);
-	}
-	for (auto &item : drag_values)
-	{
-		DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
-		DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
+
+		std::ofstream d_out;
 
 		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-		// save to txt file
-			d_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			d_out.open("drag.log", std::ios_base::app);
 		}
-	}
+		for (auto &item : drag_values)
+		{
+			DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
+			DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
 
-	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-		d_out.close();
-	}
-
-	// lift
-	DTM::pout << "Face lift:" << std::endl;
-
-	std::ofstream l_out;
-	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-		l_out.open("lift.log", std::ios_base::app);
-	}
-
-	for (auto &item : lift_values)
-	{
-		DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
-		DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
-
-		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
 			// save to txt file
-			l_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+				d_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			}
+		}
+
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			d_out.close();
 		}
 	}
+	// lift
 
-	if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
-		l_out.close();
+	if(parameter_set->dwr.functional.mean_lift){
+		DTM::pout << "Face lift:" << std::endl;
+
+		std::ofstream l_out;
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			l_out.open("lift.log", std::ios_base::app);
+		}
+
+		for (auto &item : lift_values)
+		{
+			DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
+			DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
+
+			if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+				// save to txt file
+				l_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			}
+		}
+
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			l_out.close();
+		}
+	}
+	// vorticity
+
+	if(parameter_set->dwr.functional.mean_vorticity){
+		DTM::pout << "Vorticity:" << std::endl;
+
+		std::ofstream l_out;
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			l_out.open("vorticity.log", std::ios_base::app);
+		}
+
+		for (auto &item : vorticity_values)
+		{
+			DTM::pout << "	" << std::setw(14) << std::setprecision(8) << std::get<0>(item);
+			DTM::pout << ":    " << std::setprecision(16) << std::get<1>(item) << std::endl;
+
+			if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+				// save to txt file
+				l_out << std::get<0>(item) << "," << std::get<1>(item) << std::endl;
+			}
+		}
+
+		if ( dealii::Utilities::MPI::this_mpi_process(mpi_comm) == 0){
+			l_out.close();
+		}
 	}
 }
 
@@ -4014,7 +4346,58 @@ compute_drag_lift_tensor(
 			drag_lift_value *= 20.0/0.41; // 3D-3
 	}
 }
+template<int dim>
+void
+Fluid<dim>::
+compute_vorticity(
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > vortn
+) {
+	const dealii::QGaussLobatto<dim> quadrature_formula(
+		slab->space.vorticity.fe_info->fe->tensor_degree()+1
+	);
 
+	dealii::FEValues<dim> fe_values_primal(*slab->space.primal.fe_info->fe,quadrature_formula,
+									dealii::update_values | dealii::update_gradients | dealii::update_JxW_values
+									| dealii::update_quadrature_points
+	);
+
+	dealii::FEValues<dim> fe_values_vort(*slab->space.vorticity.fe_info->fe,quadrature_formula, dealii::update_values |
+											dealii::update_quadrature_points);
+	dealii::IndexSet loe = vortn->locally_owned_elements();
+
+	const unsigned int dofs_per_cell = slab->space.vorticity.fe_info->fe->dofs_per_cell;
+	const unsigned int n_q_points = quadrature_formula.size();
+	std::vector<unsigned int> local_dof_indices(dofs_per_cell);
+
+	std::vector<std::vector<dealii::Tensor<1,dim>>> solution_grads(
+		n_q_points, std::vector<dealii::Tensor<1,dim>>(dim+1)
+	);
+
+
+	typename dealii::DoFHandler<dim>::active_cell_iterator
+	  cell_primal = slab->space.primal.fe_info->dof->begin_active(),
+	  endc = slab->space.primal.fe_info->dof->end(),
+	  cell_vort   = slab->space.vorticity.fe_info->dof->begin_active();
+
+	for ( ; cell_primal != endc; ++cell_primal, ++cell_vort)
+		if (cell_primal->is_locally_owned())
+		{
+			fe_values_primal.reinit(cell_primal);
+			fe_values_vort.reinit(cell_vort);
+			fe_values_primal.get_function_gradients(*un,solution_grads);
+			cell_vort->get_dof_indices(local_dof_indices);
+			for (unsigned int k = 0 ; k < dofs_per_cell ; k++){
+				unsigned int dof_ind = local_dof_indices[k];
+				if (loe.is_element(dof_ind)){
+					for ( unsigned int q = 0 ; q < n_q_points; q++){
+						(*vortn)[dof_ind] += (solution_grads[q][1][0]-solution_grads[q][0][1])*fe_values_vort.shape_value(k,q);
+					}
+				}
+			}
+		}
+}
 ////////////////////////////////////////////////////////////////////////////////
 // error estimation and space-time grid adaption
 //

@@ -100,6 +100,9 @@ struct s_slab {
 			std::shared_ptr< dealii::SparsityPattern > sp_L;
  		} dual;
 
+ 		struct{
+ 			std::shared_ptr< struct ScalarFESpaceInfo > fe_info = std::make_shared< struct ScalarFESpaceInfo>();
+ 		} vorticity;
  		struct {
  			std::shared_ptr< struct FESpaceInfo > fe_info = std::make_shared< struct FESpaceInfo >();
  		} high;
@@ -132,6 +135,10 @@ struct s_slab {
 		struct {
 			std::shared_ptr<struct FETimeInfo > fe_info;
 		} dual;
+
+		struct {
+			std::shared_ptr<struct FETimeInfo > fe_info = std::make_shared< struct FETimeInfo >();
+		} vorticity;
 
 		struct {
 			std::shared_ptr<struct FETimeInfo > fe_info = std::make_shared< struct FETimeInfo >();
@@ -171,6 +178,12 @@ struct s_slab {
  			std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
  			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
  		} pu;
+
+ 		struct {
+ 	 			std::shared_ptr< dealii::IndexSet > locally_owned_dofs;
+ 	 			std::shared_ptr< dealii::IndexSet > locally_relevant_dofs;
+ 	 			std::shared_ptr< dealii::AffineConstraints<double> > constraints;
+		} vorticity;
 	} spacetime;
 	
 	double t_m; ///< left endpoint of \f$ I_n=(t_m, t_n) \f$

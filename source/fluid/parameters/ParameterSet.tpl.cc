@@ -39,6 +39,7 @@
 
 // DEAL.II includes
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/mpi.h>
 
 // C++ includes
 #include <limits>
@@ -241,8 +242,12 @@ ParameterSet(
 	handler->enter_subsection("Reference Values");
 		reference.stokes.mean_drag = handler->get_double("mean drag stokes");
 		reference.stokes.mean_lift = handler->get_double("mean lift stokes");
+		reference.stokes.mean_pdiff = handler->get_double("mean pressure difference stokes");
+		reference.stokes.mean_vorticity = handler->get_double("mean vorticity stokes");
 		reference.navier_stokes.mean_drag = handler->get_double("mean drag navier-stokes");
 		reference.navier_stokes.mean_lift = handler->get_double("mean lift navier-stokes");
+		reference.navier_stokes.mean_pdiff = handler->get_double("mean pressure difference navier-stokes");
+		reference.navier_stokes.mean_vorticity = handler->get_double("mean vorticity navier-stokes");
 	handler->leave_subsection();
 	
 	handler->enter_subsection("Newton");{
@@ -255,6 +260,49 @@ ParameterSet(
 	handler->leave_subsection();
 
 	handler->enter_subsection("DWR"); {
+
+		{
+			std::string argument;
+			std::vector< std::string> functionals;
+			for (auto &character : handler->get("calculate functionals")){
+				if(!std::isspace(character) && (character!='\"') ){
+					argument += character;
+				}
+				else {
+					if (argument.size()){
+						functionals.push_back(argument);
+						argument.clear();
+					}
+				}
+			}
+			if (argument.size()){
+				functionals.push_back(argument);
+				argument.clear();
+			}
+			AssertThrow(functionals.size(),dealii::ExcMessage("You did not provide any functionals to compute, aborting!"));
+
+		    for (std::string functional : functionals){
+		    	if ( !functional.compare("mean_drag")){
+		    		dwr.functional.mean_drag = true;
+		    		continue;
+		    	}
+		    	if ( !functional.compare("mean_lift")){
+		    		dwr.functional.mean_lift = true;
+		    		continue;
+		    	}
+		    	if ( !functional.compare("mean_vorticity")){
+		    		dwr.functional.mean_vorticity = true;
+		    		continue;
+		    	}
+		    	if ( !functional.compare("mean_pdiff")){
+		    		dwr.functional.mean_pdiff =true;
+		    		continue;
+		    	}
+		    }
+
+		}
+
+
 		dwr.goal.type = handler->get("goal type");
 		dwr.goal.weight_function = handler->get("goal weight function");
 		dwr.goal.weight_options = handler->get("goal weight options");

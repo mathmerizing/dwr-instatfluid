@@ -73,6 +73,7 @@ public:
 	virtual void initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void initialize_pu_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void initialize_vorticity_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	
 
 	virtual bool split_slab_in_time(
@@ -98,6 +99,7 @@ public:
 	virtual void distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 	virtual void distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
+	virtual void distribute_vorticity_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab);
 
 	virtual void interpolate_dirichlet_bc(std::shared_ptr<dealii::DoFHandler<dim>> dof,
 			                              std::shared_ptr<dealii::AffineConstraints<double>> constraints,

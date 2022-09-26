@@ -76,13 +76,13 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 1 #6
+    set global refinement = 0 #6
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
     set final time     = 8.0
-    set time step size = 0.2 #0.0015625
+    set time step size = 1.0 #0.0015625
     set global refinement = 0
     set maximum number of intervals per slab = 1
 end
@@ -96,7 +96,7 @@ subsection Reference Values
 end
 
 subsection Newton
-    set max steps = 60
+    set max steps = 20
     set lower bound = 1.0e-10
     set rebuild parameter = 0.1
     set line search steps = 10
@@ -104,28 +104,31 @@ subsection Newton
 end
 
 subsection DWR
-	set refine and coarsen spacetime strategy = global #adaptive #  # global_space #global_time #
+	set calculate functionals = mean_drag mean_lift mean_pdiff
+	set refine and coarsen spacetime strategy = adaptive #global #  # global_space #global_time #
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 4
+    set solver control max iterations = 6
     set replace linearization points = false
     set replace weights = false
     
     ############################
     # for ADAPTIVE refinement: #
     ############################
+    set goal_type = mean_drag
+    
     # space strategy: global, fixed_number, fixed_fraction or RichterWick
-    set refine and coarsen space strategy = fixed_number # RichterWick #
-    set refine and coarsen space top fraction1 = 0.3
-    set refine and coarsen space top fraction2 = 0.3
+    set refine and coarsen space strategy = fixed_fraction # RichterWick #
+    set refine and coarsen space top fraction1 = 0.15
+    set refine and coarsen space top fraction2 = 0.15
     set refine and coarsen space bottom fraction = 0.0
     set refine and coarsen space max growth factor n_active_cells = 4
     set refine and coarsen space riwi alpha = 1.1
     
     # time strategy: global, fixed_number or fixed_fraction
     set refine and coarsen time strategy = fixed_number 
-    set refine and coarsen time top fraction = 0.75
+    set refine and coarsen time top fraction = 0.7
 end
 
 subsection Parameter Specification

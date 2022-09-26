@@ -139,6 +139,8 @@ protected:
 			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > u;
 			/// primal solution dof list at beginning of slab
 			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > um;
+			/// primal vorticity
+			std::shared_ptr< DTM::types::storage_data_trilinos_vectors<1> > vorticity;
 		} storage;
 		
 		/// temporary storage for primal solution u at \f$ t_m \f$
@@ -176,6 +178,7 @@ protected:
 		// Data Output
 		std::shared_ptr< fluid::DataPostprocessor<dim> > data_postprocessor;
 		std::shared_ptr< DTM::DataOutput<dim> > data_output;
+		std::shared_ptr< DTM::DataOutput<dim> > vorticity_data_output;
 		int    data_output_dwr_loop;
 		double data_output_time_value;
 		double data_output_trigger;
@@ -189,6 +192,11 @@ protected:
 			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &xm
 	);
 	
+	virtual void primal_reinit_vorticity_storage_on_slab(
+			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &v
+	);
+
 	virtual void primal_assemble_system(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
@@ -244,12 +252,14 @@ protected:
 	virtual void primal_do_data_output_on_slab_Qn_mode(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &vort,
 		const unsigned int dwr_loop
 	);
 	
 	virtual void primal_do_data_output(
 		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &x,
+		const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &vort,
 		const unsigned int dwr_loop,
 		bool last
 	);
@@ -353,6 +363,7 @@ protected:
 
 	virtual void compute_functional_values(
 			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &u,
+			const typename DTM::types::storage_data_trilinos_vectors<1>::iterator &vort,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
 	);
 
@@ -367,6 +378,13 @@ protected:
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 			dealii::Tensor<1, dim> &drag_lift_value
 	);
+
+	virtual void compute_vorticity(
+			std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
+			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+			std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > vorticity
+	);
+
 
 	////////////////////////////////////////////////////////////////////////////
 	// error estimation and space-time grid adaption
@@ -397,12 +415,16 @@ protected:
 			struct {
 				double mean_drag;
 				double mean_lift;
+				double mean_pdiff;
+				double mean_vorticity;
 			} reference;
 
 			// J(u_{kh}) = ...
 			struct {
 				double mean_drag;
 				double mean_lift;
+				double mean_pdiff;
+				double mean_vorticity;
 			} fem;
 
 			// for debugging: J(u_{kh}) = ...

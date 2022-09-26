@@ -128,6 +128,17 @@ Grid<dim>::
 			slab->space.pu.fe_info->dof->clear();
 			slab->time.pu.fe_info->dof->clear();
 		}
+
+		if (parameter_set->dwr.functional.mean_vorticity){
+			if ( slab->space.vorticity.fe_info->dof.use_count() > 0 ||
+			     slab->time.vorticity.fe_info->dof.use_count() > 0){
+				Assert(slab->space.vorticity.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+				Assert(slab->time.vorticity.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+
+				slab->space.vorticity.fe_info->dof->clear();
+				slab->time.vorticity.fe_info->dof->clear();
+			}
+		}
 	}
 }
 
@@ -789,6 +800,130 @@ initialize_pu_grid_components_on_slab(const typename fluid::types::spacetime::dw
 }
 
 template<int dim>
+void
+Grid<dim>::
+initialize_vorticity_grid_components_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+	Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
+
+	////////////////////////////////////////////////////////////////////////
+	// space
+
+	/////////////////////////
+	// pu grid components
+	//
+	Assert(slab->space.tria.use_count(), dealii::ExcNotInitialized());
+	slab->space.vorticity.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
+		*slab->space.tria
+	);
+
+	// FE configuration parameters for PU:
+	// cG(1) in space
+
+	// create pu fe system
+	{
+		DTM::pout << "WARNING: vorticity so far only uses low order!" << std::endl;
+		std::shared_ptr< dealii::Quadrature<1> > fe_quad;
+		if ( !(parameter_set->
+					fe.low.convection.space_type_support_points
+					.compare("Gauss-Lobatto")) ) {
+
+					fe_quad = std::make_shared< dealii::QGaussLobatto<1> > (
+						(parameter_set->fe.low.convection.p + 1)
+					);
+
+					DTM::pout
+						<< "FE: (low) convection b: "
+						<< "created QGaussLobatto<1> quadrature"
+						<< std::endl;
+				}
+
+		// create FE
+		slab->space.vorticity.fe_info->fe = std::make_shared<dealii::FE_Q<dim>> (
+			*fe_quad
+		);
+
+		DTM::pout
+			<< "FE: (vorticity) created "
+			<< slab->space.vorticity.fe_info->fe->get_name()
+			<< std::endl;
+	}
+
+//	slab->space.vorticity.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+
+	slab->space.vorticity.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (1);
+
+	////////////////////////////////////////////////////////////////////////
+	// time
+
+	/////////////////////////
+	// vorticity grid components
+	//
+	Assert(slab->time.tria.use_count(), dealii::ExcNotInitialized());
+	slab->time.vorticity.fe_info->dof = std::make_shared< dealii::DoFHandler<1> > (
+		*slab->time.tria
+	);
+
+	// FE configuration parameters for PU:
+	// dG(0) in time
+
+	// create vorticity fe system (time)
+	{
+		// create fe quadratures for support points
+		std::shared_ptr< dealii::Quadrature<1> > fe_quad_time_vorticity;
+		{
+			if ( !(parameter_set->
+				fe.low.convection.time_type_support_points
+				.compare("Gauss")) ) {
+
+				fe_quad_time_vorticity =
+				std::make_shared< dealii::QGauss<1> > (
+					(parameter_set->fe.low.convection.r + 1)
+				);
+
+					DTM::pout
+						<< "FE time: (low) convection b: "
+						<< "created QGauss<1> quadrature"
+						<< std::endl;
+			} else if ( !(parameter_set->
+					fe.low.convection.time_type_support_points
+					.compare("Gauss-Lobatto")) ){
+
+				if (parameter_set->fe.low.convection.r < 1){
+					fe_quad_time_vorticity =
+							std::make_shared< QRightBox<1> > ();
+						DTM::pout
+							<< "FE time: (low) convection b: "
+							<< "created QRightBox quadrature"
+							<< std::endl;
+				} else {
+					fe_quad_time_vorticity =
+							std::make_shared< dealii::QGaussLobatto<1> > (
+									(parameter_set->fe.low.convection.r + 1)
+							);
+
+					DTM::pout
+					<< "FE time: (low) convection b: "
+					<< "created QGaussLobatto<1> quadrature"
+					<< std::endl;
+				}
+			}
+		}
+
+
+		// create FE time
+		{
+			slab->time.vorticity.fe_info->fe =
+			std::make_shared< dealii::FE_DGQArbitraryNodes<1> > (
+				*fe_quad_time_vorticity
+			);
+		}
+
+	}
+
+	slab->time.vorticity.fe_info->mapping = std::make_shared< dealii::MappingQ<1> > (1);
+}
+
+template<int dim>
 bool
 Grid<dim>::
 split_slab_in_time(
@@ -1372,6 +1507,62 @@ distribute_pu_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::i
 }
 
 
+template<int dim>
+void
+Grid<dim>::
+distribute_vorticity_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+	////////////////////////////////////////////////////////////////////////
+	// space
+	// distribute pu dofs and create constraints
+	{
+		Assert(slab->space.vorticity.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+		Assert(slab->space.vorticity.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+		slab->space.vorticity.fe_info->dof->distribute_dofs(*(slab->space.vorticity.fe_info->fe));
+
+		DTM::pout << "\tn_dofs (vorticity)         = "
+			<< slab->space.vorticity.fe_info->dof->n_dofs()
+			<< std::endl;
+
+		// create dof partitionings
+
+		// dof partitioning
+		slab->space.vorticity.fe_info->locally_owned_dofs =
+			std::make_shared< dealii::IndexSet > (slab->space.vorticity.fe_info->dof->locally_owned_dofs());
+
+		slab->space.vorticity.fe_info->locally_relevant_dofs =
+			std::make_shared< dealii::IndexSet > ();
+
+		dealii::DoFTools::extract_locally_relevant_dofs(*slab->space.vorticity.fe_info->dof,
+				*slab->space.vorticity.fe_info->locally_relevant_dofs);
+
+//		// setup constraints (e.g. hanging nodes)
+//		Assert(
+//			slab->space.vorticity.fe_info->constraints.use_count(),
+//			dealii::ExcNotInitialized()
+//		);
+//		{
+//			slab->space.vorticity.fe_info->constraints->clear();
+//			slab->space.vorticity.fe_info->constraints->reinit(*slab->space.pu.fe_info->locally_relevant_dofs);
+//
+//			Assert(slab->space.vorticity.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+//			dealii::DoFTools::make_hanging_node_constraints(
+//				*slab->space.vorticity.fe_info->dof,
+//				*slab->space.vorticity.fe_info->constraints
+//			);
+//
+//			slab->space.vorticity.fe_info->constraints->close();
+//		}
+	}
+
+	////////////////////////////////////////////////////////////////////////
+	// time
+	// distribute vorticity dofs
+	{
+		Assert(slab->time.vorticity.fe_info->dof.use_count(), dealii::ExcNotInitialized());
+		Assert(slab->time.vorticity.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+		slab->time.vorticity.fe_info->dof->distribute_dofs(*(slab->time.vorticity.fe_info->fe));
+	}
+}
 template<int dim>
 void
 Grid<dim>::

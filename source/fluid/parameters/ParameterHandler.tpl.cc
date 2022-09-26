@@ -343,12 +343,32 @@ ParameterHandler() {
 			dealii::Patterns::Double()
 		);
 		declare_entry(
+			"mean pressure difference stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
+			"mean vorticity stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
 			"mean drag navier-stokes",
 			"0.",
 			dealii::Patterns::Double()
 		);
 		declare_entry(
 			"mean lift navier-stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
+			"mean pressure difference navier-stokes",
+			"0.",
+			dealii::Patterns::Double()
+		);
+		declare_entry(
+			"mean vorticity navier-stokes",
 			"0.",
 			dealii::Patterns::Double()
 		);
@@ -388,6 +408,13 @@ ParameterHandler() {
 
 	
 	enter_subsection("DWR"); {
+		declare_entry(
+			"calculate functionals",
+			"",
+			dealii::Patterns::Anything()
+		);
+
+
 		declare_entry(
 			"goal type",
 			"mean_drag",

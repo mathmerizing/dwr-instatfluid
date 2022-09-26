@@ -2,30 +2,61 @@
 
 # Overall space dimension:
 set dim = 2
+set problem = Navier-Stokes
 
 subsection Fluid Problem Specification
     # Finite Elements in space-time
     
-    # primal problem: convection-pressure : [b; p]^T
-    # convection
-    set primal convection space type = cG
-    set primal convection p = 2
-    set primal convection space type support points = Gauss-Lobatto
+    # Use symmetric stress tensor?
+    set symmetric stress = false
     
-    set primal convection time type = dG
-    set primal convection r = 0
-    set primal convection time type support points = Gauss
+    # Which projection? none, H1 or L2
+    set primal projection type = none
+    set dual projection type = none #not implmented yet!!
+        
+    # primal problem: convection-pressure : [b; p]^T
+    set primal order = low # options: low, high
+    
+    # dual problem: convection-pressure : [z_b; z_p]^T
+    set dual order = high # options: low, high, high-time
+    
+    # LOW order problem
+    # convection
+    set low convection space type = cG
+    set low convection p = 2
+    set low convection space type support points = Gauss-Lobatto
+    
+    set low convection time type = dG
+    set low convection r = 1
+    set low convection time type support points = Gauss
 
     # pressure
-    set primal pressure space type = cG
-    set primal pressure p = 1
-    set primal pressure space type support points = Gauss-Lobatto
+    set low pressure space type = cG
+    set low pressure p = 1
+    set low pressure space type support points = Gauss-Lobatto
     
-    set primal pressure time type = dG
-    set primal pressure r = 0
-    set primal pressure time type support points = Gauss
+    set low pressure time type = dG
+    set low pressure r = 1
+    set low pressure time type support points = Gauss
     
-    # dual problem
+    # HIGH order problem
+    # convection
+    set high convection space type = cG
+    set high convection p = 4
+    set high convection space type support points = Gauss-Lobatto
+    
+    set high convection time type = dG
+    set high convection r = 2
+    set high convection time type support points = Gauss
+
+    # pressure
+    set high pressure space type = cG
+    set high pressure p = 2
+    set high pressure space type support points = Gauss-Lobatto
+    
+    set high pressure time type = dG
+    set high pressure r = 2
+    set high pressure time type support points = Gauss
 end
 
 subsection Mesh Specification
@@ -47,16 +78,51 @@ subsection Fluid Mesh Specification
 end
 
 subsection Fluid Time Integration
-    set initial time   = 0.50
-    set final time     = 1.50
-    set time step size = 1.00
+    set initial time   = 0.00
+    set final time     = 8.0
+    set time step size = 0.8
     set global refinement = 0
+    set maximum number of intervals per slab = 1
+end
+
+subsection Reference Values
+  set mean vorticity stokes = 0.
+  set mean vorticity navier-stokes = 0.
+end
+subsection Newton
+    set max steps = 60
+    set lower bound = 1.0e-10
+    set rebuild parameter = 0.1
+    set line search steps = 10
+    set line search damping = 0.6
 end
 
 subsection DWR
+	set calculate functionals = mean_vorticity
+    set refine and coarsen spacetime strategy = global #global_space #adaptive #adaptive #  # global_space #global_time #
+	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 1
+    set solver control max iterations = 3 #3
+    set replace linearization points = true
+    set replace weights = false
+    
+    ############################
+    # for ADAPTIVE refinement: #
+    ############################
+    set goal type = mean_vorticity
+    
+    # space strategy: global, fixed_number, fixed_fraction or RichterWick
+    set refine and coarsen space strategy = fixed_number # RichterWick #
+    set refine and coarsen space top fraction1 = 0.3
+    set refine and coarsen space top fraction2 = 0.3
+    set refine and coarsen space bottom fraction = 0.0
+    set refine and coarsen space max growth factor n_active_cells = 4
+    set refine and coarsen space riwi alpha = 1.1
+    
+    # time strategy: global, fixed_number or fixed_fraction
+    set refine and coarsen time strategy = fixed_number 
+    set refine and coarsen time top fraction = 0.75
 end
 
 subsection Parameter Specification
@@ -81,9 +147,9 @@ subsection Parameter Specification
     
     ############################################################################
     # Boundary value function
-    set convection dirichlet boundary function = Convection_Parabolic_Inflow_1
+    set convection dirichlet boundary function = Convection_Parabolic_Inflow_3
     #                                             scaling profile
-    set convection dirichlet boundary options  = "10.0"
+    set convection dirichlet boundary options  = "20.0"
     
     set convection neumann boundary function = ZeroTensorFunction
     set convection neumann boundary options  = ""
@@ -100,10 +166,29 @@ subsection Output Quantities
 #    set primal data output trigger type = fixed # fixed mode: fixed output trigger time
     set primal data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
     
-    set primal data output patches auto mode = true # use < primal p > data output patches (auto mode)
+    set primal data output patches auto mode = false # use < primal p > data output patches (auto mode)
     set primal data output patches           = 1    # use this (no auto mode)
     
     ############################################################################
     # dual solution output control
+    set dual data output dwr loop = none #all         # use none, all, last or number
+    
+    set dual data output trigger type = I_n   # I_n mode: one output per I_n
+#    set dual data output trigger type = fixed # fixed mode: fixed output trigger time
+    set dual data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
+    
+    set dual data output patches auto mode = false # use < dual p > data output patches (auto mode)
+    set dual data output patches           = 1    # use this (no auto mode)
+    
+    ############################################################################
+    # error estimator solution output control
+    set error estimator data output dwr loop = none #all         # use none, all, last or number
+    
+    set error estimator data output trigger type = I_n   # I_n mode: one output per I_n
+#    set error estimator data output trigger type = fixed # fixed mode: fixed output trigger time
+    set error estimator data output trigger time      = 1.0 # use fixed trigger value (fixed mode only)
+    
+    set error estimator data output patches auto mode = true # use 1 data output patch (auto mode)
+    set error estimator data output patches           = 1    # use this (no auto mode)
 end
 

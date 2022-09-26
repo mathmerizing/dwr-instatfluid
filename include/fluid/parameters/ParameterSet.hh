@@ -192,10 +192,14 @@ struct ParameterSet {
 	  struct {
 		  double mean_drag;
       	  double mean_lift;
+      	  double mean_pdiff;
+      	  double mean_vorticity;
 	  } stokes;
 	  struct {
 		  double mean_drag;
       	  double mean_lift;
+      	  double mean_pdiff;
+      	  double mean_vorticity;
 	  } navier_stokes;
 	} reference;
 
@@ -210,6 +214,13 @@ struct ParameterSet {
 
 	// dwr
 	struct {
+		struct {
+			bool mean_drag=false;
+			bool mean_lift=false;
+			bool mean_vorticity=false;
+			bool mean_pdiff=false;
+		} functional;
+
 		struct {
 			std::string type;
 			

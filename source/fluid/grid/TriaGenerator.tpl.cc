@@ -619,7 +619,7 @@ generate(
 			)
 		);
 
-        std::string grid_name = "nsbench4_original.inp";
+        std::string grid_name = "/home/ifam/thiele/grids/nsbench4_original.inp";
         dealii::GridIn<dim> grid_in;
         grid_in.attach_triangulation(*tria);
         std::ifstream input_file(grid_name.c_str());
@@ -644,7 +644,7 @@ generate(
 			)
 		);
 
-		std::string grid_name = "nsbench3dZ_3D.inp";
+		std::string grid_name = "/home/ifam/thiele/grids/nsbench3dZ_3D.inp";
 		dealii::GridIn<dim> grid_in;
 		grid_in.attach_triangulation(*tria);
 		std::ifstream input_file(grid_name.c_str());
