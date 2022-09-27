@@ -167,6 +167,31 @@ create_function(
 	
 	////////////////////////////////////////////////////////////////////////////
 	// 
+	if (_type.compare("Convection_Parabolic_Inflow_1_sin") == 0) {
+		AssertThrow(
+			options.size() == 1,
+			dealii::ExcMessage(
+				"convection dirichlet options invalid, "
+				"please check your input file data."
+			)
+		);
+
+		tensor_function =
+			std::make_shared< convection::dirichlet::Parabolic_Inflow_1_sin<dim> > (
+				std::stod(options.at(0))
+			);
+
+		DTM::pout
+			<< "convection dirichlet selector: "
+			<< "created parabolic inflow 1 sin tensor function, with" << std::endl
+			<< "\tscaling y-component = " << std::stod(options.at(0)) << " . " << std::endl
+			<< std::endl;
+
+		return;
+	}
+
+	////////////////////////////////////////////////////////////////////////////
+	//
 	if (_type.compare("Convection_Parabolic_Inflow_2") == 0) {
 		AssertThrow(
 			options.size() == 3,

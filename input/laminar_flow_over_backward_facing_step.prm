@@ -103,7 +103,7 @@ subsection DWR
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 3 #3
+    set solver control max iterations = 1 #3
     set replace linearization points = true
     set replace weights = false
     
@@ -147,7 +147,7 @@ subsection Parameter Specification
     
     ############################################################################
     # Boundary value function
-    set convection dirichlet boundary function = Convection_Parabolic_Inflow_3
+    set convection dirichlet boundary function = Convection_Parabolic_Inflow_1_sin
     #                                             scaling profile
     set convection dirichlet boundary options  = "20.0"
     

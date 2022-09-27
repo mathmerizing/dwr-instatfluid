@@ -1,17 +1,12 @@
 /**
- * @file ConvectionDirichletBoundaries.hh
- * @author Julian Roth (JR)
+ * @file Convection_Parabolic_Inflow_1_sin.inst.in
  * @author Uwe Koecher (UK)
- * @author Marius Paul Bruchhaeuser (MPB)
- * @author Jan Philipp Thiele (JPT)
- * 
- * @Date 2022-01-14, Fluid, JPT
- * @date 2021-12-14, JR
- * @date 2021-09-23, JR
- * @date 2019-11-11, UK
+ * @date 2019-11-12, UK
+ *
+ * @brief Instantiation file
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher                                    */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -28,13 +23,15 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#ifndef __ConvectionDirichletBoundaries_hh
-#define __ConvectionDirichletBoundaries_hh
+#ifndef __Convection_Parabolic_Inflow_1_sin_inst_in
+#define __Convection_Parabolic_Inflow_1_sin_inst_in
 
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_1.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_1_sin.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_2.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3_sin.tpl.hh>
+namespace convection {
+namespace dirichlet {
+
+template class Parabolic_Inflow_1_sin<2>;
+template class Parabolic_Inflow_1_sin<3>;
+
+}}
 
 #endif

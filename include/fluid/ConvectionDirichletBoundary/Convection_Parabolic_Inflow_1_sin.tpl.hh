@@ -1,17 +1,12 @@
 /**
- * @file ConvectionDirichletBoundaries.hh
- * @author Julian Roth (JR)
+ * @file Convection_Parabolic_Inflow_1_sin.tpl.hh
  * @author Uwe Koecher (UK)
- * @author Marius Paul Bruchhaeuser (MPB)
- * @author Jan Philipp Thiele (JPT)
  * 
- * @Date 2022-01-14, Fluid, JPT
- * @date 2021-12-14, JR
- * @date 2021-09-23, JR
- * @date 2019-11-11, UK
+ * @date 2019-11-12, UK
+ * @date 2016-05-26, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher and contributors                   */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -28,13 +23,29 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#ifndef __ConvectionDirichletBoundaries_hh
-#define __ConvectionDirichletBoundaries_hh
+#ifndef __Convection_Parabolic_Inflow_1_sin_tpl_hh
+#define __Convection_Parabolic_Inflow_1_sin_tpl_hh
 
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_1.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_1_sin.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_2.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3_sin.tpl.hh>
+// DEAL.II includes
+#include <deal.II/base/tensor_function.h>
+
+namespace convection {
+namespace dirichlet {
+
+template<int dim>
+class Parabolic_Inflow_1_sin : public dealii::TensorFunction<1,dim> {
+public:
+	Parabolic_Inflow_1_sin(double scaling) : scaling(scaling) {};
+	virtual ~Parabolic_Inflow_1_sin() = default;
+	
+	virtual dealii::Tensor<1,dim> value(
+		const dealii::Point<dim> &x
+	) const;
+	
+private:
+	const double scaling;
+};
+
+}}
 
 #endif

@@ -1,17 +1,18 @@
 /**
- * @file ConvectionDirichletBoundaries.hh
- * @author Julian Roth (JR)
+ * @file Convection_Parabolic_Inflow_1_sin.tpl.cc
  * @author Uwe Koecher (UK)
- * @author Marius Paul Bruchhaeuser (MPB)
  * @author Jan Philipp Thiele (JPT)
- * 
+ *
+ * @Date 2022-09-27, Time-dependent inflow, JR
  * @Date 2022-01-14, Fluid, JPT
- * @date 2021-12-14, JR
- * @date 2021-09-23, JR
- * @date 2019-11-11, UK
+ * @date 2019-11-12, UK
+ * @date 2016-05-26, UK
+ * @date 2016-05-09, UK
+ * @date 2016-01-19, UK
+ * @date 2015-11-26, UK
  */
 
-/*  Copyright (C) 2012-2021 by Uwe Koecher and contributors                   */
+/*  Copyright (C) 2012-2022 by Uwe Koecher                                    */
 /*                                                                            */
 /*  This file is part of DTM++.                                               */
 /*                                                                            */
@@ -28,13 +29,41 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#ifndef __ConvectionDirichletBoundaries_hh
-#define __ConvectionDirichletBoundaries_hh
-
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_1.tpl.hh>
 #include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_1_sin.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_2.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3.tpl.hh>
-#include <fluid/ConvectionDirichletBoundary/Convection_Parabolic_Inflow_3_sin.tpl.hh>
 
-#endif
+namespace convection {
+namespace dirichlet {
+
+template<int dim>
+dealii::Tensor<1,dim>
+Parabolic_Inflow_1_sin<dim>::
+value(
+	const dealii::Point<dim> &x
+) const {
+	Assert(((dim==2)||(dim==3)), dealii::ExcNotImplemented());
+	
+	const double t{this->get_time()};
+
+	dealii::Tensor<1,dim> y;
+	
+	if (dim==2) {
+		if ((x[1] >= .5) && (x[1] <= 1.)) {
+			y[0] = scaling * ( -8.+(24-16*x[1])*x[1] );
+			y[1] = 0.;
+		}
+	}
+	else {
+		if ((x[0] >= .5) && (x[0] <= 1.) && (x[2] >= .5) && (x[2] <= 1.)) {
+			y[0] = 0.;
+			y[1] = scaling * (-8.+(24-16*x[0])*x[0]) * (-8.+(24-16*x[2])*x[2]);
+			y[2] = 0.;
+		}
+	}
+
+	y *= std::sin(M_PI * t / 8.);
+	return y;
+}
+
+}}
+
+#include "Convection_Parabolic_Inflow_1_sin.inst.in"
