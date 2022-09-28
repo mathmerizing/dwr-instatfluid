@@ -392,19 +392,6 @@ assemble(
 		time.fe->tensor_degree()+2
 	);
 	
-//	std::shared_ptr< dealii::Quadrature<1> > quad_time;
-//	if (!time.quad_type.compare("Gauss-Lobatto")){
-//		if (time.fe->tensor_degree()<1){
-//			quad_time = std::make_shared<QRightBox<1>>();
-//		}
-//		else {
-//			quad_time = std::make_shared<dealii::QGaussLobatto<1> >(time.fe->tensor_degree()+1);
-//		}
-//
-//	}else {
-//		quad_time = std::make_shared<dealii::QGauss<1> >(time.fe->tensor_degree()+1);
-//	}
-//
 	const dealii::QGaussLobatto<1> face_nodes(2);
 	
 	time.n_global_active_cells = slab->time.tria->n_global_active_cells();
@@ -489,15 +476,15 @@ void Assembler<dim>::local_assemble_cell(
 	cell_primal->get_dof_indices(scratch.primal_space_local_dof_indices);
 	
 	auto cell_time = time.dof->begin_active();
+	auto primal_cell_time = primal.time.dof->begin_active();
 	auto endc_time = time.dof->end();
 	
-// 	for (unsigned int n{0}; n < time.n_global_active_cells; ++n)
 
 	unsigned int n;
 	copydata.local_matrix = 0;
 
 	unsigned int element_offset = time.fe->dofs_per_cell *space.fe->dofs_per_cell;
-	for ( ; cell_time != endc_time; ) {
+	for ( ; cell_time != endc_time;){
 		n=cell_time->index();
 //		copydata.vi_ui_matrix[n] = 0;
 		
@@ -510,19 +497,13 @@ void Assembler<dim>::local_assemble_cell(
 				   =
 						   scratch.space_local_dof_indices[i]
 						   + scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
-
-
-//			copydata.local_dof_indices[n][
-//				i + ii*space.fe->dofs_per_cell
-//			] =
-//				scratch.space_local_dof_indices[i]
-//				+ scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
 		}
 		
 		// prefetch data
 		
 		// assemble: volume
 		scratch.time_fe_values.reinit(cell_time);
+		scratch.primal_time_fe_values.reinit(primal_cell_time);
 		for (unsigned int qt{0}; qt < scratch.time_fe_values.n_quadrature_points; ++qt) {
 			function.viscosity->set_time(scratch.time_fe_values.quadrature_point(qt)[0]);
 			
@@ -684,7 +665,7 @@ void Assembler<dim>::local_assemble_cell(
 				}
 			} // x_q
 		} // t_q
-		
+
  		// prepare [.]_t_n trace operator
  		scratch.time_fe_face_values.reinit(cell_time);
  		// assemble: face (w^+ * z^+)
@@ -713,7 +694,6 @@ void Assembler<dim>::local_assemble_cell(
  			}
  		}
 
-
  		// assemble: face (w^+ * z^-)
 		//
 		// NOTE: sparsity pattern for n_global_active_cells = 3:
@@ -721,6 +701,7 @@ void Assembler<dim>::local_assemble_cell(
 		//       [    ++ +- ]
 		//       [       ++ ]
 		++cell_time;
+		++primal_cell_time;
 		if (
 			(time.n_global_active_cells > 1) &&
 			(n < (time.n_global_active_cells-1))

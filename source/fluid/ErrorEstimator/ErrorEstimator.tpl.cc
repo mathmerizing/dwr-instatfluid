@@ -1446,6 +1446,11 @@ get_back_interpolated_space_slab(
 ) {
 	// TODO: adapt this for multiple cells per slab, as in get_interpolated_time_slab_w
 
+	auto tmp_high_slab = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
+	tmp_high_slab->reinit(
+		high_slab_w->locally_owned_elements(),
+		mpi_comm
+	);
 	// slab_w evaluated at temporal quadrature point
 	auto slab_w_tq  = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
 	slab_w_tq->reinit(
@@ -1468,15 +1473,17 @@ get_back_interpolated_space_slab(
 		*slab->space.high.fe_info->locally_relevant_dofs,
 		mpi_comm
 	);
-	*high_slab_w_tq = 0.;
+//	*high_slab_w_tq = 0.;
 
 	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
 	{
+		std::cout << "calculating slab_w_tq_tmp" << std::endl;
 		// get slab_w_tq
 		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
 			(*slab_w_tq_tmp)[i] = (*slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii];
 		*slab_w_tq = *slab_w_tq_tmp;
 
+		std::cout << "calling back interpolate" << std::endl;
 		// use back interpolation in space to go from slab_w_tq to high_slab_w_tq
 		back_interpolate_space(
 			slab,
@@ -1484,10 +1491,13 @@ get_back_interpolated_space_slab(
 			high_slab_w_tq
 		);
 
+		std::cout << "writing to st vector" << std::endl;
 		// write high_slab_w_tq into high_slab_w
 		for (auto i : *slab->space.high.fe_info->locally_owned_dofs)
-			(*high_slab_w)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
+			(*tmp_high_slab)[i + slab->space.high.fe_info->dof->n_dofs() * ii] = (*high_slab_w_tq)[i];
 	}
+	std::cout << "communicating" << std::endl;
+	*high_slab_w = *tmp_high_slab;
 }
 
 template<int dim>
