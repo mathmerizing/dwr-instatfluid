@@ -74,13 +74,13 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 2
+    set global refinement = 0 #2
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.00
     set final time     = 8.0
-    set time step size = 0.8
+    set time step size = 4.0 #0.8
     set global refinement = 0
     set maximum number of intervals per slab = 1
 end
@@ -160,7 +160,7 @@ end
 subsection Output Quantities
     ############################################################################
     # primal solution output control
-    set primal data output dwr loop = all         # use none, all, last or number
+    set primal data output dwr loop = none #all         # use none, all, last or number
     
     set primal data output trigger type = I_n   # I_n mode: one output per I_n
 #    set primal data output trigger type = fixed # fixed mode: fixed output trigger time
