@@ -1426,6 +1426,10 @@ get_interpolated_space_slab(
 		*slab->space.high.fe_info->locally_relevant_dofs,
 		mpi_comm
 	);
+<<<<<<< HEAD
+=======
+//	*high_slab_w_tq = 0.;
+>>>>>>> branch 'master' of git@bitbucket.org:adaptivefem/dwr-instatfluid.git
 
 	for (unsigned int ii{0}; ii < slab->time.high.fe_info->dof->n_dofs(); ++ii)
 	{

@@ -465,22 +465,22 @@ run() {
 				std::rename("vorticity.log",lfilename.str().c_str());
 			}
 		}
-//		// dual problem
-//		dual_reinit_storage();
-//		dual_init_data_output();
-//		{
-//			// error indicators
-//			eta_reinit_storage();
-//			eta_init_data_output();
-//		}
-//		dual_do_backward_TMS(dwr_loop, false);
-//		{
-//			dual_sort_xdmf_by_time(dwr_loop);
-//			eta_sort_xdmf_by_time(dwr_loop);
-//		}
+		// dual problem
+		dual_reinit_storage();
+		dual_init_data_output();
+		{
+			// error indicators
+			eta_reinit_storage();
+			eta_init_data_output();
+		}
+		dual_do_backward_TMS(dwr_loop, false);
+		{
+			dual_sort_xdmf_by_time(dwr_loop);
+			eta_sort_xdmf_by_time(dwr_loop);
+		}
 
-//		// error estimation
-//		compute_effectivity_index();
+		// error estimation
+		compute_effectivity_index();
 
 		// compute the number of primal and dual space-time dofs
 		unsigned long int n_primal_st_dofs = 0;
@@ -491,11 +491,11 @@ run() {
 		for (; slab != ends; ++slab)
 		{
 			n_primal_st_dofs += slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs();
-//			n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
+			n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
 		}
 
 		DTM::pout << "\n#DoFs(primal; Space-Time) = " << n_primal_st_dofs
-//				  << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs
+				  << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs
 				  << std::endl;
 
 //		if (estimated_error < TOL_DWR)

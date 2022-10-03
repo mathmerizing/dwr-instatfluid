@@ -74,13 +74,13 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 7
+    set global refinement = 0 #2
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.00
     set final time     = 8.0
-    set time step size = 0.0125
+    set time step size = 1.0
     set global refinement = 0
     set maximum number of intervals per slab = 1
 end
@@ -99,7 +99,7 @@ end
 
 subsection DWR
 	set calculate functionals = mean_vorticity
-    set refine and coarsen spacetime strategy = global adaptive ##global_space #adaptive #  # global_space #global_time #
+    set refine and coarsen spacetime strategy = global #adaptive ##global_space #adaptive #  # global_space #global_time #
 	
     set solver control in use = true
     set solver control reduction mode = true
