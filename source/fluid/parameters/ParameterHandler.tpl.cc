@@ -57,6 +57,13 @@ ParameterHandler() {
             dealii::Patterns::Anything()
     );
 
+    declare_entry(
+		"primal only",
+		"false",
+		dealii::Patterns::Bool(),
+		"run only primal problem (true) or primal + dual problem + error estimator (false)"
+	);
+
 	enter_subsection("Fluid Problem Specification"); {
 		declare_entry(
 			"symmetric stress",

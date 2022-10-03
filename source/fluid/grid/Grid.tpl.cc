@@ -178,13 +178,21 @@ initialize_slabs() {
 		////////////////////
 		// common components
 		//
-		slab.space.tria = std::make_shared< dealii::parallel::distributed::Triangulation<dim> >(
-			mpi_comm,
-			typename dealii::parallel::distributed::Triangulation<dim>::MeshSmoothing(
-				dealii::parallel::distributed::Triangulation<dim>::maximum_smoothing
-			),
-			dealii::parallel::distributed::Triangulation<dim>::Settings::no_automatic_repartitioning
-		);
+		if (!parameter_set->primal_only || i==1)
+		{
+			slab.space.tria = std::make_shared< dealii::parallel::distributed::Triangulation<dim> >(
+				mpi_comm,
+				typename dealii::parallel::distributed::Triangulation<dim>::MeshSmoothing(
+					dealii::parallel::distributed::Triangulation<dim>::maximum_smoothing
+				),
+				dealii::parallel::distributed::Triangulation<dim>::Settings::no_automatic_repartitioning
+			);
+		}
+		else
+		{
+			// reuse spatial mesh from previous slab
+			slab.space.tria = slabs.front().space.tria;
+		}
 		
 		////////////////////////////////////////////////////////////////////////
 		// time
@@ -228,143 +236,152 @@ initialize_low_grid_components_on_slab(const typename fluid::types::spacetime::d
 	////////////////////////////////////////////////////////////////////////
 	// space
 
-	/////////////////////////
-	// low grid components
-	//
-	Assert(slab->space.tria.use_count(), dealii::ExcNotInitialized());
-	slab->space.low.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
-		*slab->space.tria
-	);
-
-	// check FE configuration parameters
-	Assert(
-		(!parameter_set->fe.low.convection.space_type.compare("cG")),
-		dealii::ExcMessage("low convection (Fluid velocity) fe must be of the cG family")
-	);
-
-	Assert(
-		(!parameter_set->fe.low.pressure.space_type.compare("cG")),
-		dealii::ExcMessage("low pressure fe must be of the cG family")
-	);
-
-	if (parameter_set->fe.low.convection.p
-		<= parameter_set->fe.low.pressure.p) {
-		DTM::pout
-			<< "WARNING: you try to use an unstable low FE"
-			<< std::endl;
-	}
-
-	// create low fe system
+	if (!parameter_set->primal_only || slab == this->slabs.begin())
 	{
-		// create fe quadratures for support points
-		// convection (Fluid velocity) (\boldsymbol b)
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_b;
-		{
-			if ( !(parameter_set->
-				fe.low.convection.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-
-				fe_quad_b = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.low.convection.p + 1)
-				);
-
-				DTM::pout
-					<< "FE: (low) convection b: "
-					<< "created QGaussLobatto<1> quadrature"
-					<< std::endl;
-			}
-		}
-
-		AssertThrow(
-			fe_quad_b.use_count(),
-			dealii::ExcMessage("FE: (low) convection b support points invalid")
+		/////////////////////////
+		// low grid components
+		//
+		Assert(slab->space.tria.use_count(), dealii::ExcNotInitialized());
+		slab->space.low.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
+			*slab->space.tria
 		);
 
-		// pressure
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_p;
-		{
-			if ( !(parameter_set->
-				fe.low.pressure.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-
-				fe_quad_p = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.low.pressure.p + 1)
-				);
-
-				DTM::pout
-					<< "FE: (low) pressure p: "
-					<< "created QGaussLobatto<1> quadrature"
-					<< std::endl;
-			}
-		}
-
-		AssertThrow(
-			fe_quad_p.use_count(),
-			dealii::ExcMessage("FE: (low) pressure p support points invalid")
+		// check FE configuration parameters
+		Assert(
+			(!parameter_set->fe.low.convection.space_type.compare("cG")),
+			dealii::ExcMessage("low convection (Fluid velocity) fe must be of the cG family")
 		);
 
-		// create convection FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_b;
-		{
-			if (
-				!parameter_set->fe.low.convection.space_type.compare("cG")
-			) {
+		Assert(
+			(!parameter_set->fe.low.pressure.space_type.compare("cG")),
+			dealii::ExcMessage("low pressure fe must be of the cG family")
+		);
 
-				fe_b = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_b
-				);
+		if (parameter_set->fe.low.convection.p
+			<= parameter_set->fe.low.pressure.p) {
+			DTM::pout
+				<< "WARNING: you try to use an unstable low FE"
+				<< std::endl;
+		}
+
+		// create low fe system
+		{
+			// create fe quadratures for support points
+			// convection (Fluid velocity) (\boldsymbol b)
+			std::shared_ptr< dealii::Quadrature<1> > fe_quad_b;
+			{
+				if ( !(parameter_set->
+					fe.low.convection.space_type_support_points
+					.compare("Gauss-Lobatto")) ) {
+
+					fe_quad_b = std::make_shared< dealii::QGaussLobatto<1> > (
+						(parameter_set->fe.low.convection.p + 1)
+					);
+
+					DTM::pout
+						<< "FE: (low) convection b: "
+						<< "created QGaussLobatto<1> quadrature"
+						<< std::endl;
+				}
 			}
 
 			AssertThrow(
-				fe_b.use_count(),
-				dealii::ExcMessage("low convection FE not known")
+				fe_quad_b.use_count(),
+				dealii::ExcMessage("FE: (low) convection b support points invalid")
 			);
-		}
 
-		// create pressure FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_p;
-		{
-			if (
-				!parameter_set->fe.low.pressure.space_type.compare("cG")
-			) {
+			// pressure
+			std::shared_ptr< dealii::Quadrature<1> > fe_quad_p;
+			{
+				if ( !(parameter_set->
+					fe.low.pressure.space_type_support_points
+					.compare("Gauss-Lobatto")) ) {
 
-				fe_p = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_p
-				);
+					fe_quad_p = std::make_shared< dealii::QGaussLobatto<1> > (
+						(parameter_set->fe.low.pressure.p + 1)
+					);
+
+					DTM::pout
+						<< "FE: (low) pressure p: "
+						<< "created QGaussLobatto<1> quadrature"
+						<< std::endl;
+				}
 			}
 
 			AssertThrow(
-				fe_p.use_count(),
-				dealii::ExcMessage("low pressure FE not known")
+				fe_quad_p.use_count(),
+				dealii::ExcMessage("FE: (low) pressure p support points invalid")
 			);
+
+			// create convection FE
+			std::shared_ptr<dealii::FiniteElement<dim>> fe_b;
+			{
+				if (
+					!parameter_set->fe.low.convection.space_type.compare("cG")
+				) {
+
+					fe_b = std::make_shared<dealii::FE_Q<dim>> (
+						*fe_quad_b
+					);
+				}
+
+				AssertThrow(
+					fe_b.use_count(),
+					dealii::ExcMessage("low convection FE not known")
+				);
+			}
+
+			// create pressure FE
+			std::shared_ptr<dealii::FiniteElement<dim>> fe_p;
+			{
+				if (
+					!parameter_set->fe.low.pressure.space_type.compare("cG")
+				) {
+
+					fe_p = std::make_shared<dealii::FE_Q<dim>> (
+						*fe_quad_p
+					);
+				}
+
+				AssertThrow(
+					fe_p.use_count(),
+					dealii::ExcMessage("low pressure FE not known")
+				);
+			}
+
+			// create FE System
+			slab->space.low.fe_info->fe = std::make_shared< dealii::FESystem<dim> > (
+				// Navier-Stokes FE (dim+1)
+				dealii::FESystem<dim> (
+					// convection FE (component 0 ... 1*dim-1)
+					*fe_b, dim,
+					// pressure FE (component 1*dim)
+					*fe_p, 1
+				), 1
+			);
+
+			DTM::pout
+				<< "fluid: created "
+				<< slab->space.low.fe_info->fe->get_name()
+				<< std::endl;
 		}
 
-		// create FE System
-		slab->space.low.fe_info->fe = std::make_shared< dealii::FESystem<dim> > (
-			// Navier-Stokes FE (dim+1)
-			dealii::FESystem<dim> (
-				// convection FE (component 0 ... 1*dim-1)
-				*fe_b, dim,
-				// pressure FE (component 1*dim)
-				*fe_p, 1
-			), 1
+		slab->space.low.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+		slab->space.low.fe_info->hanging_node_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+		slab->space.low.fe_info->initial_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+		slab->space.low.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
+				1
 		);
-
-		DTM::pout
-			<< "fluid: created "
-			<< slab->space.low.fe_info->fe->get_name()
-			<< std::endl;
 	}
-
-	slab->space.low.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
-
-	slab->space.low.fe_info->hanging_node_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
-
-	slab->space.low.fe_info->initial_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
-
-	slab->space.low.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
-			1
-	);
+	else
+	{
+		// copy spatial data structures from previous slab
+		slab->space.low.fe_info->fe = std::prev(slab)->space.low.fe_info->fe;
+		slab->space.low.fe_info->constraints = std::prev(slab)->space.low.fe_info->constraints;
+		slab->space.low.fe_info->hanging_node_constraints = std::prev(slab)->space.low.fe_info->hanging_node_constraints;
+		slab->space.low.fe_info->initial_constraints = std::prev(slab)->space.low.fe_info->initial_constraints;
+		slab->space.low.fe_info->mapping = std::prev(slab)->space.low.fe_info->mapping;
+	}
 
 	////////////////////////////////////////////////////////////////////////
 	// time
@@ -471,145 +488,152 @@ initialize_high_grid_components_on_slab(const typename fluid::types::spacetime::
 	////////////////////////////////////////////////////////////////////////
 	// space
 
-	/////////////////////////
-	// high grid components
-	//
-	Assert(slab->space.tria.use_count(), dealii::ExcNotInitialized());
-	slab->space.high.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
-		*slab->space.tria
-	);
-
-	// check FE configuration parameters
-	Assert(
-		(!parameter_set->fe.high.convection.space_type.compare("cG")),
-		dealii::ExcMessage("high convection (Fluid velocity) fe must be of the cG family")
-	);
-
-	Assert(
-		(!parameter_set->fe.high.pressure.space_type.compare("cG")),
-		dealii::ExcMessage("high pressure fe must be of the cG family")
-	);
-
-	if (parameter_set->fe.high.convection.p
-		<= parameter_set->fe.high.pressure.p) {
-		DTM::pout
-			<< "WARNING: you try to use an unstable high FE"
-			<< std::endl;
-	}
-
-	// create high fe system
+	if (!parameter_set->primal_only || slab == this->slabs.begin())
 	{
-		// create fe quadratures for support points
-		// convection (Fluid velocity) (\boldsymbol z_b)
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_z_b;
-		{
-			if ( !(parameter_set->
-				fe.high.convection.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-
-				fe_quad_z_b = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.high.convection.p + 1)
-				);
-
-				DTM::pout
-					<< "FE: (high) convection z_b: "
-					<< "created QGaussLobatto<1> quadrature"
-					<< std::endl;
-			}
-		}
-
-		AssertThrow(
-			fe_quad_z_b.use_count(),
-			dealii::ExcMessage("FE: (high) convection b support points invalid")
+		/////////////////////////
+		// high grid components
+		//
+		Assert(slab->space.tria.use_count(), dealii::ExcNotInitialized());
+		slab->space.high.fe_info->dof = std::make_shared< dealii::DoFHandler<dim> > (
+			*slab->space.tria
 		);
 
-		// pressure
-		std::shared_ptr< dealii::Quadrature<1> > fe_quad_z_p;
-		{
-			if ( !(parameter_set->
-				fe.high.pressure.space_type_support_points
-				.compare("Gauss-Lobatto")) ) {
-
-				fe_quad_z_p = std::make_shared< dealii::QGaussLobatto<1> > (
-					(parameter_set->fe.high.pressure.p + 1)
-				);
-
-				DTM::pout
-					<< "FE: (high) pressure p: "
-					<< "created QGaussLobatto<1> quadrature"
-					<< std::endl;
-			}
-		}
-
-		AssertThrow(
-			fe_quad_z_p.use_count(),
-			dealii::ExcMessage("FE: (high) pressure p support points invalid")
+		// check FE configuration parameters
+		Assert(
+			(!parameter_set->fe.high.convection.space_type.compare("cG")),
+			dealii::ExcMessage("high convection (Fluid velocity) fe must be of the cG family")
 		);
 
-		// create convection FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_z_b;
-		{
-			if (
-				!parameter_set->fe.high.convection.space_type.compare("cG")
-			) {
+		Assert(
+			(!parameter_set->fe.high.pressure.space_type.compare("cG")),
+			dealii::ExcMessage("high pressure fe must be of the cG family")
+		);
 
-				fe_z_b = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_z_b
-				);
+		if (parameter_set->fe.high.convection.p
+			<= parameter_set->fe.high.pressure.p) {
+			DTM::pout
+				<< "WARNING: you try to use an unstable high FE"
+				<< std::endl;
+		}
+
+		// create high fe system
+		{
+			// create fe quadratures for support points
+			// convection (Fluid velocity) (\boldsymbol z_b)
+			std::shared_ptr< dealii::Quadrature<1> > fe_quad_z_b;
+			{
+				if ( !(parameter_set->
+					fe.high.convection.space_type_support_points
+					.compare("Gauss-Lobatto")) ) {
+
+					fe_quad_z_b = std::make_shared< dealii::QGaussLobatto<1> > (
+						(parameter_set->fe.high.convection.p + 1)
+					);
+
+					DTM::pout
+						<< "FE: (high) convection z_b: "
+						<< "created QGaussLobatto<1> quadrature"
+						<< std::endl;
+				}
 			}
 
 			AssertThrow(
-				fe_z_b.use_count(),
-				dealii::ExcMessage("high convection FE not known")
+				fe_quad_z_b.use_count(),
+				dealii::ExcMessage("FE: (high) convection b support points invalid")
 			);
-		}
 
-		// create pressure FE
-		std::shared_ptr<dealii::FiniteElement<dim>> fe_z_p;
-		{
-			if (
-				!parameter_set->fe.high.pressure.space_type.compare("cG")
-			) {
+			// pressure
+			std::shared_ptr< dealii::Quadrature<1> > fe_quad_z_p;
+			{
+				if ( !(parameter_set->
+					fe.high.pressure.space_type_support_points
+					.compare("Gauss-Lobatto")) ) {
 
-				fe_z_p = std::make_shared<dealii::FE_Q<dim>> (
-					*fe_quad_z_p
-				);
+					fe_quad_z_p = std::make_shared< dealii::QGaussLobatto<1> > (
+						(parameter_set->fe.high.pressure.p + 1)
+					);
+
+					DTM::pout
+						<< "FE: (high) pressure p: "
+						<< "created QGaussLobatto<1> quadrature"
+						<< std::endl;
+				}
 			}
 
 			AssertThrow(
-				fe_z_p.use_count(),
-				dealii::ExcMessage("high pressure FE not known")
+				fe_quad_z_p.use_count(),
+				dealii::ExcMessage("FE: (high) pressure p support points invalid")
 			);
+
+			// create convection FE
+			std::shared_ptr<dealii::FiniteElement<dim>> fe_z_b;
+			{
+				if (
+					!parameter_set->fe.high.convection.space_type.compare("cG")
+				) {
+
+					fe_z_b = std::make_shared<dealii::FE_Q<dim>> (
+						*fe_quad_z_b
+					);
+				}
+
+				AssertThrow(
+					fe_z_b.use_count(),
+					dealii::ExcMessage("high convection FE not known")
+				);
+			}
+
+			// create pressure FE
+			std::shared_ptr<dealii::FiniteElement<dim>> fe_z_p;
+			{
+				if (
+					!parameter_set->fe.high.pressure.space_type.compare("cG")
+				) {
+
+					fe_z_p = std::make_shared<dealii::FE_Q<dim>> (
+						*fe_quad_z_p
+					);
+				}
+
+				AssertThrow(
+					fe_z_p.use_count(),
+					dealii::ExcMessage("high pressure FE not known")
+				);
+			}
+
+			// create FE System
+			slab->space.high.fe_info->fe = std::make_shared< dealii::FESystem<dim> > (
+				// Navier-Stokes FE (dim+1)
+				dealii::FESystem<dim> (
+					// convection FE (component 0 ... 1*dim-1)
+					*fe_z_b, dim,
+					// pressure FE (component 1*dim)
+					*fe_z_p, 1
+				), 1
+			);
+
+			DTM::pout
+				<< "fluid: (high) created "
+				<< slab->space.high.fe_info->fe->get_name()
+				<< std::endl;
 		}
 
-		// create FE System
-		slab->space.high.fe_info->fe = std::make_shared< dealii::FESystem<dim> > (
-			// Navier-Stokes FE (dim+1)
-			dealii::FESystem<dim> (
-				// convection FE (component 0 ... 1*dim-1)
-				*fe_z_b, dim,
-				// pressure FE (component 1*dim)
-				*fe_z_p, 1
-			), 1
+		slab->space.high.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+		slab->space.high.fe_info->hanging_node_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+		slab->space.high.fe_info->initial_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
+		slab->space.high.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
+			1
 		);
-
-		DTM::pout
-			<< "fluid: (high) created "
-			<< slab->space.high.fe_info->fe->get_name()
-			<< std::endl;
 	}
-
-	slab->space.high.fe_info->constraints = std::make_shared< dealii::AffineConstraints<double> > ();
-
-
-	slab->space.high.fe_info->hanging_node_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
-
-	slab->space.high.fe_info->initial_constraints = std::make_shared< dealii::AffineConstraints<double> > ();
-
-
-	slab->space.high.fe_info->mapping = std::make_shared< dealii::MappingQ<dim> > (
-		1
-	);
+	else
+	{
+		// copy spatial data structures from previous slab
+		slab->space.high.fe_info->fe = std::prev(slab)->space.high.fe_info->fe;
+		slab->space.high.fe_info->constraints = std::prev(slab)->space.high.fe_info->constraints;
+		slab->space.high.fe_info->hanging_node_constraints = std::prev(slab)->space.high.fe_info->hanging_node_constraints;
+		slab->space.high.fe_info->initial_constraints = std::prev(slab)->space.high.fe_info->initial_constraints;
+		slab->space.high.fe_info->mapping = std::prev(slab)->space.high.fe_info->mapping;
+	}
 
 	////////////////////////////////////////////////////////////////////////
 	// time
@@ -1003,16 +1027,23 @@ split_slab_in_time(
 	std::prev(slab)->refine_in_time=false;
 
 	// space
-	std::prev(slab)->space.tria = std::make_shared< dealii::parallel::distributed::Triangulation<dim> > (
-			mpi_comm,
-			typename dealii::parallel::distributed::Triangulation<dim>::MeshSmoothing(
-				dealii::parallel::distributed::Triangulation<dim>::smoothing_on_refinement
-			),
-			dealii::parallel::distributed::Triangulation<dim>::Settings::no_automatic_repartitioning
-		);
-//	slab->space.tria->reset_all_manifolds();
-	std::prev(slab)->space.tria->copy_triangulation(*coarse_tria);
-	std::prev(slab)->space.tria->load(slab->space.tria->get_p4est());
+	if (!parameter_set->primal_only)
+	{
+		std::prev(slab)->space.tria = std::make_shared< dealii::parallel::distributed::Triangulation<dim> > (
+				mpi_comm,
+				typename dealii::parallel::distributed::Triangulation<dim>::MeshSmoothing(
+					dealii::parallel::distributed::Triangulation<dim>::smoothing_on_refinement
+				),
+				dealii::parallel::distributed::Triangulation<dim>::Settings::no_automatic_repartitioning
+			);
+	//	slab->space.tria->reset_all_manifolds();
+		std::prev(slab)->space.tria->copy_triangulation(*coarse_tria);
+		std::prev(slab)->space.tria->load(slab->space.tria->get_p4est());
+	}
+	else
+	{
+		std::prev(slab)->space.tria = slab->space.tria;
+	}
 
 	std::prev(slab)->time.tria = std::make_shared< dealii::Triangulation<1> > ();
 	dealii::Point<1> p1_2(std::prev(slab)->t_m);
@@ -1039,7 +1070,7 @@ split_slab_in_time(
 	else if ( !parameter_set->fe.primal_order.compare("high") )
 	{
 		std::prev(slab)->space.primal.fe_info = std::prev(slab)->space.high.fe_info;
-		std::prev(slab)->time.primal.fe_info =std::prev(slab)->time.high.fe_info;
+		std::prev(slab)->time.primal.fe_info = std::prev(slab)->time.high.fe_info;
 	}
 	else
 	{
@@ -1110,13 +1141,9 @@ generate() {
 	slab++;
 	for (; slab != ends; ++slab) {
 
-//		if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
-//		{
-//			slab->space.tria = slabs.begin()->space.tria;
-//		}
-//		else{
+		if (!parameter_set->primal_only || slab == this->slabs.begin())
 			slab->space.tria->copy_triangulation(*coarse_tria);
-//		}
+
 		{
 			Assert(slab->time.tria.use_count(), dealii::ExcNotInitialized());
 			
@@ -1144,18 +1171,11 @@ refine_global(
 		auto slab(slabs.begin());
 		auto ends(slabs.end());
 
-
-//	if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
-//	{
-//		slabs.begin()->space.tria->refine_global(space_n);
-//		for (; slab != ends; ++slab) {
-//			slab->time.tria->refine_global(time_n);
-//		}
-//	}
-//	else {
 		for (; slab != ends; ++slab) {
 			slab->time.tria->refine_global(time_n);
-			slab->space.tria->refine_global(space_n);
+
+			if (!parameter_set->primal_only || slab == slabs.begin())
+				slab->space.tria->refine_global(space_n);
 		}
 	}
 
@@ -1215,6 +1235,7 @@ distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::
 	////////////////////////////////////////////////////////////////////////
 	// space
 	// distribute low dofs and create constraints
+	if (!parameter_set->primal_only || slab == this->slabs.begin())
 	{
 		Assert(slab->space.low.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 		Assert(slab->space.low.fe_info->fe.use_count(), dealii::ExcNotInitialized());
@@ -1293,7 +1314,7 @@ distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::
 
 			interpolate_dirichlet_bc(slab->space.low.fe_info->dof,
 									 slab->space.low.fe_info->constraints,
-									 slab->t_m,false);
+									 slab->t_m, false);
 
 
 			interpolate_dirichlet_bc(slab->space.low.fe_info->dof,
@@ -1320,6 +1341,14 @@ distribute_low_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::
 
 		}
 	}
+	else
+	{
+		// copy remaining data structures from previous slab
+		slab->space.low.fe_info->dof = std::prev(slab)->space.low.fe_info->dof;
+		slab->space.low.fe_info->locally_owned_dofs = std::prev(slab)->space.low.fe_info->locally_owned_dofs;
+		slab->space.low.fe_info->locally_relevant_dofs = std::prev(slab)->space.low.fe_info->locally_relevant_dofs;
+		slab->space.low.fe_info->constraints = std::prev(slab)->space.low.fe_info->constraints;
+	}
 
 	////////////////////////////////////////////////////////////////////////
 	// time
@@ -1338,6 +1367,7 @@ distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>:
 	////////////////////////////////////////////////////////////////////////
 	// space
 	// distribute dual dofs and create constraints
+	if (!parameter_set->primal_only || slab == this->slabs.begin())
 	{
 		Assert(slab->space.high.fe_info->dof.use_count(), dealii::ExcNotInitialized());
 		Assert(slab->space.high.fe_info->fe.use_count(), dealii::ExcNotInitialized());
@@ -1437,6 +1467,14 @@ distribute_high_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>:
 			slab->space.high.fe_info->hanging_node_constraints->close();
 			slab->space.high.fe_info->initial_constraints->close();
 		}
+	}
+	else
+	{
+		// copy remaining data structures from previous slab
+		slab->space.high.fe_info->dof = std::prev(slab)->space.high.fe_info->dof;
+		slab->space.high.fe_info->locally_owned_dofs = std::prev(slab)->space.high.fe_info->locally_owned_dofs;
+		slab->space.high.fe_info->locally_relevant_dofs = std::prev(slab)->space.high.fe_info->locally_relevant_dofs;
+		slab->space.high.fe_info->constraints = std::prev(slab)->space.high.fe_info->constraints;
 	}
 
 	////////////////////////////////////////////////////////////////////////

@@ -53,6 +53,7 @@ struct ParameterSet {
 	
 	unsigned int dim;
 	std::string problem;
+	bool primal_only;
 	
 	// problem specification
 	// fe

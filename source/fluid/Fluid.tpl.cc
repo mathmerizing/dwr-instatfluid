@@ -138,6 +138,8 @@ run() {
 	// check
 	Assert(parameter_set.use_count(), dealii::ExcNotInitialized());
 
+	DTM::pout << "solving only primal problem: " << (parameter_set->primal_only ? "true" : "false") << std::endl;
+
 	// check problem we want to solve
 	if ( parameter_set->problem.compare("Stokes") == 0)
 	{
@@ -383,18 +385,31 @@ run() {
 	do {
 		if (dwr_loop > 1) {
 			if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global_space"))
-				grid->refine_global(1, 0); // refine grid in space
+			{
+				// refine grid in space
+				grid->refine_global(1, 0);
+			}
 			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global_time"))
 			{
-				grid->refine_global(0,1);
+				// refine grid in time
+				grid->refine_global(0, 1);
 			}
 			else if	(!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("global"))
 			{
-				// refine grid in space
+				// refine grid in space AND time
 				grid->refine_global(1, 1);
 			}
 			else if (!parameter_set->dwr.refine_and_coarsen.spacetime.strategy.compare("adaptive"))
-				refine_and_coarsen_space_time_grid(dwr_loop-1); // do adaptive space-time mesh refinements and coarsenings
+			{
+				// do adaptive space-time mesh refinements and coarsenings
+				AssertThrow(
+					!parameter_set->primal_only,
+					dealii::ExcMessage(
+						"need to solve dual problem and assemble error estimator to do adaptive mesh refinement"
+					)
+				);
+				refine_and_coarsen_space_time_grid(dwr_loop-1);
+			}
 			else{
 				// invalid refinement strategy
 				AssertThrow(false, dealii::ExcNotImplemented());
@@ -465,22 +480,27 @@ run() {
 				std::rename("vorticity.log",lfilename.str().c_str());
 			}
 		}
-		// dual problem
-		dual_reinit_storage();
-		dual_init_data_output();
+
+		if (!parameter_set->primal_only)
 		{
-			// error indicators
-			eta_reinit_storage();
-			eta_init_data_output();
-		}
-		dual_do_backward_TMS(dwr_loop, false);
-		{
-			dual_sort_xdmf_by_time(dwr_loop);
-			eta_sort_xdmf_by_time(dwr_loop);
+			// dual problem
+			dual_reinit_storage();
+			dual_init_data_output();
+			{
+				// error indicators
+				eta_reinit_storage();
+				eta_init_data_output();
+			}
+			dual_do_backward_TMS(dwr_loop, false);
+			{
+				dual_sort_xdmf_by_time(dwr_loop);
+				eta_sort_xdmf_by_time(dwr_loop);
+			}
+
+			// error estimation
+			compute_effectivity_index();
 		}
 
-		// error estimation
-		compute_effectivity_index();
 
 		// compute the number of primal and dual space-time dofs
 		unsigned long int n_primal_st_dofs = 0;
@@ -491,12 +511,14 @@ run() {
 		for (; slab != ends; ++slab)
 		{
 			n_primal_st_dofs += slab->space.primal.fe_info->dof->n_dofs() * slab->time.primal.fe_info->dof->n_dofs();
-			n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
+			if (!parameter_set->primal_only)
+				n_dual_st_dofs += slab->space.dual.fe_info->dof->n_dofs() * slab->time.dual.fe_info->dof->n_dofs();
 		}
 
-		DTM::pout << "\n#DoFs(primal; Space-Time) = " << n_primal_st_dofs
-				  << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs
-				  << std::endl;
+		DTM::pout << "\n#DoFs(primal; Space-Time) = " << n_primal_st_dofs;
+		if (!parameter_set->primal_only)
+			DTM::pout << "\n#DoFs(dual; Space-Time)   = " << n_dual_st_dofs;
+		DTM::pout << std::endl;
 
 //		if (estimated_error < TOL_DWR)
 //			break;
@@ -619,26 +641,26 @@ init_reference_values() {
 	   = parameter_set->reference.navier_stokes.mean_drag;
 
 	  error_estimator.goal_functional.reference.mean_lift
-		 = parameter_set->reference.navier_stokes.mean_lift;
+	   = parameter_set->reference.navier_stokes.mean_lift;
 
 	  error_estimator.goal_functional.reference.mean_pdiff
-	    =  parameter_set->reference.navier_stokes.mean_pdiff;
+	   =  parameter_set->reference.navier_stokes.mean_pdiff;
 
-	error_estimator.goal_functional.reference.mean_vorticity
-		=  parameter_set->reference.navier_stokes.mean_vorticity;
+	  error_estimator.goal_functional.reference.mean_vorticity
+	   =  parameter_set->reference.navier_stokes.mean_vorticity;
 	}
 	else {
-		  error_estimator.goal_functional.reference.mean_drag
-		   = parameter_set->reference.stokes.mean_drag;
+	  error_estimator.goal_functional.reference.mean_drag
+	   = parameter_set->reference.stokes.mean_drag;
 
-		  error_estimator.goal_functional.reference.mean_lift
-			 = parameter_set->reference.stokes.mean_lift;
+	  error_estimator.goal_functional.reference.mean_lift
+	   = parameter_set->reference.stokes.mean_lift;
 
-		  error_estimator.goal_functional.reference.mean_pdiff
-		   = parameter_set->reference.stokes.mean_pdiff;
+	  error_estimator.goal_functional.reference.mean_pdiff
+	   = parameter_set->reference.stokes.mean_pdiff;
 
-		  error_estimator.goal_functional.reference.mean_vorticity
-			 = parameter_set->reference.stokes.mean_vorticity;
+	  error_estimator.goal_functional.reference.mean_vorticity
+	   = parameter_set->reference.stokes.mean_vorticity;
 	}
 }
 template<int dim>
@@ -2010,10 +2032,10 @@ primal_do_forward_TMS(
 		////////////////////////////////////////////////////////////////////////
 		// compute functional values:
 		//
-		compute_functional_values(u,vort, slab);
+		compute_functional_values(u, vort, slab);
 
 		// output data
-		primal_do_data_output(slab, u, vort,dwr_loop, last);
+		primal_do_data_output(slab, u, vort, dwr_loop, last);
 		////////////////////////////////////////////////////////////////////////
 		// allow garbage collector to clean up memory
 		//
@@ -2024,8 +2046,19 @@ primal_do_forward_TMS(
 		primal.Mum = nullptr;
 		
 		grid->clear_primal_on_slab(slab);
-		vort->x[0]->clear();
-		slab->space.vorticity.fe_info->dof->clear();
+
+		if( parameter_set->dwr.functional.mean_vorticity){
+			// clear vorticity solution
+			vort->x[0]->clear();
+			slab->space.vorticity.fe_info->dof->clear();
+		}
+
+		if (parameter_set->primal_only)
+		{
+			// also clear primal solution, since it is not being needed for error estimation anymore
+			u->x[0]->clear();
+			um->x[0]->clear();
+		}
 
 //		if ( n > 1){
 //			std::prev(u)->x[0]->clear();
