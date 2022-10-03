@@ -2024,12 +2024,14 @@ primal_do_forward_TMS(
 		primal.Mum = nullptr;
 		
 		grid->clear_primal_on_slab(slab);
+		vort->x[0]->clear();
+		slab->space.vorticity.fe_info->dof->clear();
 
-		if ( n > 1){
-			std::prev(u)->x[0]->clear();
-			std::prev(um)->x[0]->clear();
-			std::prev(vort)->x[0]->clear();
-		}
+//		if ( n > 1){
+//			std::prev(u)->x[0]->clear();
+//			std::prev(um)->x[0]->clear();
+//			std::prev(vort)->x[0]->clear();
+//		}
 
 		////////////////////////////////////////////////////////////////////////
 		// prepare next I_n slab problem:
@@ -2704,6 +2706,8 @@ dual_assemble_system(
 
 		DTM::pout << "dynamic fluid: assemble space-time slab dual operator matrix...";
 		Assert(dual.L.use_count(), dealii::ExcNotInitialized());
+		Assert(u.use_count(), dealii::ExcNotInitialized());
+		Assert(u->size(), dealii::ExcNotInitialized());
 		dual_assembler.assemble(
 			dual.L,
 			slab,
@@ -3183,6 +3187,9 @@ dual_do_backward_TMS(
 		if (n < N)
 		{
 			error_estimator.pu_dwr->estimate_on_slab(std::next(slab), std::next(u), std::next(um), std::next(z), std::next(eta_space), std::next(eta_time));
+			std::next(u)->x[0]->clear();
+			std::next(um)->x[0]->clear();
+			std::next(slab)->space.primal.fe_info->dof->clear();
 
 			//TODO: some Segfault here, no idea why
 //			// apply B. Endtmayer's post processing of the error indicators
@@ -3228,6 +3235,10 @@ dual_do_backward_TMS(
 		{
 
 			error_estimator.pu_dwr->estimate_on_slab(slab, u, um, z, eta_space, eta_time);
+			u->x[0]->clear();
+			um->x[0]->clear();
+			slab->space.primal.fe_info->dof->clear();
+
 //			// apply B. Endtmayer's post processing of the error indicators
 //			// see https://arxiv.org/pdf/1811.07586.pdf (Figure 1)
 //			auto space_relevant = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
@@ -3349,6 +3360,16 @@ dual_do_backward_TMS(
 
 		grid->clear_dual_on_slab(slab);
 
+		if (n < N)
+		{
+			std::next(z)->x[0]->clear();
+			std::next(slab)->space.dual.fe_info->dof->clear();
+		}
+		if (n == 1)
+		{
+			z->x[0]->clear();
+			slab->space.dual.fe_info->dof->clear();
+		}
 
 		////////////////////////////////////////////////////////////////////////
 		// prepare next I_n slab problem:

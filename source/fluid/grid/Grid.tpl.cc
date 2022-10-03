@@ -2229,8 +2229,15 @@ clear_dual_on_slab(const typename fluid::types::spacetime::dwr::slabs<dim>::iter
 	);
 
 	// space
+	DTM::pout << "         slab->space.dual.fe_info->dof->memory_consumption() = " << std::right << std::setw(20) << (slab->space.dual.fe_info->dof->memory_consumption() / 1000) << " KB" << std::endl;
+	DTM::pout << "         slab->space.dual.fe_info->fe->memory_consumption()  = " << std::setw(20) << (slab->space.dual.fe_info->fe->memory_consumption()  / 1000) << " KB" << std::endl;
+	DTM::pout << "         slab->space.dual.fe_info->constraints->memory_consumption()  = " << std::setw(20) << (slab->space.dual.fe_info->constraints->memory_consumption()  / 1000) << " KB" << std::endl;
 	slab->space.dual.sp_block_L = nullptr;
 	slab->space.dual.sp_L = nullptr;
+
+	// time
+	DTM::pout << "         slab->time.dual.fe_info->dof->memory_consumption()  = " << std::setw(20) << (slab->time.dual.fe_info->dof->memory_consumption() / 1000) << " KB" << std::endl;
+	DTM::pout << "         slab->time.dual.fe_info->fe->memory_consumption()   = " << std::setw(20) << (slab->time.dual.fe_info->fe->memory_consumption() / 1000)  << " KB" << std::endl;
 
 	// space-time
 	slab->spacetime.dual.constraints = nullptr;
