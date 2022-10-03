@@ -1,5 +1,5 @@
 /**
- * @file ST_Dual_MeanDragAssembly.inst.in
+ * @file ST_Dual_MeanVorticityAssembly.inst.in
  * @author Marius Paul Bruchhaeuser (MPB)
  * @author Uwe Koecher (UK)
  * @author Julian Roth (JR)
@@ -26,24 +26,24 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
-#ifndef __ST_Dual_MeanDragAssembly_inst_in
-#define __ST_Dual_MeanDragAssembly_inst_in
+#ifndef __ST_Dual_MeanVorticityAssembly_inst_in
+#define __ST_Dual_MeanVorticityAssembly_inst_in
 
 namespace goal {
 namespace mean{
-namespace drag{
+namespace vorticity{
 namespace spacetime {
 namespace Operator {
 
 namespace Assembly {
 	
 namespace Scratch {
-	template struct Je_MeanDragAssembly<2>;
-	template struct Je_MeanDragAssembly<3>;
+	template struct Je_MeanVorticityAssembly<2>;
+	template struct Je_MeanVorticityAssembly<3>;
 }
 namespace CopyData {
-	template struct Je_MeanDragAssembly<2>;
-	template struct Je_MeanDragAssembly<3>;
+	template struct Je_MeanVorticityAssembly<2>;
+	template struct Je_MeanVorticityAssembly<3>;
 }}
 
 	template class Assembler<2>;

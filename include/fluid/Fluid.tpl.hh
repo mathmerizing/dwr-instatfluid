@@ -318,7 +318,8 @@ protected:
 	);
 
 	virtual void dual_assemble_rhs(
-		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+		const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 	);
 
 	virtual void dual_solve_slab_problem(
@@ -379,7 +380,7 @@ protected:
 			dealii::Tensor<1, dim> &drag_lift_value
 	);
 
-	virtual void compute_vorticity(
+	virtual double compute_vorticity(
 			std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
 			const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
 			std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > vorticity

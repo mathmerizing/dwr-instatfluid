@@ -1,11 +1,12 @@
 /**
- * @file ST_Dual_MeanDragAssembly.tpl.cc
+ * @file ST_Dual_MeanVorticityAssembly.tpl.cc
  * @author Marius Paul Bruchhaeuser (MPB)
  * @author Uwe Koecher (UK)
  * @author Julian Roth (JR)
  * @author G. Kanschat, W. Bangerth and the deal.II authors
  * @author Jan Philipp Thiele (JPT)
  * 
+ * @date 2022-09-27, mean vorticity assembly, JPT
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-12-21, mean drag assembly, JR
  * @date 2021-10-28, space-time force stokes, MPB, (UK)
@@ -37,8 +38,8 @@
 /*  along with DTM++.   If not, see <http://www.gnu.org/licenses/>.           */
 
 // PROJECT includes
-#include <fluid/assembler/ST_Dual_MeanDragAssembly.tpl.hh>
-#include <fluid/types/boundary_id.hh> // for Drag boundary id
+#include <fluid/assembler/ST_Dual_MeanVorticityAssembly.tpl.hh>
+#include <fluid/types/boundary_id.hh> // for Vorticity boundary id
 
 // deal.II includes
 #include <deal.II/base/exceptions.h>
@@ -57,7 +58,7 @@
 
 namespace goal {
 namespace mean{
-namespace drag{
+namespace vorticity{
 namespace spacetime {
 namespace Operator {
 
@@ -65,42 +66,54 @@ namespace Assembly {
 namespace Scratch {
 
 template<int dim>
-Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(
-		// space
-		const dealii::FiniteElement<dim> &fe_space,
-		const dealii::Mapping<dim>       &mapping_space,
-//		const dealii::Quadrature<dim>    &quad_space,
-		const dealii::Quadrature<dim-1>  &face_quad_space,
-		// time
-		const dealii::FiniteElement<1> &fe_time,
-		const dealii::Mapping<1>       &mapping_time,
-		const dealii::Quadrature<1>    &quad_time,
-		// other
-		const double                   &t0,
-		const double                   &T) :
+Je_MeanVorticityAssembly<dim>::Je_MeanVorticityAssembly(
+	const dealii::DoFHandler<dim>    &dof_dual,
+	const dealii::DoFHandler<dim>    &dof_primal,
+	// space
+	const dealii::FiniteElement<dim> &fe_space,
+	const dealii::Mapping<dim> &mapping_space,
+	const dealii::Quadrature<dim> &quad_space,
+	// time
+	const dealii::FiniteElement<1> &fe_time,
+	const dealii::Mapping<1>	   &mapping_time,
+	const dealii::Quadrature<1>    &quad_time,
+	// primal space
+	const dealii::FiniteElement<dim> &primal_fe_space,
+	const dealii::Mapping<dim>       &primal_mapping_space,
+	// primal time
+	const dealii::FiniteElement<1> &primal_fe_time,
+	const dealii::Mapping<1>       &primal_mapping_time,
+	// other
+	const double                   &t0,
+	const double                   &T) :
 	// init space
-//	space_fe_values(
-//		mapping_space,
-//		fe_space,
-//		quad_space,
-//		dealii::update_values |
-//		dealii::update_JxW_values |
-//		dealii::update_quadrature_points
-//	),
-	space_fe_face_values(
-			mapping_space,
-			fe_space,
-			face_quad_space,
-			dealii::update_values |
-			dealii::update_gradients |
-			dealii::update_normal_vectors |
-			dealii::update_JxW_values |
-			dealii::update_quadrature_points
-		),
+	dof_dual(dof_dual),
+	dof_primal(dof_primal),
+	space_fe_values(
+		mapping_space,
+		fe_space,
+		quad_space,
+		dealii::update_values |
+		dealii::update_JxW_values |
+		dealii::update_gradients |
+		dealii::update_quadrature_points
+	),
+	primal_space_fe_values(
+		primal_mapping_space,
+		primal_fe_space,
+		quad_space,
+		dealii::update_values |
+		dealii::update_gradients |
+		dealii::update_JxW_values |
+		dealii::update_quadrature_points
+	),
 	space_local_dof_indices(fe_space.dofs_per_cell),
-//	space_phi(fe_space.dofs_per_cell),
-	space_grad_v(fe_space.dofs_per_cell),
-	space_p(fe_space.dofs_per_cell),
+	primal_space_local_dof_indices(primal_fe_space.dofs_per_cell),
+	primal_space_grad_v(),
+	primal_space_grad_phi(primal_fe_space.dofs_per_cell),
+	space_grad_phi(fe_space.dofs_per_cell),
+	curl_u(0),
+	curl_phi(0),
 	// init time
 	time_fe_values(
 		mapping_time,
@@ -110,35 +123,53 @@ Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(
 		dealii::update_JxW_values |
 		dealii::update_quadrature_points
 	),
+	primal_time_fe_values(
+		primal_mapping_time,
+		primal_fe_time,
+		quad_time,
+		dealii::update_values |
+		dealii::update_quadrature_points
+	),
 	time_local_dof_indices(fe_time.dofs_per_cell),
 	t0(t0),
 	T(T){
 }
 
 template<int dim>
-Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(const Je_MeanDragAssembly &scratch) :
-//	space_fe_values(
-//		scratch.space_fe_values.get_mapping(),
-//		scratch.space_fe_values.get_fe(),
-//		scratch.space_fe_values.get_quadrature(),
-//		scratch.space_fe_values.get_update_flags()
-//	),
-	space_fe_face_values(
-		scratch.space_fe_face_values.get_mapping(),
-		scratch.space_fe_face_values.get_fe(),
-		scratch.space_fe_face_values.get_quadrature(),
-		scratch.space_fe_face_values.get_update_flags()
-	),
+Je_MeanVorticityAssembly<dim>::Je_MeanVorticityAssembly(const Je_MeanVorticityAssembly &scratch) :
+
+	dof_dual(scratch.dof_dual),
+	dof_primal(scratch.dof_primal),
+	space_fe_values(
+		scratch.space_fe_values.get_mapping(),
+		scratch.space_fe_values.get_fe(),
+		scratch.space_fe_values.get_quadrature(),
+		scratch.space_fe_values.get_update_flags()
+	),primal_space_fe_values(
+			scratch.primal_space_fe_values.get_mapping(),
+			scratch.primal_space_fe_values.get_fe(),
+			scratch.primal_space_fe_values.get_quadrature(),
+			scratch.primal_space_fe_values.get_update_flags()
+		),
 	space_local_dof_indices(scratch.space_local_dof_indices),
-//	space_phi(scratch.space_phi),
-	space_grad_v(scratch.space_grad_v),
-	space_p(scratch.space_p),
+	primal_space_local_dof_indices(scratch.primal_space_local_dof_indices),
+	primal_space_grad_v(scratch.primal_space_grad_v),
+	primal_space_grad_phi(scratch.primal_space_grad_phi),
+	space_grad_phi(scratch.space_grad_phi),
+	curl_u(scratch.curl_u),
+	curl_phi(scratch.curl_phi),
 	//
 	time_fe_values(
 		scratch.time_fe_values.get_mapping(),
 		scratch.time_fe_values.get_fe(),
 		scratch.time_fe_values.get_quadrature(),
 		scratch.time_fe_values.get_update_flags()
+	),
+	primal_time_fe_values(
+		scratch.primal_time_fe_values.get_mapping(),
+		scratch.primal_time_fe_values.get_fe(),
+		scratch.primal_time_fe_values.get_quadrature(),
+		scratch.primal_time_fe_values.get_update_flags()
 	),
 	time_local_dof_indices(scratch.time_local_dof_indices),
 	t0(scratch.t0),
@@ -151,7 +182,7 @@ Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(const Je_MeanDragAssembly &scratch
 namespace CopyData {
 
 template<int dim>
-Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(
+Je_MeanVorticityAssembly<dim>::Je_MeanVorticityAssembly(
 		const dealii::FiniteElement<dim> &fe_s,
 		const dealii::FiniteElement<1> &fe_t,
 		const dealii::types::global_dof_index &n_global_active_cells_t) :
@@ -170,7 +201,7 @@ Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(
 }
 
 template<int dim>
-Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(const Je_MeanDragAssembly &copydata) :
+Je_MeanVorticityAssembly<dim>::Je_MeanVorticityAssembly(const Je_MeanVorticityAssembly &copydata) :
 	vi_Jei_vector(copydata.vi_Jei_vector),
 	local_dof_indices(copydata.local_dof_indices) {
 }
@@ -180,26 +211,10 @@ Je_MeanDragAssembly<dim>::Je_MeanDragAssembly(const Je_MeanDragAssembly &copydat
 template<int dim>
 void
 Assembler<dim>::
-set_functions(
-	std::shared_ptr< dealii::Function<dim> > viscosity) {
-	function.viscosity = viscosity;
-}
-
-
-template<int dim>
-void
-Assembler<dim>::
-set_symmetric_stress(bool use_symmetric_stress)
-{
-	symmetric_stress = use_symmetric_stress;
-}
-
-template<int dim>
-void
-Assembler<dim>::
 assemble(
 	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > Je,
 	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+    std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u,
 	const double &t0,
 	const double &T) {
 	////////////////////////////////////////////////////////////////////////////
@@ -218,6 +233,7 @@ assemble(
 	Assert(slab->spacetime.dual.constraints.use_count(), dealii::ExcNotInitialized());
 
 	Assert(Je.use_count(), dealii::ExcNotInitialized());
+	Assert(u.use_count(), dealii::ExcNotInitialized());
 
 	////////////////////////////////////////////////////////////////////////////
 	// init
@@ -225,21 +241,29 @@ assemble(
 	*Je = 0.;
 
 	_Je = Je;
+	_u = u;
 
 	space.dof = slab->space.dual.fe_info->dof;
 	space.fe = slab->space.dual.fe_info->fe;
 	space.mapping = slab->space.dual.fe_info->mapping;
 	space.constraints = slab->space.dual.fe_info->constraints;
 	
+	primal.space.dof = slab->space.primal.fe_info->dof;
+	primal.space.fe = slab->space.primal.fe_info->fe;
+	primal.space.mapping = slab->space.primal.fe_info->mapping;
+
 	time.dof = slab->time.dual.fe_info->dof;
 	time.fe = slab->time.dual.fe_info->fe;
 	time.mapping = slab->time.dual.fe_info->mapping;
 	
+	primal.time.dof = slab->time.primal.fe_info->dof;
+	primal.time.fe = slab->time.primal.fe_info->fe;
+	primal.time.mapping = slab->time.primal.fe_info->mapping;
+
 	spacetime.constraints = slab->spacetime.dual.constraints;
 
 	// FEValuesExtractors
 	convection = 0;
- 	pressure   = dim;
 	
 	// check fe: ((fluid)) = ((FE_Q^d, FE_Q))
 	Assert(
@@ -255,15 +279,14 @@ assemble(
 	////////////////////////////////////////////////////////////////////////////
 	// WorkStream assemble
 	//
-	
-	const dealii::QGauss<dim - 1> face_quad_space(
+	const dealii::QGauss<dim> quad_space(
 		std::max(
 			std::max(
 				space.fe->base_element(0).base_element(0).tensor_degree(),
 				space.fe->base_element(0).base_element(1).tensor_degree()
 			),
 			static_cast<unsigned int> (1)
-		) + 4
+		) + 2
 	);
 
 	const dealii::QGauss<1> quad_time(
@@ -300,18 +323,23 @@ assemble(
 			this,
 			std::placeholders::_1
 		),
-		Assembly::Scratch::Je_MeanDragAssembly<dim> (
+		Assembly::Scratch::Je_MeanVorticityAssembly<dim> (
+			*slab->space.dual.fe_info->dof,
+			*slab->space.primal.fe_info->dof,
 			*space.fe,
 			*space.mapping,
-//			quad_space,
-			face_quad_space,
+			quad_space,
 			*time.fe,
 			*time.mapping,
 			quad_time,
+			*primal.space.fe,
+			*primal.space.mapping,
+			*primal.time.fe,
+			*primal.time.mapping,
 			t0,
 			T
 		),
-		Assembly::CopyData::Je_MeanDragAssembly<dim> (
+		Assembly::CopyData::Je_MeanVorticityAssembly<dim> (
 			*space.fe,
 			*time.fe,
 			time.n_global_active_cells
@@ -326,19 +354,37 @@ assemble(
 template<int dim>
 void Assembler<dim>::local_assemble_cell(
 	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
-	Assembly::Scratch::Je_MeanDragAssembly<dim> &scratch,
-	Assembly::CopyData::Je_MeanDragAssembly<dim> &copydata) {
-	cell->get_dof_indices(scratch.space_local_dof_indices);
+	Assembly::Scratch::Je_MeanVorticityAssembly<dim> &scratch,
+	Assembly::CopyData::Je_MeanVorticityAssembly<dim> &copydata) {
+
+
+	typename dealii::DoFHandler<dim>::active_cell_iterator cell_dual(&cell->get_triangulation(),
+																   cell->level(),
+																   cell->index(),
+																   &scratch.dof_dual);
+
+	typename dealii::DoFHandler<dim>::active_cell_iterator cell_primal(&cell->get_triangulation(),
+																	cell->level(),
+																	cell->index(),
+																   &scratch.dof_primal);
+
+
+
+	scratch.space_fe_values.reinit(cell_dual);
+	scratch.primal_space_fe_values.reinit(cell_primal);
 	
+	cell_dual->get_dof_indices(scratch.space_local_dof_indices);
+	cell_primal->get_dof_indices(scratch.primal_space_local_dof_indices);
+
 	auto cell_time = time.dof->begin_active();
+	auto primal_cell_time = primal.time.dof->begin_active();
 	auto endc_time = time.dof->end();
 	
 	// average the integral over time
 	const double time_scaling = 1. / (scratch.T - scratch.t0);
 
-// 	for (unsigned int n{0}; n < time.n_global_active_cells; ++n)
 	unsigned int n;
-	for ( ; cell_time != endc_time; ++cell_time) {
+	for ( ; cell_time != endc_time; ++cell_time, ++cell_primal) {
 		n=cell_time->index();
 		copydata.vi_Jei_vector[n] = 0;
 		
@@ -352,63 +398,53 @@ void Assembler<dim>::local_assemble_cell(
 				scratch.space_local_dof_indices[i]
 				+ scratch.time_local_dof_indices[ii]*space.dof->n_dofs();
 		}
-		
-		// assemble: volume
+
+		// assemble:volume
 		scratch.time_fe_values.reinit(cell_time);
+		scratch.primal_time_fe_values.reinit(primal_cell_time);
+
 		for (unsigned int qt{0}; qt < scratch.time_fe_values.n_quadrature_points; ++qt) {
-			function.viscosity->set_time(scratch.time_fe_values.quadrature_point(qt)[0]);
-			
-			for (unsigned int face = 0; face < dealii::GeometryInfo<dim>::faces_per_cell; ++face) {
-				if (cell->face(face)->at_boundary() &&
-					cell->face(face)->boundary_id() == fluid::types::space::boundary_id::prescribed_obstacle)
-				{
-					scratch.space_fe_face_values.reinit(cell, face);
-					for (unsigned int q{0}; q < scratch.space_fe_face_values.n_quadrature_points; ++q) {
-						scratch.viscosity = function.viscosity->value(
-							scratch.space_fe_face_values.quadrature_point(q),0
-						);
 
-						for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
-							scratch.space_grad_v[k] =
-								scratch.space_fe_face_values[convection].gradient(k,q);
-							scratch.space_p[k] =
-								scratch.space_fe_face_values[pressure].value(k,q);
-						}
+			for ( unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
 
-						dealii::Tensor<2, dim> sigma_fluid;
-						dealii::Tensor<2, dim> pI;
+				for ( unsigned int k{0} ; k < space.fe->dofs_per_cell ; ++k) {
+					scratch.space_grad_phi[k] =
+							scratch.space_fe_values[convection].gradient(k,q);
 
-						for (unsigned int ii{0}; ii < time.fe->dofs_per_cell; ++ii)
-						for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i) {
-							// reset all values to zero
-							sigma_fluid.clear();
-							pI.clear();
+ 				}for ( unsigned int k{0} ; k <primal. space.fe->dofs_per_cell ; ++k) {
+					scratch.primal_space_grad_phi[k] =
+							scratch.primal_space_fe_values[convection].gradient(k,q);
+ 				}
+				scratch.primal_space_grad_v = 0;
 
-							for (unsigned int k{0}; k < dim; ++k)
-								pI[k][k] = scratch.space_p[i];
+				for (unsigned int ii{0} ; ii < primal.time.fe->dofs_per_cell; ++ii)
+					for (unsigned int i{0} ; i < primal.space.fe->dofs_per_cell ; ++i){
+						// correct ST solution vector entry
+						double u_i_ii = (*_u)[
+							scratch.primal_space_local_dof_indices[i]
+								// time offset
+								+ primal.space.dof->n_dofs() *
+								   (n * primal.time.fe->dofs_per_cell)
+								// local in time dof
+								+ primal.space.dof->n_dofs() * ii
+								]*scratch.primal_time_fe_values.shape_value(ii,qt);;
 
-							sigma_fluid = -pI + scratch.viscosity * scratch.space_grad_v[i];
-							if (symmetric_stress)
-							{
-								sigma_fluid += scratch.viscosity * transpose(scratch.space_grad_v[i]);
-							}
-							const dealii::Tensor<1, dim> drag_lift_value = -1.0 * sigma_fluid * scratch.space_fe_face_values.normal_vector(q);
-
-							copydata.vi_Jei_vector[n](
-								i + ii*space.fe->dofs_per_cell) +=
-								time_scaling *
-								20. * // valid for 2D-2 and 2D-3
-								(
-									drag_lift_value[0]
-										* scratch.time_fe_values.shape_value(ii,qt) *
-
-									scratch.space_fe_face_values.JxW(q)
-										* scratch.time_fe_values.JxW(qt)
-								)
-							;
-						}
-					}
+						// grad v
+						scratch.primal_space_grad_v += u_i_ii * scratch.primal_space_grad_phi[i];
 				}
+
+				scratch.curl_u = (scratch.primal_space_grad_v[1][0])-(scratch.primal_space_grad_v[0][1]);
+				for (unsigned int ii{0} ; ii < time.fe->dofs_per_cell; ++ii)
+				for (unsigned int i{0} ; i < space.fe->dofs_per_cell ; ++i){
+					scratch.curl_phi = (scratch.space_grad_phi[i][1][0]-scratch.space_grad_phi[i][0][1]);
+
+					copydata.vi_Jei_vector[n](
+							i + ii*space.fe->dofs_per_cell)+=
+									time_scaling *2.*scratch.curl_u*scratch.curl_phi *
+									scratch.space_fe_values.JxW(q)
+										* scratch.time_fe_values.JxW(qt);
+				}
+
 			}
 		} // t_q
 	}
@@ -417,7 +453,7 @@ void Assembler<dim>::local_assemble_cell(
 /// Copy local assembly to global matrix.
 template<int dim>
 void Assembler<dim>::copy_local_to_global_cell(
-	const Assembly::CopyData::Je_MeanDragAssembly<dim> &copydata) {
+	const Assembly::CopyData::Je_MeanVorticityAssembly<dim> &copydata) {
 	Assert(copydata.vi_Jei_vector.size(), dealii::ExcNotInitialized());
 	Assert(
 		(copydata.vi_Jei_vector.size() == copydata.local_dof_indices.size()),
@@ -435,4 +471,4 @@ void Assembler<dim>::copy_local_to_global_cell(
 
 }}}}}
 
-#include "ST_Dual_MeanDragAssembly.inst.in"
+#include "ST_Dual_MeanVorticityAssembly.inst.in"

@@ -11,7 +11,7 @@ subsection Fluid Problem Specification
     set symmetric stress = false
     
     # Which projection? none, H1 or L2
-    set primal projection type = none
+    set primal projection type = H1
     set dual projection type = none #not implmented yet!!
         
     # primal problem: convection-pressure : [b; p]^T
@@ -74,20 +74,20 @@ subsection Fluid Mesh Specification
     
     ############################################################################
     # Global refinement of the initial mesh
-    set global refinement = 2
+    set global refinement = 7
 end
 
 subsection Fluid Time Integration
     set initial time   = 0.00
     set final time     = 8.0
-    set time step size = 0.8
+    set time step size = 0.0125
     set global refinement = 0
     set maximum number of intervals per slab = 1
 end
 
 subsection Reference Values
   set mean vorticity stokes = 0.
-  set mean vorticity navier-stokes = 0.
+  set mean vorticity navier-stokes = 5.1363122262850493e+02
 end
 subsection Newton
     set max steps = 60
@@ -99,11 +99,11 @@ end
 
 subsection DWR
 	set calculate functionals = mean_vorticity
-    set refine and coarsen spacetime strategy = global #global_space #adaptive #adaptive #  # global_space #global_time #
+    set refine and coarsen spacetime strategy = global adaptive ##global_space #adaptive #  # global_space #global_time #
 	
     set solver control in use = true
     set solver control reduction mode = true
-    set solver control max iterations = 1 #3
+    set solver control max iterations = 7 #3
     set replace linearization points = true
     set replace weights = false
     
@@ -122,7 +122,7 @@ subsection DWR
     
     # time strategy: global, fixed_number or fixed_fraction
     set refine and coarsen time strategy = fixed_number 
-    set refine and coarsen time top fraction = 0.75
+    set refine and coarsen time top fraction = 0.3
 end
 
 subsection Parameter Specification
@@ -149,7 +149,7 @@ subsection Parameter Specification
     # Boundary value function
     set convection dirichlet boundary function = Convection_Parabolic_Inflow_1_sin
     #                                             scaling profile
-    set convection dirichlet boundary options  = "20.0"
+    set convection dirichlet boundary options  = "10.0"
     
     set convection neumann boundary function = ZeroTensorFunction
     set convection neumann boundary options  = ""

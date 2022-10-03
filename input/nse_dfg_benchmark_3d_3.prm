@@ -81,7 +81,7 @@ end
 
 subsection Fluid Time Integration
     set initial time   = 0.0
-    set final time     = 8.0
+    set final time     = 3.0
     set time step size = 1.0 #0.0015625
     set global refinement = 0
     set maximum number of intervals per slab = 1
@@ -116,19 +116,19 @@ subsection DWR
     ############################
     # for ADAPTIVE refinement: #
     ############################
-    set goal_type = mean_drag
+    set goal type = mean_drag
     
     # space strategy: global, fixed_number, fixed_fraction or RichterWick
     set refine and coarsen space strategy = fixed_fraction # RichterWick #
-    set refine and coarsen space top fraction1 = 0.15
-    set refine and coarsen space top fraction2 = 0.15
+    set refine and coarsen space top fraction1 = 0.4
+    set refine and coarsen space top fraction2 = 0.4
     set refine and coarsen space bottom fraction = 0.0
     set refine and coarsen space max growth factor n_active_cells = 4
     set refine and coarsen space riwi alpha = 1.1
     
     # time strategy: global, fixed_number or fixed_fraction
     set refine and coarsen time strategy = fixed_number 
-    set refine and coarsen time top fraction = 0.7
+    set refine and coarsen time top fraction = 0.4
 end
 
 subsection Parameter Specification

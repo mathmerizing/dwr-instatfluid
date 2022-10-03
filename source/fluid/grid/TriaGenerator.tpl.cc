@@ -429,8 +429,6 @@ generate(
 			grid_out.write_msh(backward_facing_step_tria, output_msh);
 			output_msh.close();
 			
-// 			// sync all processes
-// 			MPI_Barrier(Grid<dim>::mpi_comm);
 			////////////////////////////////////////////////////////////////////
 		}
 		

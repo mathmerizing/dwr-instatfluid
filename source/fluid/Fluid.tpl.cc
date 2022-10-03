@@ -66,7 +66,12 @@ using NewtonRHSAssembler = fluidrhs::spacetime::Operator::Assembler<dim>;
 
 #include <fluid/assembler/ST_Dual_MeanDragAssembly.tpl.hh>
 template <int dim>
-using Je_MeanDrag_Assembler = goal::spacetime::Operator::Assembler<dim>;
+using Je_MeanDrag_Assembler = goal::mean::drag::spacetime::Operator::Assembler<dim>;
+
+
+#include <fluid/assembler/ST_Dual_MeanVorticityAssembly.tpl.hh>
+template <int dim>
+using Je_MeanVorticity_Assembler = goal::mean::vorticity::spacetime::Operator::Assembler<dim>;
 
 #include <fluid/assembler/ST_Dual_FinalValueAssembly.tpl.hh>
 template <int dim>
@@ -296,21 +301,15 @@ run() {
 	if ( !parameter_set->dwr.goal.type.compare("mean_drag")){
 		DTM::pout << "mean drag coefficient" << std::endl;
 		AssertThrow(parameter_set->dwr.functional.mean_drag,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
-	}
-
-	if ( !parameter_set->dwr.goal.type.compare("mean_lift")){
+	} else if ( !parameter_set->dwr.goal.type.compare("mean_lift")){
 		AssertThrow(false,dealii::ExcNotImplemented());
 		DTM::pout << "mean lift coefficient" << std::endl;
 		AssertThrow(parameter_set->dwr.functional.mean_lift,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
-	}
-
-	if ( !parameter_set->dwr.goal.type.compare("mean_pdiff")){
+	} else if ( !parameter_set->dwr.goal.type.compare("mean_pdiff")){
 		AssertThrow(false,dealii::ExcNotImplemented());
 		DTM::pout << "mean pressure difference" << std::endl;
 		AssertThrow(parameter_set->dwr.functional.mean_pdiff,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
-	}
-
-	if ( !parameter_set->dwr.goal.type.compare("mean_vorticity")){
+	} else if ( !parameter_set->dwr.goal.type.compare("mean_vorticity")){
 		DTM::pout << "mean vorticity" << std::endl;
 		AssertThrow(parameter_set->dwr.functional.mean_vorticity,dealii::ExcMessage("You want to refine based on a functional that is not calculated, aborting!"));
 	}
@@ -479,13 +478,13 @@ run() {
 //			dual_sort_xdmf_by_time(dwr_loop);
 //			eta_sort_xdmf_by_time(dwr_loop);
 //		}
-//
+
 //		// error estimation
 //		compute_effectivity_index();
 
 		// compute the number of primal and dual space-time dofs
 		unsigned long int n_primal_st_dofs = 0;
-//		unsigned long int n_dual_st_dofs   = 0;
+		unsigned long int n_dual_st_dofs   = 0;
 
 		auto slab{grid->slabs.begin()};
 		auto ends{grid->slabs.end()};
@@ -1736,6 +1735,8 @@ primal_do_forward_TMS(
 	// resetting the goal functionals
 	error_estimator.goal_functional.fem.mean_drag = 0.;
 	error_estimator.goal_functional.fem.mean_lift = 0.;
+	error_estimator.goal_functional.fem.mean_pdiff = 0.;
+	error_estimator.goal_functional.fem.mean_vorticity = 0.;
 	
 	////////////////////////////////////////////////////////////////////////////
 	// grid: init slab iterator to first space-time slab: Omega x I_1
@@ -1926,7 +1927,9 @@ primal_do_forward_TMS(
 //			primal.um_projected->reinit(slab->space.primal.fe_info->dof->n_dofs());
 //			*primal.um_projected = 0.;
 			auto un_rel = std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
-			un_rel->reinit(*slab->space.primal.fe_info->locally_owned_dofs,*slab->space.primal.fe_info->locally_relevant_dofs,mpi_comm);
+			un_rel->reinit(*std::prev(slab)->space.primal.fe_info->locally_owned_dofs,
+					*std::prev(slab)->space.primal.fe_info->locally_relevant_dofs,
+					mpi_comm);
 			*un_rel = *primal.un;
 
 
@@ -2021,6 +2024,12 @@ primal_do_forward_TMS(
 		primal.Mum = nullptr;
 		
 		grid->clear_primal_on_slab(slab);
+
+		if ( n > 1){
+			std::prev(u)->x[0]->clear();
+			std::prev(um)->x[0]->clear();
+			std::prev(vort)->x[0]->clear();
+		}
 
 		////////////////////////////////////////////////////////////////////////
 		// prepare next I_n slab problem:
@@ -2711,7 +2720,8 @@ template<int dim>
 void
 Fluid<dim>::
 dual_assemble_rhs(
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab
+	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab,
+	std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > u
 ) {
 	// NOTE: for nonlinear goal functionals, we need also the primal solution u for this function
 
@@ -2768,7 +2778,7 @@ dual_assemble_rhs(
 	);
 	*dual.Je = 0.;
 
-	{
+	if(!parameter_set->dwr.goal.type.compare("mean_drag")){
 		Je_MeanDrag_Assembler<dim> Je_assembler;
 
 		Assert(function.viscosity.use_count(), dealii::ExcNotInitialized());
@@ -2786,6 +2796,19 @@ dual_assemble_rhs(
 
 		DTM::pout << " (done)" << std::endl;
 	}
+	else if (!parameter_set->dwr.goal.type.compare("mean_vorticity")){
+		Je_MeanVorticity_Assembler<dim> Je_assembler;
+		DTM::pout << "dwr-instatfluid: assemble space-time slab Je_meanviscosity vector...";
+		Je_assembler.assemble(
+			dual.Je,
+			slab,
+			u,
+			parameter_set->time.fluid.t0,
+			parameter_set->time.fluid.T
+		);
+
+		DTM::pout << " (done)" << std::endl;
+ 	}
 }
 
 
@@ -3112,7 +3135,9 @@ dual_do_backward_TMS(
 			Assert(dual.zm.use_count(), dealii::ExcNotInitialized());
 
 			auto zm_rel = std::make_shared< dealii::TrilinosWrappers::MPI::Vector> ();
-			zm_rel->reinit(*slab->space.dual.fe_info->locally_owned_dofs,*slab->space.dual.fe_info->locally_relevant_dofs,mpi_comm);
+			zm_rel->reinit(*std::next(slab)->space.dual.fe_info->locally_owned_dofs,
+					       *std::next(slab)->space.dual.fe_info->locally_relevant_dofs,
+						   mpi_comm);
 
 			*zm_rel = *dual.zm;
 			// for n < N interpolate between two (different) spatial meshes
@@ -3141,7 +3166,7 @@ dual_do_backward_TMS(
 		{
 			dual_assemble_system(slab, u->x[0]);
 		}
-		dual_assemble_rhs(slab);
+		dual_assemble_rhs(slab, u->x[0]);
 
 		// solve slab problem (i.e. apply boundary values and solve for z0)
 		dual_solve_slab_problem(slab, z);
@@ -4068,15 +4093,22 @@ compute_functional_values(
 
 			if (parameter_set->dwr.functional.mean_vorticity) {
 				//Compute vorticity
-				compute_vorticity(un_rel, slab, vortn);
+				double mv1 = compute_vorticity(un_rel, slab, vortn);
 //				std::cout << ii << " vorticity vector" << std::endl;
+				vortn->compress(dealii::VectorOperation::add);
+				double mv2 = dealii::Utilities::MPI::sum(mv1, mpi_comm);
 //				vortn->print(std::cout);
 				//Compute L2 Norm
-//				*vortn_rel = *vortn;
-				double mean_vort = vortn->l2_norm();
-				mean_vort=std::pow(mean_vort,2);
-				vorticity_values.push_back(std::make_tuple(tn, mean_vort));
-				error_estimator.goal_functional.fem.mean_vorticity += scaling * mean_vort * fe_values_time.JxW(ii);
+				*vortn_rel = *vortn;
+//				double mean_vort = vortn->l2_norm();
+//				double mean_vort2=std::pow(mean_vort,2);
+//				std::cout << "in process calc: " << mv1
+//						  << "\n L2-Norm: " <<mean_vort
+//						  << "\n L2_Norm^2: " << mean_vort2
+//						  << std::endl;
+
+ 				vorticity_values.push_back(std::make_tuple(tn, mv2));
+				error_estimator.goal_functional.fem.mean_vorticity += scaling * mv2 * fe_values_time.JxW(ii);
 				//Save result to storage for output
 				dealii::IndexSet::ElementIterator lri = slab->space.vorticity.fe_info->locally_owned_dofs->begin();
 				dealii::IndexSet::ElementIterator lre = slab->space.vorticity.fe_info->locally_owned_dofs->end();
@@ -4090,7 +4122,7 @@ compute_functional_values(
 					  	  (cell_time->index() * slab->time.vorticity.fe_info->fe->dofs_per_cell)
 					  // local in time dof
 					  + slab->space.vorticity.fe_info->dof->n_dofs() * ii
-					  ] = (*vortn)[*lri];
+					  ] = (*vortn_rel)[*lri];
 				}
 			}
 		} //time dofs
@@ -4347,7 +4379,7 @@ compute_drag_lift_tensor(
 	}
 }
 template<int dim>
-void
+double
 Fluid<dim>::
 compute_vorticity(
 		std::shared_ptr< dealii::TrilinosWrappers::MPI::Vector > un,
@@ -4364,7 +4396,7 @@ compute_vorticity(
 	);
 
 	dealii::FEValues<dim> fe_values_vort(*slab->space.vorticity.fe_info->fe,quadrature_formula, dealii::update_values |
-											dealii::update_quadrature_points);
+											dealii::update_quadrature_points | dealii::update_JxW_values);
 	dealii::IndexSet loe = vortn->locally_owned_elements();
 
 	const unsigned int dofs_per_cell = slab->space.vorticity.fe_info->fe->dofs_per_cell;
@@ -4375,7 +4407,8 @@ compute_vorticity(
 		n_q_points, std::vector<dealii::Tensor<1,dim>>(dim+1)
 	);
 
-
+	double sqrd_mag = 0.;
+	double curl_u;
 	typename dealii::DoFHandler<dim>::active_cell_iterator
 	  cell_primal = slab->space.primal.fe_info->dof->begin_active(),
 	  endc = slab->space.primal.fe_info->dof->end(),
@@ -4390,13 +4423,16 @@ compute_vorticity(
 			cell_vort->get_dof_indices(local_dof_indices);
 			for (unsigned int k = 0 ; k < dofs_per_cell ; k++){
 				unsigned int dof_ind = local_dof_indices[k];
-				if (loe.is_element(dof_ind)){
 					for ( unsigned int q = 0 ; q < n_q_points; q++){
-						(*vortn)[dof_ind] += (solution_grads[q][1][0]-solution_grads[q][0][1])*fe_values_vort.shape_value(k,q);
+						curl_u = (solution_grads[q][1][0]-solution_grads[q][0][1])
+								*fe_values_vort.shape_value(k,q);
+						(*vortn)[dof_ind] += curl_u;
+						sqrd_mag+= curl_u*curl_u*fe_values_vort.JxW(q);
 					}
-				}
 			}
 		}
+
+	return sqrd_mag;
 }
 ////////////////////////////////////////////////////////////////////////////////
 // error estimation and space-time grid adaption
@@ -4498,9 +4534,22 @@ compute_effectivity_index() {
 	const double value_eta = std::abs(value_eta_k + value_eta_h);
 
 	// true error of FEM simulation in goal functional
-	double reference_goal_functional = error_estimator.goal_functional.reference.mean_drag;
+	double reference_goal_functional=0.;
+	double fem_goal_functional=0.;
 
-	const double fem_goal_functional = error_estimator.goal_functional.fem.mean_drag;
+	if ( !parameter_set->dwr.goal.type.compare("mean_drag")){
+		reference_goal_functional= error_estimator.goal_functional.reference.mean_drag;
+		fem_goal_functional= error_estimator.goal_functional.fem.mean_drag;
+	} else if ( !parameter_set->dwr.goal.type.compare("mean_lift")){
+		reference_goal_functional= error_estimator.goal_functional.reference.mean_lift;
+		fem_goal_functional= error_estimator.goal_functional.fem.mean_lift;
+	} else if ( !parameter_set->dwr.goal.type.compare("mean_pdiff")){
+		reference_goal_functional= error_estimator.goal_functional.reference.mean_pdiff;
+		fem_goal_functional= error_estimator.goal_functional.fem.mean_pdiff;
+	} else if ( !parameter_set->dwr.goal.type.compare("mean_vorticity")){
+		reference_goal_functional= error_estimator.goal_functional.reference.mean_vorticity;
+		fem_goal_functional= error_estimator.goal_functional.fem.mean_vorticity;
+	}
 	const double true_error = std::abs(reference_goal_functional - fem_goal_functional);
 
 	// effectivity index
