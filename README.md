@@ -37,7 +37,7 @@ make
 Remark. DTM++ is free software.
 
 If you write scientific publication using results obtained by reusing parts
-of DTM++, or specifically DTM++/dwr-navier_stokes, especially by reusing the
+of DTM++, or specifically DTM++/dwr-instatfluid, especially by reusing the
 datastructures, algorithms and/or supporting parameter/data input/output
 classes, you are willing to cite the following three publications:
 
