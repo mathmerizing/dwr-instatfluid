@@ -32,7 +32,7 @@ make
     * Julian Roth (roth@ifam.uni-hannover.de)
     * Jan Philipp Thiele (thiele@ifam.uni-hannover.de)
 * Contributors
-    * Marius P. Bruchhaeuser (bruchhaeuser@hsu-hamburg.de)
+    * Marius P. Bruchhäuser (bruchhaeuser@hsu-hamburg.de)
 
 Remark. DTM++ is free software.
 
@@ -43,11 +43,11 @@ classes, you are willing to cite the following three publications:
 
 - J. Roth, J.P. Thiele, U. Köcher and T. Wick. "Tensor-Product Space-Time Goal-Oriented Error Control and Adaptivity With Partition-of-Unity Dual-Weighted Residuals for Nonstationary Flow Problems" Computational Methods in Applied Mathematics, 2023. https://doi.org/10.1515/cmam-2022-0200
 
-- U. Koecher, M.P. Bruchhaeuser, M. Bause: "Efficient and scalable
+- U. Köcher, M.P. Bruchhäuser, M. Bause: "Efficient and scalable
   data structures and algorithms for goal-oriented adaptivity of space-time
   FEM codes", SoftwareX 10(July-December):1-6, 100239, 2019.
 
-- U. Koecher: "Variational space-time methods for the elastic wave equation
+- U. Köcher: "Variational space-time methods for the elastic wave equation
   and the diffusion equation", Ph.D. thesis,
   Department of Mechanical Engineering of the Helmut-Schmidt-University,
   University of the German Federal Armed Forces Hamburg, Germany, p. 1-188,
