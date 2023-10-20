@@ -49,7 +49,13 @@
  * If you write scientific publication using results obtained by reusing parts
  * of DTM++, or specifically DTM++/dwr-fluid, especially by reusing the
  * datastructures, algorithms and/or supporting parameter/data input/output
- * classes, you are willing to cite the following two publications:
+ * classes, you are willing to cite the following three publications:
+ * - J. Roth, J.P. Thiele, U. K&ouml;cher, T. Wick: "Tensor-Product Space-Time 
+ *   Goal-Oriented Error Control and Adaptivity With Partition-of-Unity 
+ *   Dual-Weighted Residuals for Nonstationary Flow Problems", 
+ *   Computational Methods in Applied Mathematics, 2023.
+ *   https://doi.org/10.1515/cmam-2022-0200
+ *
  * - U. K&ouml;cher, M.P. Bruchh&auml;user, M. Bause: "Efficient and scalable
  *   data structures and algorithms for goal-oriented adaptivity of space-time
  *   FEM codes", SoftwareX 10(July-December):1-6, 100239, 2019.
@@ -122,16 +128,6 @@ int main(int argc, char *argv[]) {
   const unsigned int NumProc(
       dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD));
 
-  ////////////////////////////////////////////////////////////////////////////
-  // Restrict usage of dwr-fluid to a single process only.
-  // NOTE: we use the deal.II MPI framework to control non-distributed
-  //       threading facilities precisely and to give a general approach
-  //       which can be extended to a MPI-version.
-  //
-
-  //	AssertThrow(NumProc == 1, dealii::ExcMessage("MPI mode not
-  //supported."));
-
   //
   ////////////////////////////////////////////////////////////////////////////
 
@@ -146,14 +142,14 @@ int main(int argc, char *argv[]) {
     DTM::pout << "****************************************"
               << "****************************************" << std::endl;
 
-    DTM::pout << "DTM++/dwr-fluid" << std::endl
+    DTM::pout << "DTM++/dwr-instatfluid" << std::endl
               << "Hej, here is process " << MyPID + 1 << " from " << NumProc
               << std::endl;
 
     // Check input arguments
     AssertThrow(!(argc < 2),
                 dealii::ExcMessage(std::string(
-                    "===>\tUSAGE: ./dwr-fluid <Input_Parameter_File.prm>")));
+                    "===>\tUSAGE: ./dwr-instatfluid <Input_Parameter_File.prm>")));
 
     // Check if the given input parameter file can be opened
     const std::string input_parameter_filename(argv[1]);
@@ -189,7 +185,7 @@ int main(int argc, char *argv[]) {
 
     // select simulator
     {
-      DTM::pout << "dwr-fluid solver: primal cG(p)-dG(r)" << std::endl;
+      DTM::pout << "dwr-instatfluid solver: primal cG(p)-dG(r)" << std::endl;
 
       switch (dimension) {
         case 2: {

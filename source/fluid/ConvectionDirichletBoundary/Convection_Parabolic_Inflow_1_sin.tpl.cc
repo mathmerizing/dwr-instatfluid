@@ -3,8 +3,8 @@
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
  *
- * @Date 2022-09-27, Time-dependent inflow, JR
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-09-27, Time-dependent inflow, JR
+ * @date 2022-01-14, Fluid, JPT
  * @date 2019-11-12, UK
  * @date 2016-05-26, UK
  * @date 2016-05-09, UK

@@ -3,7 +3,7 @@
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
  *
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-01-14, Fluid, JPT
  * @date 2019-11-18, Stokes, UK
  * @date 2019-01-18, eG, UK
  * @date 2018-06-20, deal.II v9.0, UK

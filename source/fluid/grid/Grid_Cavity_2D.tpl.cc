@@ -6,7 +6,7 @@
  * @author Marius Paul Bruchhaeuser (MPB)
  * @author Jan Philipp Thiele (JPT)
  *
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-01-14, Fluid, JPT
  * @date 2021-11-05, Schaefer/Turek, UK
  * @date 2021-09-27, Schaefer/Turek, JR
  * @date 2020-11-25, Schaefer/Turek, JPT

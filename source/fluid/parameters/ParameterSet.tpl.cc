@@ -2,11 +2,11 @@
  * @file   ParameterSet.cc
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
- * @uathor Julian Roth (JR)
+ * @author Julian Roth (JR)
  *
- * @Date 2022-04-26, high/low order problem, JR
- * @Date 2022-01-17, Added Newton parameters, JPT
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-04-26, high/low order problem, JR
+ * @date 2022-01-17, Added Newton parameters, JPT
+ * @date 2022-01-14, Fluid, JPT
  * @date 2019-11-06, stokes, UK
  * @date 2018-09-14, unified to other DTM programs, UK
  * @date 2018-07-25, new parameters dwr, UK

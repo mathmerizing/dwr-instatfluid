@@ -587,26 +587,8 @@ void Assembler<dim>::local_assemble_cell(
       Assert((next_cell_time != endc_time),
              dealii::ExcMessage(
                  "next time cell is invalid. This is an internal error."));
-      //
-      //			next_cell_time->get_dof_indices(
-      //				scratch.time_local_dof_indices_neighbor
-      //			);
-      //
+
       scratch.time_fe_face_values_neighbor.reinit(next_cell_time);
-      //
-      //			copydata.ve_ui_matrix[n] = 0;
-      //
-      // 			// dof mapping
-      // 			for (unsigned int i{0}; i <
-      // space.fe->dofs_per_cell; ++i) { 			for (unsigned int ii{0}; ii <
-      // time.fe->dofs_per_cell; ++ii) { 				copydata.local_dof_indices_neighbor[n][
-      // 					i + ii*space.fe->dofs_per_cell
-      // 				] =
-      // 					scratch.space_local_dof_indices[i]
-      // 					+
-      // scratch.time_local_dof_indices_neighbor[ii]
-      // 						* space.dof->n_dofs();
-      // 			}}
 
       // assemble: face (w^+ * z^-)
       for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points;
@@ -615,10 +597,6 @@ void Assembler<dim>::local_assemble_cell(
           for (unsigned int jj{0}; jj < time.fe->dofs_per_cell; ++jj)
             for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
               for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-                // 					copydata.ve_ui_matrix[n](
-                // 						i +
-                // ii*space.fe->dofs_per_cell, 						j + jj*space.fe->dofs_per_cell 					)
-                // -=
                 copydata.local_matrix(
                     i + ii * space.fe->dofs_per_cell + n * element_offset,
                     j + jj * space.fe->dofs_per_cell +
@@ -643,40 +621,6 @@ void Assembler<dim>::copy_local_to_global_cell(
     const Assembly::CopyData::FluidAssembly<dim> &copydata) {
   spacetime.constraints->distribute_local_to_global(
       copydata.local_matrix, copydata.new_local_dof_indices, *L);
-  //
-  //	Assert(copydata.vi_ui_matrix.size(), dealii::ExcNotInitialized());
-  //	Assert(
-  //		(copydata.vi_ui_matrix.size()-1 ==
-  //copydata.ve_ui_matrix.size()), 		dealii::ExcInvalidState()
-  //	);
-  //	Assert(
-  //		copydata.vi_ui_matrix.size() ==
-  //copydata.local_dof_indices.size(), 		dealii::ExcNotInitialized()
-  //	);
-  //	Assert(
-  //		copydata.ve_ui_matrix.size() ==
-  //copydata.local_dof_indices_neighbor.size(), 		dealii::ExcNotInitialized()
-  //	);
-  //
-  //	for (unsigned int n{0}; n < copydata.vi_ui_matrix.size(); ++n) {
-  //		// volume ((w,z))_Q + trace (jump) (w^+,z^+)_Omega
-  //		spacetime.constraints->distribute_local_to_global(
-  //			copydata.vi_ui_matrix[n],
-  //			copydata.local_dof_indices[n],
-  //			copydata.local_dof_indices[n],
-  //			*L
-  //		);
-  //	}
-  //
-  //	for (unsigned int n{0}; n < copydata.ve_ui_matrix.size(); ++n) {
-  //		// trace (jump) - (w^+,z^-)_Omega
-  //		spacetime.constraints->distribute_local_to_global(
-  //			copydata.ve_ui_matrix[n],
-  //			copydata.local_dof_indices[n],
-  //			copydata.local_dof_indices_neighbor[n],
-  //			*L
-  //		);
-  //	}
 }
 
 }  // namespace Operator

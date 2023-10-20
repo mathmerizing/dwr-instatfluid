@@ -566,18 +566,9 @@ void ErrorEstimator<dim>::estimate_on_slab(
     //
     // inside slab: set primal_um_on_tm / high_u_kh_m_on_tm / high_u_k_m_on_tm
     if (cell_time->index() >= 1) {
-      //			Assert(primal.um_on_tn.use_count(),
-      //dealii::ExcNotInitialized()); 			Assert( 				primal.um_on_tn->size() ==
-      //slab->space.primal.fe_info->dof->n_dofs(), 				dealii::ExcMessage(
-      //					"primal.um_on_tn->size() !=
-      //slab->space.primal.fe_info->dof->n_dofs()"
-      //				)
-      //			);
-
+      
       Assert(primal_um_on_tm.use_count(), dealii::ExcNotInitialized());
       Assert(primal_um_on_tm->size(), dealii::ExcNotInitialized());
-
-      //			primal_um_on_tm = *primal.um_on_tn;
 
       // compute high_u_kh_m_on_tm and high_u_k_m_on_tm from primal_um_on_tm
       // interpolate (space): low -> high
@@ -727,66 +718,6 @@ void ErrorEstimator<dim>::estimate_on_slab(
     // jump in t_n (either between next cell_time or (next slab or z_T))
     //
     // NOTE: only needed for the adjoint error estimator
-
-    // TODO: Are the jump terms correct with more than one time interval per
-    // slab?
-    //		////////////////////////////////////////////////////////////////////
-    //		// evaluate solution u(t_n) on this cell_time
-    //		// for next cell_time or next slab
-    //		//
-    //
-    //		Assert(primal.um_on_tn.use_count(),
-    //dealii::ExcNotInitialized()); 		if
-    //(slab->space.primal.fe_info->dof->n_dofs() != primal.um_on_tn->size()) {
-    //			primal.um_on_tn->reinit(
-    //					*slab->space.primal.fe_info->locally_owned_dofs,
-    //					*slab->space.primal.fe_info->locally_relevant_dofs,
-    //					mpi_comm);
-    //		}
-    //
-    //		tmp_owned->reinit(
-    //				*slab->space.primal.fe_info->locally_owned_dofs,
-    //				mpi_comm);
-    //
-    //		std::cout << "assemble jump" << std::endl;
-    //		*primal.um_on_tn = 0;
-    //		{
-    //			dealii::FEValues<1> fe_face_values_time(
-    //				*slab->time.primal.fe_info->mapping,
-    //				*slab->time.primal.fe_info->fe,
-    //				dealii::QGaussLobatto<1>(2),
-    //				dealii::update_values
-    //			);
-    //
-    //			{
-    //				fe_face_values_time.reinit(primal_cell_time);
-    //
-    //				// evaluate solution for t_n of time cell
-    //				for (unsigned int jj{0};
-    //					jj < slab->time.primal.fe_info->fe->dofs_per_cell;
-    //++jj){
-    //
-    //					dealii::IndexSet::ElementIterator lri =
-    //							slab->space.primal.fe_info->locally_owned_dofs->begin();
-    //
-    //					dealii::IndexSet::ElementIterator lre =
-    //							slab->space.primal.fe_info->locally_owned_dofs->end();
-    //
-    //				for ( ; lri != lre ; lri++ ){
-    //						(*tmp_owned)[*lri] +=
-    //(*u->x[0])[ 							*lri
-    //							// time offset
-    //							+ slab->space.primal.fe_info->dof->n_dofs()
-    //* 								(primal_cell_time->index() *
-    //slab->time.primal.fe_info->fe->dofs_per_cell)
-    //							// local in time dof
-    //							+ slab->space.primal.fe_info->dof->n_dofs() *
-    //jj 						] * fe_face_values_time.shape_value(jj,1);
-    //					}
-    //				}
-    //				*primal.um_on_tn = *tmp_owned;
-    //			}
-    //		}
   }  // for cell_time
 
   error_estimator.x_h->compress(dealii::VectorOperation::add);

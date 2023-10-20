@@ -6,9 +6,9 @@
  * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
  *
- * @Date 2022-04-25, high/low order, JR
- * @Date 2022-01-19, Newtonsolver working for Stokes, JPT
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-04-25, high/low order, JR
+ * @date 2022-01-19, Newtonsolver working for Stokes, JPT
+ * @date 2022-01-14, Fluid, JPT
  * @date 2021-11-22, ST hanging nodes, UK
  * @date 2021-11-09, dG(r) and multiple time dofs, UK
  * @date 2021-11-05, dynamics for stokes, JR, UK
@@ -45,10 +45,6 @@
 // primal
 #include <fluid/assembler/ST_FluidAssembly.tpl.hh>
 
-// #include <fluid/assembler/ST_ForceAssembly.tpl.hh>
-// template <int dim>
-// using ForceAssembler = force::spacetime::Operator::Assembler<dim>;
-
 #include <fluid/assembler/ST_InitialValueAssembly.tpl.hh>
 template <int dim>
 using IVAssembler = initialvalue::spacetime::Operator::Assembler<dim>;
@@ -81,15 +77,6 @@ using ProjectionAssembler = projection::spacetime::Operator::Assembler<dim>;
 template <int dim>
 using ProjectionRHSAssembler =
     projectionrhs::spacetime::Operator::Assembler<dim>;
-
-// dual divergence free projection
-//#include <fluid/assembler/ST_Dual_DivFreeProjectionAssembly.tpl.hh>
-// template <int dim>
-// using DualProjectionAssembler =
-// projection::spacetime::dual::Operator::Assembler<dim>; #include
-//<fluid/assembler/ST_Dual_DivFreeProjectionRHSAssembly.tpl.hh> template <int
-// dim> using DualProjectionRHSAssembler =
-// projectionrhs::spacetime::dual::Operator::Assembler<dim>;
 
 // DEAL.II includes
 #include <deal.II/base/types.h>
@@ -798,42 +785,6 @@ void Fluid<dim>::primal_assemble_const_rhs(
 
     DTM::pout << " (done)" << std::endl;
   }
-
-  //	// ASSEMBLY SPACE-TIME OPERATOR: FORCE VECTOR
-  //////////////////////////////// 	primal.f = std::make_shared<
-  //dealii::TrilinosWrappers::MPI::Vector > ();
-  //
-  //	Assert(
-  //		slab->space.primal.fe_info->dof.use_count(),
-  //		dealii::ExcNotInitialized()
-  //	);
-  //	Assert(
-  //		slab->time.primal.fe_info->dof.use_count(),
-  //		dealii::ExcNotInitialized()
-  //	);
-  //
-  //	primal.f->reinit(
-  //		slab->space.primal.fe_info->dof->n_dofs() *
-  //slab->time.primal.fe_info->dof->n_dofs()
-  //	);
-  //	*primal.f = 0.;
-  //
-  //	{
-  //		ForceAssembler<dim> assembler;
-  //
-  //		Assert(function.fluid.force.use_count(),
-  //dealii::ExcNotInitialized()); 		assembler.set_functions( 			function.fluid.force
-  //		);
-  //
-  //		DTM::pout << "dwr-fluid: assemble space-time slab force
-  //vector..."; 		Assert(primal.f.use_count(), dealii::ExcNotInitialized());
-  //		assembler.assemble(
-  //			primal.f,
-  //			slab
-  //		);
-  //
-  //		DTM::pout << " (done)" << std::endl;
-  //	}
 }
 
 template <int dim>
@@ -1220,22 +1171,7 @@ void Fluid<dim>::primal_apply_bc(
     //       all boundary value constraints are identical, i.e.
     //       a fixed and nicely scaled value.
     //
-    double diagonal_scaling_value{1.};  // 0.};
-
-    //		for (dealii::types::global_dof_index i{0}; i < A->m(); ++i) {
-    //			if (std::abs(A->el(i,i)) > std::abs(diagonal_scaling_value))
-    //{ 				diagonal_scaling_value = A->el(i,i);
-    //			}
-    //		}
-    //
-    //		if (diagonal_scaling_value == double(0.)) {
-    //			diagonal_scaling_value = double(1.);
-    //		}
-    //
-    //		Assert(
-    //			(diagonal_scaling_value != double(0.)),
-    //			dealii::ExcInternalError()
-    //		);
+    double diagonal_scaling_value{1.};
 
     ////////////////////////////////////////////////////////////////////
     // apply boundary values:
@@ -1257,52 +1193,6 @@ void Fluid<dim>::primal_apply_bc(
       (*b)[boundary_value.first] =
           diagonal_scaling_value * boundary_value.second;
     }
-
-    // 			////////////////////////////////////////////////////////////////////
-    // 			// eliminate constrained column entries
-    // 			//
-    // 			// NOTE: this is quite expensive, but helps iterative
-    // lss
-    // 			//       since the boundary value entries are shifted to
-    // the
-    // 			//       right hand side.
-    // 			//
-    // 			// NOTE: there is no symmetry assumption on the sparsity
-    // pattern,
-    // 			//       which is necessary for space-time operators
-    // 			//
-    // 			for (dealii::types::global_dof_index i{0}; i < A->m(); ++i)
-    // {
-    // 				// if the row i of the operator A is not
-    // constrained,
-    // 				// check if constrained columns need to be
-    // eliminated 				if (boundary_values.find(i) == boundary_values.end()) {
-    // 					// row i of A is not constrained
-    // 					auto el_in_row_i{A->begin(i)};
-    // 					auto end_el_in_row_i{A->end(i)};
-    //
-    // 					// check if a_ij needs to be eliminated
-    // 					for ( ; el_in_row_i != end_el_in_row_i; ++el_in_row_i)
-    // {
-    // 						// get iterator of a_ij
-    // 						auto boundary_value =
-    // 							boundary_values.find(el_in_row_i->column());
-    //
-    // 						// if a_ij is constrained
-    // 						if (boundary_value != boundary_values.end())
-    // {
-    // 							// shift constraint to
-    // rhs
-    // 							(*b)[i] -=
-    // 								el_in_row_i->value()*boundary_value->second;
-    //
-    // 							// eliminate a_ij
-    // 							el_in_row_i->value() =
-    // 0.;
-    // 						}
-    // 					}
-    // 				}
-    // 			}
   }
 }
 
@@ -1349,8 +1239,6 @@ void Fluid<dim>::primal_solve_slab_problem(
   DTM::pout
       << "dwr-instatfluid: apply previous solution as initial Newton guess...";
 
-  //    DTM::pout << "relev tmp" << std::endl;
-  //    primal.relevant_tmp->print(DTM::pout);
   dealii::IndexSet::ElementIterator lri =
       slab->space.primal.fe_info->locally_owned_dofs->begin();
   dealii::IndexSet::ElementIterator lre =
@@ -1364,22 +1252,12 @@ void Fluid<dim>::primal_solve_slab_problem(
     }
   }
 
-  //    primal_owned_tmp->compress(dealii::VectorOperation::insert);
-
-  //    DTM::pout << "owned tmp" << std::endl;
-  //    primal.owned_tmp->print(DTM::pout);
-
   DTM::pout << " (done)" << std::endl;
 
   DTM::pout << "dwr-instatfluid: apply bc's to initial Newton guess...";
   primal_apply_bc(initial_bc, primal.owned_tmp);
-  //    slab->spacetime.primal.constraints->distribute(
-  //		*primal.owned_tmp
-  //	);
 
   DTM::pout << " (done)" << std::endl;
-  //    primal.owned_tmp ->compress(dealii::VectorOperation::insert);
-  //    DTM::pout << "u_1^0" << std::endl;
   *u->x[0] = *primal.owned_tmp;
 
   // assemble slab problem const rhs
@@ -1436,9 +1314,6 @@ void Fluid<dim>::primal_solve_slab_problem(
     // solve linear system with direct solver
     //
     primal.iA->solve(*primal.du, *primal.b);
-    //		primal.b->print(DTM::pout);
-    //		DTM::pout << "du" << std::endl;
-    //		primal.du->print(DTM::pout);
 
     slab->spacetime.primal.constraints->distribute(*primal.du);
 
@@ -1448,8 +1323,6 @@ void Fluid<dim>::primal_solve_slab_problem(
          line_search_step++) {
       *primal.owned_tmp += *primal.du;
       *u->x[0] = *primal.owned_tmp;
-      //			DTM::pout << "u at ls step " << line_search_step
-      //<< std::endl; 		    u->x[0]->print(DTM::pout); 			u->x[0]->add(1.0,*primal.du);
 
       primal_assemble_and_construct_Newton_rhs(slab, u->x[0]);
 
@@ -1667,10 +1540,6 @@ void Fluid<dim>::primal_do_forward_TMS(const unsigned int dwr_loop, bool last) {
       // not the first slab: transfer un solution to um solution
       Assert(primal.un.use_count(), dealii::ExcNotInitialized());
 
-      //			primal.um_projected = std::make_shared<
-      //dealii::TrilinosWrappers::MPI::Vector > ();
-      //			primal.um_projected->reinit(slab->space.primal.fe_info->dof->n_dofs());
-      //			*primal.um_projected = 0.;
       auto un_rel = std::make_shared<dealii::TrilinosWrappers::MPI::Vector>();
       un_rel->reinit(
           *std::prev(slab)->space.primal.fe_info->locally_owned_dofs,
@@ -1774,12 +1643,6 @@ void Fluid<dim>::primal_do_forward_TMS(const unsigned int dwr_loop, bool last) {
       u->x[0]->clear();
       um->x[0]->clear();
     }
-
-    //		if ( n > 1){
-    //			std::prev(u)->x[0]->clear();
-    //			std::prev(um)->x[0]->clear();
-    //			std::prev(vort)->x[0]->clear();
-    //		}
 
     ////////////////////////////////////////////////////////////////////////
     // prepare next I_n slab problem:
@@ -1984,17 +1847,6 @@ void Fluid<dim>::primal_do_data_output_on_slab(
   Assert(slab->space.primal.fe_info->dof.use_count(),
          dealii::ExcNotInitialized());
   Assert(u->x[0].use_count(), dealii::ExcNotInitialized());
-
-  //	primal.data_output->set_DoF_data(
-  //		slab->space.primal.fe_info->dof,
-  //		slab->space.primal.fe_info->partitioning_locally_owned_dofs
-  //	);
-  //
-  // 	auto u_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector
-  // > (); 	u_trigger->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
-  // 					  *slab->space.primal.fe_info->locally_relevant_dofs,
-  //					  mpi_comm
-  // 	);
 
   std::ostringstream filename;
   filename << "solution-dwr_loop-" << std::setw(setw_value_dwr_loops)
@@ -2801,54 +2653,6 @@ void Fluid<dim>::dual_do_backward_TMS(const unsigned int dwr_loop, bool last) {
       std::next(u)->x[0]->clear();
       std::next(um)->x[0]->clear();
       std::next(slab)->space.primal.fe_info->dof->clear();
-
-      // TODO: some Segfault here, no idea why
-      //			// apply B. Endtmayer's post processing of the
-      //error indicators
-      //			// see https://arxiv.org/pdf/1811.07586.pdf
-      //(Figure 1) 			auto space_relevant = std::make_shared<
-      //dealii::TrilinosWrappers::MPI::Vector > (); 			auto time_relevant =
-      //std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
-      //
-      //			space_relevant ->reinit(
-      //					*std::next(slab)->spacetime.pu.locally_owned_dofs,
-      //					*std::next(slab)->spacetime.pu.locally_relevant_dofs,
-      //					mpi_comm
-      //			);
-      //			time_relevant ->reinit(
-      //					*std::next(slab)->spacetime.pu.locally_owned_dofs,
-      //					*std::next(slab)->spacetime.pu.locally_relevant_dofs,
-      //					mpi_comm
-      //			);
-      //
-      //			*space_relevant = *std::next(eta_space)->x[0];
-      //			*time_relevant = *std::next(eta_time)->x[0];
-      //
-      //			for (auto line :
-      //std::next(slab)->spacetime.pu.constraints->get_lines())
-      //			{
-      //				//go over all line entries
-      //				for (unsigned int i=0; i<std::pow(2,
-      //dim-1); ++i){ 					if
-      //(std::next(slab)->spacetime.pu.locally_owned_dofs->is_element(line.entries[i].first)){
-      //						(*std::next(eta_space)->x[0])[line.entries[i].first]
-      //						  += (1. / std::pow(2,
-      //dim-1))*(*space_relevant)[line.index];
-      //
-      //						(*std::next(eta_time)->x[0])[line.entries[i].first]
-      //						  += (1. / std::pow(2,
-      //dim-1))*(*time_relevant)[line.index];
-      //
-      //					}
-      //				}
-      //				if
-      //(std::next(slab)->spacetime.pu.locally_owned_dofs->is_element(line.index)){
-      //					(*std::next(eta_space)->x[0])[line.index]
-      //= 0.;
-      //					(*std::next(eta_time)->x[0])[line.index]
-      //= 0.;
-      //				}
-      //			}
     }
     // evaluate error on first slab
     if (n == 1) {
@@ -2857,65 +2661,6 @@ void Fluid<dim>::dual_do_backward_TMS(const unsigned int dwr_loop, bool last) {
       u->x[0]->clear();
       um->x[0]->clear();
       slab->space.primal.fe_info->dof->clear();
-
-      //			// apply B. Endtmayer's post processing of the
-      //error indicators
-      //			// see https://arxiv.org/pdf/1811.07586.pdf
-      //(Figure 1) 			auto space_relevant = std::make_shared<
-      //dealii::TrilinosWrappers::MPI::Vector > (); 			auto time_relevant =
-      //std::make_shared< dealii::TrilinosWrappers::MPI::Vector > ();
-      //
-      //			std::cout << "reiniting relevant vectors" <<
-      //std::endl; 			space_relevant ->reinit(
-      //					*slab->spacetime.pu.locally_owned_dofs,
-      //					*slab->spacetime.pu.locally_relevant_dofs,
-      //					mpi_comm
-      //			);
-      //			time_relevant ->reinit(
-      //					*slab->spacetime.pu.locally_owned_dofs,
-      //					*slab->spacetime.pu.locally_relevant_dofs,
-      //					mpi_comm
-      //			);
-      //
-      //			std::cout << "communicating estimators" <<
-      //std::endl; 			*space_relevant = *eta_space->x[0]; 			*time_relevant =
-      //*eta_time->x[0];
-      //
-      //			std::cout << "Starting B.E. postprocessing" <<
-      //std::endl; 			for (auto line : slab->spacetime.pu.constraints->get_lines())
-      //			{
-      //				std::cout << "line " << line.index << "
-      //on rank "
-      //						  <<
-      //dealii::Utilities::MPI::this_mpi_process(mpi_comm)
-      //						  << std::endl;
-      //				//go over all line entries
-      //				for (unsigned int i=0; i<std::pow(2,
-      //dim-1); ++i){ 					if (slab->spacetime.pu.locally_owned_dofs->is_element(
-      //							line.entries[i].first)){
-      //						(*eta_space->x[0])[line.entries[i].first]
-      //						  += (1. / std::pow(2,
-      //dim-1))*(*space_relevant)[line.index];
-      //
-      //						(*eta_time->x[0])[line.entries[i].first]
-      //						  += (1. / std::pow(2,
-      //dim-1))*(*time_relevant)[line.index];
-      //
-      //					}
-      //				}
-      //				std::cout << "entries done, zeroing
-      //index on rank "
-      //						  <<
-      //dealii::Utilities::MPI::this_mpi_process(mpi_comm)
-      //						  << std::endl;
-      //				if
-      //(slab->spacetime.pu.locally_owned_dofs->is_element(line.index)){
-      //					(*eta_space->x[0])[line.index] =
-      //0.;
-      //					(*eta_time->x[0])[line.index] =
-      //0.;
-      //				}
-      //			}
     }
 
     ////////////////////////////////////////////////////////////////////////
@@ -3115,16 +2860,7 @@ void Fluid<dim>::dual_do_data_output_on_slab(
   Assert(slab->space.dual.fe_info->dof.use_count(),
          dealii::ExcNotInitialized());
   Assert(z->x[0].use_count(), dealii::ExcNotInitialized());
-  //
-  //	dual.data_output->set_DoF_data(
-  //		slab->space.dual.fe_info->dof,
-  //		slab->space.dual.fe_info->partitioning_locally_owned_dofs
-  //	);
-  //
-  // 	auto z_trigger = std::make_shared< dealii::TrilinosWrappers::MPI::Vector
-  // > (); 	z_trigger->reinit( 		slab->space.dual.fe_info->dof->n_dofs()
-  // 	);
-  //
+
   std::ostringstream filename;
   filename << "dual-dwr_loop-" << std::setw(setw_value_dwr_loops)
            << std::setfill('0') << dwr_loop;
@@ -3653,21 +3389,10 @@ void Fluid<dim>::compute_functional_values(
       if (parameter_set->dwr.functional.mean_vorticity) {
         // Compute vorticity
         double mv1 = compute_vorticity(un_rel, slab, vortn);
-        //				std::cout << ii << " vorticity vector" <<
-        //std::endl;
         vortn->compress(dealii::VectorOperation::add);
         double mv2 = dealii::Utilities::MPI::sum(mv1, mpi_comm);
-        //				vortn->print(std::cout);
         // Compute L2 Norm
         *vortn_rel = *vortn;
-        //				double mean_vort = vortn->l2_norm();
-        //				double mean_vort2=std::pow(mean_vort,2);
-        //				std::cout << "in process calc: " << mv1
-        //						  << "\n L2-Norm: "
-        //<<mean_vort
-        //						  << "\n L2_Norm^2: " <<
-        //mean_vort2
-        //						  << std::endl;
 
         vorticity_values.push_back(std::make_tuple(tn, mv2));
         error_estimator.goal_functional.fem.mean_vorticity +=
@@ -3696,8 +3421,6 @@ void Fluid<dim>::compute_functional_values(
     *vort->x[0] = *vort_owned;
   }
 
-  //	std::cout << std::endl << std::endl;
-  //	vort->x[0]->print(std::cout);
   //////////////////////////////////////////////////////
   // output goal functionals
 
@@ -4354,12 +4077,6 @@ void Fluid<dim>::refine_and_coarsen_space_time_grid(
   ///////////////////////////////
   // spatial refinement
   if (std::abs(eta_k_global) <= equilibration_factor * std::abs(eta_h_global)) {
-    //		for (auto &eta_In : *error_estimator.storage.eta_space) {
-    //			for (auto &eta_K : *eta_In.x[0] ) {
-    //				eta_K = std::abs(eta_K);
-    //				Assert(eta_K >= 0., dealii::ExcInternalError());
-    //			}
-    //		}
     unsigned int K_max{0};
     auto slab{grid->slabs.begin()};
     auto ends{grid->slabs.end()};
@@ -4471,17 +4188,6 @@ void Fluid<dim>::refine_and_coarsen_space_time_grid(
           }
         }
 
-        //				// count which percentage of spatial cells
-        //have been marked for refinement 				unsigned int marked_cells = 0;
-        //
-        //				for (const auto &cell :
-        //slab->space.tria->active_cell_iterators()) 					if
-        //(cell->refine_flag_set()) 						marked_cells++;
-        //
-        //				DTM::pout << "\tSpace top fraction = " <<
-        //std::setprecision(5) << ((double)marked_cells) /
-        //slab->space.tria->n_active_cells() << std::endl;
-        //
         // execute refinement in space under the conditions of mesh smoothing
         slab->space.tria->execute_coarsening_and_refinement();
       }
@@ -4578,11 +4284,6 @@ void Fluid<dim>::eta_init_data_output() {
   }
 
   error_estimator.data_output_time_value = parameter_set->time.fluid.T;
-
-  //	DTM::pout
-  //		<< "error indicators data output: dwr loop = "
-  //		<< error_estimator.data_output_dwr_loop
-  //		<< std::endl;
 }
 
 template <int dim>
@@ -4835,11 +4536,6 @@ void Fluid<dim>::eta_do_data_output_on_slab_Qn_mode(
         }
 
         *eta_trigger = *owned_tmp_space;
-        // 				std::cout
-        // 					<< "output generated for t = "
-        // 					<<
-        // fe_values_time.quadrature_point(qt)[0]
-        // 					<< std::endl;
 
         error_estimator.data_output_space->write_data(
             filename_space.str(), eta_trigger,

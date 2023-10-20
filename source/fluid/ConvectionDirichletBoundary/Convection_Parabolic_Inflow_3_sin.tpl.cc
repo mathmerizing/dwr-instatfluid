@@ -5,7 +5,7 @@
  *
  * @author Jan Philipp Thiele (JPT)
  *
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-01-14, Fluid, JPT
  * @date 2021-12-14, JR
  * @date 2021-09-23, JR
  * @date 2019-11-12, UK

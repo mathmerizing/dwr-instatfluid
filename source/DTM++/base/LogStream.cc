@@ -36,8 +36,6 @@ void LogStream::open() {
   // Get MPI Variables
   const unsigned int MyPID(
       dealii::Utilities::MPI::this_mpi_process(MPI_COMM_WORLD));
-  // 	const unsigned int
-  // NumProc(dealii::Utilities::MPI::n_mpi_processes(MPI_COMM_WORLD));
 
   // Create individual output file for each running process
   std::ostringstream filename;

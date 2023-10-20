@@ -88,12 +88,6 @@ void Grid_Schaefer_Turek_3D<dim>::set_obstacle_manifold(
           // obstacle cylinder
           if (distance < 0.055  // radius of 0.05 + Tolerance
           ) {
-            //						std::cout << n_face << " is obstacle face with center
-            //" << center
-            //								<< " and distance " <<
-            //distance
-            //								<<
-            //std::endl;
             for (unsigned int line(0);
                  line < dealii::GeometryInfo<dim - 1>::faces_per_cell; ++line) {
               cell->face(face)->line(line)->set_manifold_id(

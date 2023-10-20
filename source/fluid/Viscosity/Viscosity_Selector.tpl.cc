@@ -4,7 +4,7 @@
  * @author Marius Paul Bruchhäuser (MPB)
  * @author Jan Philipp Thiele (JPT)
  *
- * @Date 2022-01-14, Fluid, JPT
+ * @date 2022-01-14, Fluid, JPT
  * @date 2019-11-07, Viscosity, UK
  * @date 2018-07-30, Density_Selector, contributed by MPB from Force_Selector
  * (UK)

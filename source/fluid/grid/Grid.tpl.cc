@@ -395,11 +395,6 @@ void Grid<dim>::initialize_low_grid_components_on_slab(
       AssertThrow(slab->time.low.fe_info->fe.use_count(),
                   dealii::ExcMessage("low convection FE time not known"));
     }
-
-    // 			DTM::pout
-    // 				<< "slab->time.low.fe_info->fe = "
-    // 				<< slab->time.low.fe_info->fe->get_name()
-    // 				<< std::endl;
   }
 
   slab->time.low.fe_info->mapping =
@@ -589,11 +584,6 @@ void Grid<dim>::initialize_high_grid_components_on_slab(
       AssertThrow(slab->time.high.fe_info->fe.use_count(),
                   dealii::ExcMessage("high convection FE time not known"));
     }
-
-    // 			DTM::pout
-    // 				<< "slab->time.high.fe_info->fe = "
-    // 				<< slab->time.high.fe_info->fe->get_name()
-    // 				<< std::endl;
   }
 
   slab->time.high.fe_info->mapping = std::make_shared<dealii::MappingQ<1>>(
@@ -660,12 +650,6 @@ void Grid<dim>::initialize_pu_grid_components_on_slab(
     std::shared_ptr<dealii::Quadrature<1>> fe_quad_time;
     {
       fe_quad_time = std::make_shared<dealii::QGauss<1>>(1);
-
-      // 					DTM::pout
-      // 						<< "FE time: (PU): "
-      // 						<< "created QGauss<1>
-      // quadrature"
-      // 						<< std::endl;
     }
 
     // create FE time
@@ -673,11 +657,6 @@ void Grid<dim>::initialize_pu_grid_components_on_slab(
       slab->time.pu.fe_info->fe =
           std::make_shared<dealii::FE_DGQArbitraryNodes<1>>(*fe_quad_time);
     }
-
-    // 			DTM::pout
-    // 				<< "slab->time.pu.fe_info->fe = "
-    // 				<< slab->time.pu.fe_info->fe->get_name()
-    // 				<< std::endl;
   }
 
   slab->time.pu.fe_info->mapping = std::make_shared<dealii::MappingQ<1>>(1);
@@ -1336,25 +1315,6 @@ void Grid<dim>::distribute_vorticity_on_slab(
     dealii::DoFTools::extract_locally_relevant_dofs(
         *slab->space.vorticity.fe_info->dof,
         *slab->space.vorticity.fe_info->locally_relevant_dofs);
-
-    //		// setup constraints (e.g. hanging nodes)
-    //		Assert(
-    //			slab->space.vorticity.fe_info->constraints.use_count(),
-    //			dealii::ExcNotInitialized()
-    //		);
-    //		{
-    //			slab->space.vorticity.fe_info->constraints->clear();
-    //			slab->space.vorticity.fe_info->constraints->reinit(*slab->space.pu.fe_info->locally_relevant_dofs);
-    //
-    //			Assert(slab->space.vorticity.fe_info->dof.use_count(),
-    //dealii::ExcNotInitialized());
-    //			dealii::DoFTools::make_hanging_node_constraints(
-    //				*slab->space.vorticity.fe_info->dof,
-    //				*slab->space.vorticity.fe_info->constraints
-    //			);
-    //
-    //			slab->space.vorticity.fe_info->constraints->close();
-    //		}
   }
 
   ////////////////////////////////////////////////////////////////////////
@@ -1451,9 +1411,6 @@ void Grid<dim>::create_sparsity_pattern_primal_on_slab(
     // create sparsity pattern
     Assert(slab->space.primal.fe_info->dof.use_count(),
            dealii::ExcNotInitialized());
-    //		slab->space.primal.sp_block_L = std::make_shared<
-    //dealii::SparsityPattern >(); // std::make_shared<
-    //dealii::BlockSparsityPattern >();
     slab->space.primal.sp_L = std::make_shared<dealii::SparsityPattern>();
 
     {
@@ -1496,11 +1453,7 @@ void Grid<dim>::create_sparsity_pattern_primal_on_slab(
       // stokes: "L" block matrix
       dealii::DynamicSparsityPattern dsp(
           slab->space.primal.fe_info->dof
-              ->n_dofs());  // dealii::BlockDynamicSparsityPattern dsp;
-      //			dsp.reinit(
-      //				slab->space.primal.fe_info->dof->n_dofs()
-      ////*slab->space.primal.fe_info->partitioning_locally_owned_dofs
-      //			);
+              ->n_dofs());
 
       dealii::DoFTools::make_sparsity_pattern(
           *slab->space.primal.fe_info->dof, coupling_block_L, dsp,
@@ -1509,26 +1462,8 @@ void Grid<dim>::create_sparsity_pattern_primal_on_slab(
           ,
           dealii::Utilities::MPI::this_mpi_process(mpi_comm));
 
-      // copy undistributed pattern for spacetime???
+      // copy undistributed pattern for spacetime
       slab->space.primal.sp_L->copy_from(dsp);
-
-      //			dealii::SparsityTools::distribute_sparsity_pattern(
-      //					dsp,
-      //					*slab->space.primal.fe_info->locally_owned_dofs,
-      //					mpi_comm,
-      //					*slab->space.primal.fe_info->locally_relevant_dofs
-      //			);
-
-      //			dsp.compress();
-      //
-      //			L_space->reinit(*slab->space.primal.fe_info->locally_owned_dofs,
-      //			        		*slab->space.primal.fe_info->locally_owned_dofs,
-      //							dsp);
-      //			Assert(
-      //				slab->space.primal.sp_block_L.use_count(),
-      //				dealii::ExcNotInitialized()
-      //			);
-      //			slab->space.primal.sp_block_L->copy_from(dsp);
     }
   }
 
@@ -1706,11 +1641,6 @@ void Grid<dim>::create_sparsity_pattern_primal_on_slab(
 
     Assert(slab->spacetime.primal.locally_relevant_dofs.use_count(),
            dealii::ExcNotInitialized());
-    //		{
-    //		  static dealii::Utilities::MPI::CollectiveMutex      mutex;
-    //		  dealii::Utilities::MPI::CollectiveMutex::ScopedLock lock(mutex,
-    //mpi_comm);
-    //		  // [ critical code to be guarded]
 
     dealii::SparsityTools::distribute_sparsity_pattern(
         dsp, *slab->spacetime.primal.locally_owned_dofs, mpi_comm,
@@ -1776,9 +1706,6 @@ void Grid<dim>::create_sparsity_pattern_dual_on_slab(
       dealii::DynamicSparsityPattern dsp(
           slab->space.dual.fe_info->dof->n_dofs());
       ;
-      //			dsp.reinit(
-      //				*slab->space.dual.fe_info->partitioning_locally_owned_dofs
-      //			);
 
       dealii::DoFTools::make_sparsity_pattern(
           *slab->space.dual.fe_info->dof, coupling_block_L, dsp,
@@ -1792,7 +1719,6 @@ void Grid<dim>::create_sparsity_pattern_dual_on_slab(
       dealii::SparsityTools::distribute_sparsity_pattern(
           dsp, *slab->space.dual.fe_info->locally_owned_dofs, mpi_comm,
           *slab->space.dual.fe_info->locally_relevant_dofs);
-      //			dsp.compress();
 
       Assert(slab->space.dual.sp_block_L.use_count(),
              dealii::ExcNotInitialized());
