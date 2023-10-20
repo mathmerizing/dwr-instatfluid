@@ -39,16 +39,13 @@
 
 // deal.II includes
 #include <deal.II/base/exceptions.h>
+#include <deal.II/base/quadrature_lib.h>
 #include <deal.II/base/tensor.h>
 #include <deal.II/base/work_stream.h>
-
 #include <deal.II/grid/filtered_iterator.h>
-
-#include <deal.II/base/quadrature_lib.h>
-
-#include <deal.II/lac/block_vector.h>
-#include <deal.II/lac/block_sparse_matrix.h>
 #include <deal.II/lac/affine_constraints.h>
+#include <deal.II/lac/block_sparse_matrix.h>
+#include <deal.II/lac/block_vector.h>
 
 // C++ includes
 #include <functional>
@@ -61,274 +58,211 @@ namespace Operator {
 namespace Assembly {
 namespace Scratch {
 
-template<int dim>
-DualDivFreeProjectionAssembly<dim>::DualDivFreeProjectionAssembly( // @suppress("Class members should be properly initialized")
-		// space
-		const dealii::FiniteElement<dim> &fe_space,
-		const dealii::Mapping<dim>       &mapping_space,
-		const dealii::Quadrature<dim>    &quad_space) :
-	// init space
-	space_fe_values(
-		mapping_space,
-		fe_space,
-		quad_space,
-		dealii::update_values |
-		dealii::update_gradients |
-		dealii::update_JxW_values |
-		dealii::update_quadrature_points
-	),
-	space_grad_phi(fe_space.dofs_per_cell),
-	space_phi(fe_space.dofs_per_cell),
-	space_div_phi(fe_space.dofs_per_cell),
-	space_psi(fe_space.dofs_per_cell),
-	space_local_dof_indices(fe_space.dofs_per_cell) {
-}
+template <int dim>
+DualDivFreeProjectionAssembly<
+    dim>::DualDivFreeProjectionAssembly(  // @suppress("Class members should be
+                                          // properly initialized") space
+    const dealii::FiniteElement<dim> &fe_space,
+    const dealii::Mapping<dim> &mapping_space,
+    const dealii::Quadrature<dim> &quad_space)
+    :  // init space
+      space_fe_values(mapping_space, fe_space, quad_space,
+                      dealii::update_values | dealii::update_gradients |
+                          dealii::update_JxW_values |
+                          dealii::update_quadrature_points),
+      space_grad_phi(fe_space.dofs_per_cell),
+      space_phi(fe_space.dofs_per_cell),
+      space_div_phi(fe_space.dofs_per_cell),
+      space_psi(fe_space.dofs_per_cell),
+      space_local_dof_indices(fe_space.dofs_per_cell) {}
 
-template<int dim>
-DualDivFreeProjectionAssembly<dim>::DualDivFreeProjectionAssembly(const DualDivFreeProjectionAssembly &scratch) :
-	space_fe_values(
-		scratch.space_fe_values.get_mapping(),
-		scratch.space_fe_values.get_fe(),
-		scratch.space_fe_values.get_quadrature(),
-		scratch.space_fe_values.get_update_flags()
-	),
-	space_grad_phi(scratch.space_grad_phi),
-	space_phi(scratch.space_phi),
-	space_div_phi(scratch.space_div_phi),
-	space_psi(scratch.space_psi),
-	space_dofs_per_cell(scratch.space_dofs_per_cell),
-	space_JxW(scratch.space_JxW),
-	space_local_dof_indices(scratch.space_local_dof_indices),
-	//
-	viscosity(scratch.viscosity) {
-}
+template <int dim>
+DualDivFreeProjectionAssembly<dim>::DualDivFreeProjectionAssembly(
+    const DualDivFreeProjectionAssembly &scratch)
+    : space_fe_values(scratch.space_fe_values.get_mapping(),
+                      scratch.space_fe_values.get_fe(),
+                      scratch.space_fe_values.get_quadrature(),
+                      scratch.space_fe_values.get_update_flags()),
+      space_grad_phi(scratch.space_grad_phi),
+      space_phi(scratch.space_phi),
+      space_div_phi(scratch.space_div_phi),
+      space_psi(scratch.space_psi),
+      space_dofs_per_cell(scratch.space_dofs_per_cell),
+      space_JxW(scratch.space_JxW),
+      space_local_dof_indices(scratch.space_local_dof_indices),
+      //
+      viscosity(scratch.viscosity) {}
 
-}
+}  // namespace Scratch
 
 namespace CopyData {
 
-template<int dim>
+template <int dim>
 DualDivFreeProjectionAssembly<dim>::DualDivFreeProjectionAssembly(
-	const dealii::FiniteElement<dim> &fe_s) :
-	matrix(fe_s.dofs_per_cell, fe_s.dofs_per_cell),
-	local_dof_indices(fe_s.dofs_per_cell) {
-}
+    const dealii::FiniteElement<dim> &fe_s)
+    : matrix(fe_s.dofs_per_cell, fe_s.dofs_per_cell),
+      local_dof_indices(fe_s.dofs_per_cell) {}
 
-template<int dim>
-DualDivFreeProjectionAssembly<dim>::DualDivFreeProjectionAssembly(const DualDivFreeProjectionAssembly &copydata) :
-	matrix(copydata.matrix),
-	local_dof_indices(copydata.local_dof_indices) {
-}
+template <int dim>
+DualDivFreeProjectionAssembly<dim>::DualDivFreeProjectionAssembly(
+    const DualDivFreeProjectionAssembly &copydata)
+    : matrix(copydata.matrix), local_dof_indices(copydata.local_dof_indices) {}
 
-}}
+}  // namespace CopyData
+}  // namespace Assembly
 ////////////////////////////////////////////////////////////////////////////////
 
-template<int dim>
-void
-Assembler<dim>::
-set_functions(
-	std::shared_ptr< dealii::Function<dim> > viscosity) {
-	function.viscosity = viscosity;
+template <int dim>
+void Assembler<dim>::set_functions(
+    std::shared_ptr<dealii::Function<dim> > viscosity) {
+  function.viscosity = viscosity;
 }
 
-template<int dim>
-void
-Assembler<dim>::
-set_symmetric_stress(
-	bool use_symmetric_stress) {
-	symmetric_stress = use_symmetric_stress;
+template <int dim>
+void Assembler<dim>::set_symmetric_stress(bool use_symmetric_stress) {
+  symmetric_stress = use_symmetric_stress;
 }
 
-template<int dim>
-void
-Assembler<dim>::
-set_gradient_projection(
-	bool use_gradient_projection) {
-	gradient_projection = use_gradient_projection;
+template <int dim>
+void Assembler<dim>::set_gradient_projection(bool use_gradient_projection) {
+  gradient_projection = use_gradient_projection;
 }
 
-template<int dim>
-void
-Assembler<dim>::
-assemble(
-	std::shared_ptr< dealii::SparseMatrix<double> > _L,
-	const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
-	
-	////////////////////////////////////////////////////////////////////////////
-	// check
-	Assert(dim==2 || dim==3, dealii::ExcNotImplemented());
-	
-	Assert(_L.use_count(), dealii::ExcNotInitialized());
-	
-	Assert(slab->space.dual.fe_info->dof.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.fe_info->mapping.use_count(), dealii::ExcNotInitialized());
-	Assert(slab->space.dual.fe_info->constraints.use_count(), dealii::ExcNotInitialized());
-	
-//	Assert(function.viscosity.use_count(), dealii::ExcNotInitialized());
-	
-	////////////////////////////////////////////////////////////////////////////
-	// init
-	
-	L = _L;
-	
-	space.dof = slab->space.dual.fe_info->dof;
-	space.fe = slab->space.dual.fe_info->fe;
-	space.mapping = slab->space.dual.fe_info->mapping;
-	space.constraints = slab->space.dual.fe_info->constraints;
-	
-	// FEValuesExtractors
-	convection = 0;
-	pressure   = dim;
-	
-	// check fe: ((fluid)) = ((FE_Q^d, FE_Q))
-	Assert(
-		(space.fe->n_base_elements()==1),
-		dealii::ExcMessage("fe not correct (fluid system)")
-	);
-	
-	Assert(
-		(space.fe->base_element(0).n_base_elements()==2),
-		dealii::ExcMessage("fe: (fluid) not correct (FEQ+FEQ system)")
-	);
-	
-	////////////////////////////////////////////////////////////////////////////
-	// WorkStream assemble
-	
-	const dealii::QGauss<dim> quad_space(
-		std::max(
-			std::max(
-				space.fe->base_element(0).base_element(0).tensor_degree(),
-				space.fe->base_element(0).base_element(1).tensor_degree()
-			),
-			static_cast<unsigned int> (1)
-		) + 2
-	);
-	
-	typedef
-	dealii::
-	FilteredIterator<const typename dealii::DoFHandler<dim>::active_cell_iterator>
-	CellFilter;
-	
-	// Using WorkStream to assemble.
-	dealii::WorkStream::
-	run(
-		CellFilter(
-			dealii::IteratorFilters::LocallyOwnedCell(),
-			space.dof->begin_active()
-		),
-		CellFilter(
-			dealii::IteratorFilters::LocallyOwnedCell(),
-			space.dof->end()
-		),
-		std::bind (
-			&Assembler<dim>::local_assemble_cell,
-			this,
-			std::placeholders::_1,
-			std::placeholders::_2,
-			std::placeholders::_3
-		),
-		std::bind (
-			&Assembler<dim>::copy_local_to_global_cell,
-			this,
-			std::placeholders::_1
-		),
-		Assembly::Scratch::DualDivFreeProjectionAssembly<dim> (
-			*space.fe,
-			*space.mapping,
-			quad_space
-		),
-		Assembly::CopyData::DualDivFreeProjectionAssembly<dim> (
-			*space.fe
-		)
-	);
-}
+template <int dim>
+void Assembler<dim>::assemble(
+    std::shared_ptr<dealii::SparseMatrix<double> > _L,
+    const typename fluid::types::spacetime::dwr::slabs<dim>::iterator &slab) {
+  ////////////////////////////////////////////////////////////////////////////
+  // check
+  Assert(dim == 2 || dim == 3, dealii::ExcNotImplemented());
 
+  Assert(_L.use_count(), dealii::ExcNotInitialized());
+
+  Assert(slab->space.dual.fe_info->dof.use_count(),
+         dealii::ExcNotInitialized());
+  Assert(slab->space.dual.fe_info->fe.use_count(), dealii::ExcNotInitialized());
+  Assert(slab->space.dual.fe_info->mapping.use_count(),
+         dealii::ExcNotInitialized());
+  Assert(slab->space.dual.fe_info->constraints.use_count(),
+         dealii::ExcNotInitialized());
+
+  //	Assert(function.viscosity.use_count(), dealii::ExcNotInitialized());
+
+  ////////////////////////////////////////////////////////////////////////////
+  // init
+
+  L = _L;
+
+  space.dof = slab->space.dual.fe_info->dof;
+  space.fe = slab->space.dual.fe_info->fe;
+  space.mapping = slab->space.dual.fe_info->mapping;
+  space.constraints = slab->space.dual.fe_info->constraints;
+
+  // FEValuesExtractors
+  convection = 0;
+  pressure = dim;
+
+  // check fe: ((fluid)) = ((FE_Q^d, FE_Q))
+  Assert((space.fe->n_base_elements() == 1),
+         dealii::ExcMessage("fe not correct (fluid system)"));
+
+  Assert((space.fe->base_element(0).n_base_elements() == 2),
+         dealii::ExcMessage("fe: (fluid) not correct (FEQ+FEQ system)"));
+
+  ////////////////////////////////////////////////////////////////////////////
+  // WorkStream assemble
+
+  const dealii::QGauss<dim> quad_space(
+      std::max(
+          std::max(space.fe->base_element(0).base_element(0).tensor_degree(),
+                   space.fe->base_element(0).base_element(1).tensor_degree()),
+          static_cast<unsigned int>(1)) +
+      2);
+
+  typedef dealii::FilteredIterator<
+      const typename dealii::DoFHandler<dim>::active_cell_iterator>
+      CellFilter;
+
+  // Using WorkStream to assemble.
+  dealii::WorkStream::run(
+      CellFilter(dealii::IteratorFilters::LocallyOwnedCell(),
+                 space.dof->begin_active()),
+      CellFilter(dealii::IteratorFilters::LocallyOwnedCell(), space.dof->end()),
+      std::bind(&Assembler<dim>::local_assemble_cell, this,
+                std::placeholders::_1, std::placeholders::_2,
+                std::placeholders::_3),
+      std::bind(&Assembler<dim>::copy_local_to_global_cell, this,
+                std::placeholders::_1),
+      Assembly::Scratch::DualDivFreeProjectionAssembly<dim>(
+          *space.fe, *space.mapping, quad_space),
+      Assembly::CopyData::DualDivFreeProjectionAssembly<dim>(*space.fe));
+}
 
 /// Local assemble on cell.
-template<int dim>
+template <int dim>
 void Assembler<dim>::local_assemble_cell(
-	const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
-	Assembly::Scratch::DualDivFreeProjectionAssembly<dim> &scratch,
-	Assembly::CopyData::DualDivFreeProjectionAssembly<dim> &copydata) {
-	cell->get_dof_indices(scratch.space_local_dof_indices);
-	scratch.space_fe_values.reinit(cell);
+    const typename dealii::DoFHandler<dim>::active_cell_iterator &cell,
+    Assembly::Scratch::DualDivFreeProjectionAssembly<dim> &scratch,
+    Assembly::CopyData::DualDivFreeProjectionAssembly<dim> &copydata) {
+  cell->get_dof_indices(scratch.space_local_dof_indices);
+  scratch.space_fe_values.reinit(cell);
 
-	copydata.matrix = 0;
+  copydata.matrix = 0;
 
-	// dof mapping
-	for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
-		copydata.local_dof_indices[i] = scratch.space_local_dof_indices[i];
+  // dof mapping
+  for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
+    copydata.local_dof_indices[i] = scratch.space_local_dof_indices[i];
 
-	// prefetch data
-	
-	
-	// assemble: volume
-	for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points; ++q) {
-		for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
-			scratch.space_grad_phi[k] =
-				scratch.space_fe_values[convection].gradient(k,q);
-			scratch.space_phi[k] =
-				scratch.space_fe_values[convection].value(k,q);
-			scratch.space_div_phi[k] =
-				scratch.space_fe_values[convection].divergence(k,q);
-			scratch.space_psi[k] =
-				scratch.space_fe_values[pressure].value(k,q);
-		}
-		
-		for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
-		for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
-			copydata.matrix(i,j) +=
-				// convection A_bb
-				(
-					(gradient_projection ?
-						(
-							scalar_product(
-									scratch.space_grad_phi[i],
-//											scratch.viscosity *
-									scratch.space_grad_phi[j]
-							)
-						) :
-						(
-							scratch.space_phi[i]
-							* scratch.space_phi[j]
-						)
-					) *
+  // prefetch data
 
-					scratch.space_fe_values.JxW(q)
-				)
-				// pressure B_bp
-				- (
-					scratch.space_div_phi[i]
-					* scratch.space_psi[j] *
-					scratch.space_fe_values.JxW(q)
-				)
-				// div-free constraint B_pb
-				+ (
-					scratch.space_psi[i]
-					* scratch.space_div_phi[j] *
-					scratch.space_fe_values.JxW(q)
-				)
-			;
-		}
-	} // x_q
+  // assemble: volume
+  for (unsigned int q{0}; q < scratch.space_fe_values.n_quadrature_points;
+       ++q) {
+    for (unsigned int k{0}; k < space.fe->dofs_per_cell; ++k) {
+      scratch.space_grad_phi[k] =
+          scratch.space_fe_values[convection].gradient(k, q);
+      scratch.space_phi[k] = scratch.space_fe_values[convection].value(k, q);
+      scratch.space_div_phi[k] =
+          scratch.space_fe_values[convection].divergence(k, q);
+      scratch.space_psi[k] = scratch.space_fe_values[pressure].value(k, q);
+    }
+
+    for (unsigned int i{0}; i < space.fe->dofs_per_cell; ++i)
+      for (unsigned int j{0}; j < space.fe->dofs_per_cell; ++j) {
+        copydata.matrix(i, j) +=
+            // convection A_bb
+            ((gradient_projection
+                  ? (scalar_product(scratch.space_grad_phi[i],
+                                    //											scratch.viscosity
+                                    //*
+                                    scratch.space_grad_phi[j]))
+                  : (scratch.space_phi[i] * scratch.space_phi[j])) *
+
+             scratch.space_fe_values.JxW(q))
+            // pressure B_bp
+            - (scratch.space_div_phi[i] * scratch.space_psi[j] *
+               scratch.space_fe_values.JxW(q))
+            // div-free constraint B_pb
+            + (scratch.space_psi[i] * scratch.space_div_phi[j] *
+               scratch.space_fe_values.JxW(q));
+      }
+  }  // x_q
 }
-
 
 /// Copy local assembly to global matrix.
-template<int dim>
+template <int dim>
 void Assembler<dim>::copy_local_to_global_cell(
-	const Assembly::CopyData::DualDivFreeProjectionAssembly<dim> &copydata) {
-//	Assert(copydata.matrix.size(), dealii::ExcNotInitialized());
+    const Assembly::CopyData::DualDivFreeProjectionAssembly<dim> &copydata) {
+  //	Assert(copydata.matrix.size(), dealii::ExcNotInitialized());
 
-	space.constraints->distribute_local_to_global(
-		copydata.matrix,
-		copydata.local_dof_indices,
-		copydata.local_dof_indices,
-		*L
-	);
+  space.constraints->distribute_local_to_global(copydata.matrix,
+                                                copydata.local_dof_indices,
+                                                copydata.local_dof_indices, *L);
 }
 
-}}}}
+}  // namespace Operator
+}  // namespace dual
+}  // namespace spacetime
+}  // namespace projection
 
 #include "ST_Dual_DivFreeProjectionAssembly.inst.in"

@@ -3,7 +3,7 @@
  * @author Uwe Köcher (UK)
  * @author Julian Roth (JR)
  * @author Jan Philipp Thiele (JPT)
- * 
+ *
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-09-23, JR
  * @date 2019-11-12, UK
@@ -35,31 +35,28 @@
 namespace convection {
 namespace dirichlet {
 
-template<int dim>
-dealii::Tensor<1,dim>
-Parabolic_Inflow_3<dim>::
-value(
-	const dealii::Point<dim> &x
-) const {
-	Assert(((dim==2)/*||(dim==3)*/), dealii::ExcNotImplemented());
-	
-	dealii::Tensor<1,dim> y;
-	
-	// NOTE: maximal velocity for
-	// --> NSE 2D-1: 0.3 m/s
-	// --> NSE 2D-2: 1.5 m/s
-	if (dim==2) {
-		y[0] = -1. * max_velocity * (4.0 / 0.1681) *
-                (std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
-		y[1] = 0.;
-	}
-	else {
-		// TODO
-	}
+template <int dim>
+dealii::Tensor<1, dim> Parabolic_Inflow_3<dim>::value(
+    const dealii::Point<dim> &x) const {
+  Assert(((dim == 2) /*||(dim==3)*/), dealii::ExcNotImplemented());
 
-	return y;
+  dealii::Tensor<1, dim> y;
+
+  // NOTE: maximal velocity for
+  // --> NSE 2D-1: 0.3 m/s
+  // --> NSE 2D-2: 1.5 m/s
+  if (dim == 2) {
+    y[0] = -1. * max_velocity * (4.0 / 0.1681) *
+           (std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
+    y[1] = 0.;
+  } else {
+    // TODO
+  }
+
+  return y;
 }
 
-}}
+}  // namespace dirichlet
+}  // namespace convection
 
 #include "Convection_Parabolic_Inflow_3.inst.in"

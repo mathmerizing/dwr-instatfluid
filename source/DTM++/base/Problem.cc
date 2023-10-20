@@ -21,7 +21,6 @@
 /*  You should have received a copy of the GNU Lesser General Public License  */
 /*  along with DTM++.  If not, see <http://www.gnu.org/licenses/>.            */
 
-
 // PROJECT includes
 #include <DTM++/base/Problem.hh>
 
@@ -34,25 +33,12 @@
 
 namespace DTM {
 
-void
-Problem::
-set_input_parameters(
-	std::shared_ptr< dealii::ParameterHandler > /*parameter_handler*/
+void Problem::set_input_parameters(
+    std::shared_ptr<dealii::ParameterHandler> /*parameter_handler*/
 ) {
-	AssertThrow(
-		false,
-		dealii::ExcNotImplemented()
-	);
+  AssertThrow(false, dealii::ExcNotImplemented());
 }
 
+void Problem::run() { AssertThrow(false, dealii::ExcNotImplemented()); }
 
-void
-Problem::
-run() {
-	AssertThrow(
-		false,
-		dealii::ExcNotImplemented()
-	);
-}
-
-} // namespace
+}  // namespace DTM

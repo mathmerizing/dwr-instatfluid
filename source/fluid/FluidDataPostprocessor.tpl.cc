@@ -2,7 +2,7 @@
  * @file   FluidDataPostprocessor.tpl.cc
  * @author Uwe Koecher (UK)
  * @author Jan Philipp Thiele (JPT)
- * 
+ *
  * @Date 2022-01-14, Fluid, JPT
  * @date 2019-11-18, Stokes, UK
  * @date 2019-01-18, eG, UK
@@ -39,80 +39,62 @@
 
 namespace fluid {
 
-template<int dim>
-void
-DataPostprocessor<dim>::
-evaluate_vector_field(
-	const dealii::DataPostprocessorInputs::Vector<dim> &input_data,
-	std::vector< dealii::Vector<double> > &postprocessed_quantities
-) const {
-	auto &xh = input_data.solution_values;
-	
-	Assert(
-		xh.size() != 0,
-		dealii::ExcEmptyObject()
-	);
-	
-	const unsigned int n_q_points(xh.size());
-	
-	Assert(
-		(xh[0].size() == (dim+1)), // b+p dimensions
-		dealii::ExcInternalError()
-	);
-	
-	Assert(
-		postprocessed_quantities.size() == n_q_points,
-		dealii::ExcInternalError()
-	);
-	
-	Assert(
-		postprocessed_quantities[0].size() == internal_n_components,
-		dealii::ExcInternalError()
-	);
-	
-	for (unsigned int q{0}; q < n_q_points; ++q) {
-		////////////////////////////////////////////////////////////////////////
-		// convection
-		if (output_quantities & static_cast<unsigned int>(OutputQuantities::convection)) {
-			for (unsigned int d{0}; d < dim; ++d) {
-				postprocessed_quantities[q][internal_first_convection_component+d] =
-					xh[q][first_convection_component+d];
-			}
-		}
-		
-		////////////////////////////////////////////////////////////////////////
-		// store pressure
-		if (output_quantities & static_cast<unsigned int>(OutputQuantities::pressure)) {
-			postprocessed_quantities[q][internal_pressure_component] =
-				xh[q][pressure_component];
-		}
-	}
+template <int dim>
+void DataPostprocessor<dim>::evaluate_vector_field(
+    const dealii::DataPostprocessorInputs::Vector<dim> &input_data,
+    std::vector<dealii::Vector<double> > &postprocessed_quantities) const {
+  auto &xh = input_data.solution_values;
+
+  Assert(xh.size() != 0, dealii::ExcEmptyObject());
+
+  const unsigned int n_q_points(xh.size());
+
+  Assert((xh[0].size() == (dim + 1)),  // b+p dimensions
+         dealii::ExcInternalError());
+
+  Assert(postprocessed_quantities.size() == n_q_points,
+         dealii::ExcInternalError());
+
+  Assert(postprocessed_quantities[0].size() == internal_n_components,
+         dealii::ExcInternalError());
+
+  for (unsigned int q{0}; q < n_q_points; ++q) {
+    ////////////////////////////////////////////////////////////////////////
+    // convection
+    if (output_quantities &
+        static_cast<unsigned int>(OutputQuantities::convection)) {
+      for (unsigned int d{0}; d < dim; ++d) {
+        postprocessed_quantities[q][internal_first_convection_component + d] =
+            xh[q][first_convection_component + d];
+      }
+    }
+
+    ////////////////////////////////////////////////////////////////////////
+    // store pressure
+    if (output_quantities &
+        static_cast<unsigned int>(OutputQuantities::pressure)) {
+      postprocessed_quantities[q][internal_pressure_component] =
+          xh[q][pressure_component];
+    }
+  }
 }
 
-
-template<int dim>
-std::vector< std::string >
-DataPostprocessor<dim>::
-get_names() const {
-	return postprocessed_quantities_names;
+template <int dim>
+std::vector<std::string> DataPostprocessor<dim>::get_names() const {
+  return postprocessed_quantities_names;
 }
 
-
-template<int dim>
-std::vector< dealii::DataComponentInterpretation::DataComponentInterpretation >
-DataPostprocessor<dim>::
-get_data_component_interpretation() const {
-	return dci;
+template <int dim>
+std::vector<dealii::DataComponentInterpretation::DataComponentInterpretation>
+DataPostprocessor<dim>::get_data_component_interpretation() const {
+  return dci;
 }
 
-
-template<int dim>
-dealii::UpdateFlags
-DataPostprocessor<dim>::
-get_needed_update_flags() const {
-	return uflags;
+template <int dim>
+dealii::UpdateFlags DataPostprocessor<dim>::get_needed_update_flags() const {
+  return uflags;
 }
 
-} // namespace
+}  // namespace fluid
 
 #include "FluidDataPostprocessor.inst.in"

@@ -2,9 +2,9 @@
  * @file Convection_Parabolic_Inflow_3.tpl.cc
  * @author Uwe Köcher (UK)
  * @author Julian Roth (JR)
- * 
+ *
  * @author Jan Philipp Thiele (JPT)
- * 
+ *
  * @Date 2022-01-14, Fluid, JPT
  * @date 2021-12-14, JR
  * @date 2021-09-23, JR
@@ -37,46 +37,44 @@
 namespace convection {
 namespace dirichlet {
 
-template<int dim>
-dealii::Tensor<1,dim>
-Parabolic_Inflow_3_sin<dim>::
-value(
-	const dealii::Point<dim> &x
-) const {
-	Assert(((dim==2)||(dim==3)), dealii::ExcNotImplemented());
-	
-	const double t{this->get_time()};
+template <int dim>
+dealii::Tensor<1, dim> Parabolic_Inflow_3_sin<dim>::value(
+    const dealii::Point<dim> &x) const {
+  Assert(((dim == 2) || (dim == 3)), dealii::ExcNotImplemented());
 
-	dealii::Tensor<1,dim> y;
-	
-	// NOTE: maximal velocity for
-	// --> NSE 2D-1: 0.3 m/s
-	// --> NSE 2D-2: 1.5 m/s
-	// --> NSE 2D-3: 1.5 m/s
-	if (dim==2) {
-		if ( x[0] < 1.0e-14){
-			y[0] = -1. * max_velocity * (4.0 / 0.1681) *
-					(std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
-			y[1] = 0.;
-		}
-	}
-	else {
-		if (x[0] < 1.0e-14){
-			double y_sq = x(1)*x(1);
-			double z_sq = x(2)*x(2);
+  const double t{this->get_time()};
 
-			y[0] = max_velocity * (16.0 / 0.02825761) *
-				   (y_sq*z_sq - 0.41*y_sq*x(2) - 0.41*x(1)*z_sq + 0.1681*x(1)*x(2) );
-			y[1] = 0.;
-			y[2] = 0.;
-		}
-	}
+  dealii::Tensor<1, dim> y;
 
-	y *= std::sin(M_PI * t / 8.);
+  // NOTE: maximal velocity for
+  // --> NSE 2D-1: 0.3 m/s
+  // --> NSE 2D-2: 1.5 m/s
+  // --> NSE 2D-3: 1.5 m/s
+  if (dim == 2) {
+    if (x[0] < 1.0e-14) {
+      y[0] = -1. * max_velocity * (4.0 / 0.1681) *
+             (std::pow(x(1), 2) - 0.41 * std::pow(x(1), 1));
+      y[1] = 0.;
+    }
+  } else {
+    if (x[0] < 1.0e-14) {
+      double y_sq = x(1) * x(1);
+      double z_sq = x(2) * x(2);
 
-	return y;
+      y[0] = max_velocity * (16.0 / 0.02825761) *
+             (y_sq * z_sq - 0.41 * y_sq * x(2) - 0.41 * x(1) * z_sq +
+              0.1681 * x(1) * x(2));
+      y[1] = 0.;
+      y[2] = 0.;
+    }
+  }
+
+  y *= std::sin(M_PI * t / 8.);
+
+  return y;
 }
 
-}}
+}  // namespace dirichlet
+}  // namespace convection
 
 #include "Convection_Parabolic_Inflow_3_sin.inst.in"

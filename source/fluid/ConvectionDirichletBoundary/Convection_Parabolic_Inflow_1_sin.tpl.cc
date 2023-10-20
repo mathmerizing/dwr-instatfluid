@@ -34,36 +34,34 @@
 namespace convection {
 namespace dirichlet {
 
-template<int dim>
-dealii::Tensor<1,dim>
-Parabolic_Inflow_1_sin<dim>::
-value(
-	const dealii::Point<dim> &x
-) const {
-	Assert(((dim==2)||(dim==3)), dealii::ExcNotImplemented());
-	
-	const double t{this->get_time()};
+template <int dim>
+dealii::Tensor<1, dim> Parabolic_Inflow_1_sin<dim>::value(
+    const dealii::Point<dim> &x) const {
+  Assert(((dim == 2) || (dim == 3)), dealii::ExcNotImplemented());
 
-	dealii::Tensor<1,dim> y;
-	
-	if (dim==2) {
-		if ((x[1] >= .5) && (x[1] <= 1.)) {
-			y[0] = scaling * ( -8.+(24-16*x[1])*x[1] );
-			y[1] = 0.;
-		}
-	}
-	else {
-		if ((x[0] >= .5) && (x[0] <= 1.) && (x[2] >= .5) && (x[2] <= 1.)) {
-			y[0] = 0.;
-			y[1] = scaling * (-8.+(24-16*x[0])*x[0]) * (-8.+(24-16*x[2])*x[2]);
-			y[2] = 0.;
-		}
-	}
+  const double t{this->get_time()};
 
-	y *= std::sin(M_PI * t / 8.);
-	return y;
+  dealii::Tensor<1, dim> y;
+
+  if (dim == 2) {
+    if ((x[1] >= .5) && (x[1] <= 1.)) {
+      y[0] = scaling * (-8. + (24 - 16 * x[1]) * x[1]);
+      y[1] = 0.;
+    }
+  } else {
+    if ((x[0] >= .5) && (x[0] <= 1.) && (x[2] >= .5) && (x[2] <= 1.)) {
+      y[0] = 0.;
+      y[1] = scaling * (-8. + (24 - 16 * x[0]) * x[0]) *
+             (-8. + (24 - 16 * x[2]) * x[2]);
+      y[2] = 0.;
+    }
+  }
+
+  y *= std::sin(M_PI * t / 8.);
+  return y;
 }
 
-}}
+}  // namespace dirichlet
+}  // namespace convection
 
 #include "Convection_Parabolic_Inflow_1_sin.inst.in"
