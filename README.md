@@ -1,40 +1,47 @@
 # README #
 
 This README documents whatever steps are necessary to get the application
-  DTM++.Project/dwr/dwr-instatstokes
+  DTM++.Project/dwr/dwr-instatfluid
 up and running.
 
 ### What is this repository for? ###
 
-* Instationary Stokes (incompressible) solver
+* Space-time adaptive instationary incompressible Navier-Stokes solver
 
 ### How do I get set up? ###
 
 * Dependencies
-deal.II v9.0.0 at least, installed via candi, cf. https://github.com/dealii/candi
+deal.II v9.3.0 at least, installed via candi, cf. https://github.com/dealii/candi
 
 * Configuration
+```
 cmake .
 make
+```
 
 * Run (single process)
-./dwr-instatstokes
+```
+./dwr-instatfluid
+```
 
 
 ### Who do I talk to? ###
 
 * Principial Author
-    * Dr.-Ing. Dipl.-Ing. Uwe Koecher (koecher@hsu-hamburg.de, dtmproject@uwe.koecher.cc)
-* Contributors
+    * Dr.-Ing. Dipl.-Ing. Uwe Köcher (koecher@hsu-hamburg.de, dtmproject@uwe.koecher.cc)
     * Julian Roth (roth@ifam.uni-hannover.de)
+    * Jan Philipp Thiele (thiele@ifam.uni-hannover.de)
+* Contributors
     * Marius P. Bruchhaeuser (bruchhaeuser@hsu-hamburg.de)
 
 Remark. DTM++ is free software.
 
 If you write scientific publication using results obtained by reusing parts
-of DTM++, or specifically DTM++/dwr-diffusion, especially by reusing the
+of DTM++, or specifically DTM++/dwr-navier_stokes, especially by reusing the
 datastructures, algorithms and/or supporting parameter/data input/output
-classes, you are willing to cite the following two publications:
+classes, you are willing to cite the following three publications:
+
+- J. Roth, J.P. Thiele, U. Köcher and T. Wick. "Tensor-Product Space-Time Goal-Oriented Error Control and Adaptivity With Partition-of-Unity Dual-Weighted Residuals for Nonstationary Flow Problems" Computational Methods in Applied Mathematics, 2023. https://doi.org/10.1515/cmam-2022-0200
 
 - U. Koecher, M.P. Bruchhaeuser, M. Bause: "Efficient and scalable
   data structures and algorithms for goal-oriented adaptivity of space-time
@@ -49,7 +56,7 @@ classes, you are willing to cite the following two publications:
 
 
 ### License ###
-Copyright (C) 2012-2021 by Uwe Koecher and contributors
+Copyright (C) 2012-2023 by Uwe Köcher, Julian Roth, Jan Philipp Thiele and contributors
 
 This file is part of DTM++.
 
@@ -68,4 +75,3 @@ along with DTM++. If not, see <http://www.gnu.org/licenses/>.
 Please see the file
 	./LICENSE
 for details.
-
